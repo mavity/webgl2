@@ -1,5 +1,12 @@
 // @ts-check
 
+import {
+  WasmWebGL2RenderingContext,
+  ERR_OK,
+  ERR_INVALID_HANDLE,
+  readErrorMessage
+} from './src/webgl2_context.js';
+
 /**
  * WebGL2 Prototype: Rust-owned Context, JS thin-forwarder
  * Implements docs/1.1.1-webgl2-prototype.md
@@ -16,14 +23,11 @@
  * with the message from wasm_last_error_ptr/len.
  */
 
+
 const isNode =
   typeof process !== 'undefined' &&
   process.versions != null &&
   process.versions.node != null;
-import { WasmWebGL2RenderingContext, ERR_OK, ERR_INVALID_HANDLE, readErrorMessage } from './src/webgl2_context.js';
-
-// WasmWebGL2RenderingContext and related helpers were moved to
-// `src/wasm_webgl2_context.js` and are imported above.
 
 /** @typedef {number} u32 */
 
@@ -42,7 +46,20 @@ import { WasmWebGL2RenderingContext, ERR_OK, ERR_INVALID_HANDLE, readErrorMessag
  */
 async function webGL2(opts = {}) {
   // Load WASM binary
-  const { ex, instance } = await (wasmInitPromise || initWASM());
+  const { ex, instance } = await (
+    wasmInitPromise ||
+    (async () => {
+      // ensure success is cached but not failure
+      let succeeded = false;
+      try {
+        const wasm = await initWASM();
+        succeeded = true;
+        return wasm;
+      } finally {
+        if (!succeeded)
+          wasmInitPromise = undefined;
+      }
+    })());
 
   // Create a context in WASM
   const ctxHandle = ex.wasm_create_context();
@@ -66,48 +83,43 @@ async function webGL2(opts = {}) {
 var wasmInitPromise;
 
 async function initWASM() {
-  try {
-    let wasmBuffer;
-    if (isNode) {
-      // Use dynamic imports so this module can be loaded in the browser too.
-      const path = await import('path');
-      const fs = await import('fs');
-      const { fileURLToPath } = await import('url');
-      const wasmPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'webgl2.wasm');
-      if (!fs.existsSync(wasmPath)) {
-        throw new Error(`WASM not found at ${wasmPath}. Run: npm run build:wasm`);
-      }
-      // readFileSync is available on the imported namespace
-      wasmBuffer = fs.readFileSync(wasmPath);
-    } else {
-      // Browser: fetch the wasm relative to this module
-      const resp = await fetch(new URL('./webgl2.wasm', import.meta.url));
-      if (!resp.ok) {
-        throw new Error(`Failed to fetch webgl2.wasm: ${resp.status}`);
-      }
-      wasmBuffer = await resp.arrayBuffer();
+  let wasmBuffer;
+  if (isNode) {
+    // Use dynamic imports so this module can be loaded in the browser too.
+    const path = await import('path');
+    const fs = await import('fs');
+    const { fileURLToPath } = await import('url');
+    const wasmPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'webgl2.wasm');
+    if (!fs.existsSync(wasmPath)) {
+      throw new Error(`WASM not found at ${wasmPath}. Run: npm run build:wasm`);
     }
-
-    // Compile WASM module
-    const wasmModule = await WebAssembly.compile(wasmBuffer);
-
-    // Create memory (WASM will import it)
-    const memory = new WebAssembly.Memory({ initial: 16, maximum: 256 });
-
-    // Instantiate WASM
-    const importObj = { env: { memory } };
-    const instance = await WebAssembly.instantiate(wasmModule, importObj);
-
-    // Verify required exports
-    const ex = instance.exports;
-    if (typeof ex.wasm_create_context !== 'function') {
-      throw new Error('WASM module missing wasm_create_context export');
+    // readFileSync is available on the imported namespace
+    wasmBuffer = fs.readFileSync(wasmPath);
+  } else {
+    // Browser: fetch the wasm relative to this module
+    const resp = await fetch(new URL('./webgl2.wasm', import.meta.url));
+    if (!resp.ok) {
+      throw new Error(`Failed to fetch webgl2.wasm: ${resp.status}`);
     }
-    return wasmInitPromise = { ex, instance };
-  } finally {
-    // do not cache failures
-    wasmInitPromise = undefined;
+    wasmBuffer = await resp.arrayBuffer();
   }
+
+  // Compile WASM module
+  const wasmModule = await WebAssembly.compile(wasmBuffer);
+
+  // Create memory (WASM will import it)
+  const memory = new WebAssembly.Memory({ initial: 16, maximum: 256 });
+
+  // Instantiate WASM
+  const importObj = { env: { memory } };
+  const instance = await WebAssembly.instantiate(wasmModule, importObj);
+
+  // Verify required exports
+  const ex = instance.exports;
+  if (typeof ex.wasm_create_context !== 'function') {
+    throw new Error('WASM module missing wasm_create_context export');
+  }
+  return wasmInitPromise = { ex, instance };
 }
 
 /**
