@@ -8,7 +8,8 @@
     "build:wasm": "node ./scripts/build-wasm.js",
     "build": "node -e \"(async()=>{const p=require('path');const dir=process.env.INIT_CWD||process.cwd();require(p.join(dir,'scripts','build-wasm.js'));})()\"",
     "prepublishOnly": "npm run build",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:smoke": "npm run build:wasm && node ./test/smoke.js"
   },
   "wasmBuild": {
     "outDir": "wasm",
