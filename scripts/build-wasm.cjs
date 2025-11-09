@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// build-wasm.js
+// build-wasm.cjs
 // Cross-platform Node build script that builds Rust workspace for wasm32
 // and copies resulting .wasm files into runners/wasm/.
 

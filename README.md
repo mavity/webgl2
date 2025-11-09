@@ -2,6 +2,8 @@
 
 A **Rust + WASM** based toolkit for debugging GLSL shaders and generating ergonomic WebGL2 bindings.
 
+![WebGL2 Singing Dog Logo](./webgl2-logo.png)
+
 ## 🎯 Quick Start
 
 ```bash

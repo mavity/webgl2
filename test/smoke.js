@@ -15,7 +15,7 @@
  * 9. Destroy context
  */
 
-const { webGL2 } = require('../index2.js');
+import { webGL2 } from '../index.js';
 
 async function runSmokeTest() {
   console.log('=== WebGL2 Smoke Test (index2.js) ===\n');
