@@ -1,0 +1,71 @@
+[package]
+name = "webgl2"
+version = "0.1.0"
+edition = "2021"
+license = "TBD"
+authors = ["WebGL2 Platform Team"]
+repository = "https://github.com/mavity/mavity"
+description = "WebGL2 shader compiler, emulator, and debugger"
+
+# No native binary in this package; this crate is WASM/library-only
+
+[lib]
+name = "webgl2"
+path = "src/lib.rs"
+
+[dependencies]
+# Core shader infrastructure
+naga = { version = "22.1", features = ["glsl-in", "wgsl-out", "spv-out"] }
+
+# WASM generation
+wasm-encoder = "0.220"
+wasmparser = "0.220"
+walrus = "0.22"
+
+# DWARF debug info
+gimli = { version = "0.31", features = ["write"] }
+object = "0.36"
+
+# WASM runtime (native runtime removed for wasm-only package)
+
+# Utilities
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Code generation
+tera = "1.20"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# CLI removed from this package; move native CLI/tools to an external repo or tools/ directory
+
+# Random number generation (wasm requires "js" feature)
+getrandom = { version = "0.2", features = ["js"] }
+
+# Browser bindings (optional, for web runtime)
+# moved to wasm32 target-specific dependencies to avoid pulling them during host builds
+
+[dev-dependencies]
+insta = "1.40"
+
+[features]
+# Enable web runtime (wasm-bindgen + web-sys)
+web = ["wasm-bindgen", "js-sys", "web-sys"]
+# Optional CLI feature (gates native CLI binary). Not enabled by default.
+cli = []
+# Default: no optional features enabled by default to avoid pulling platform-specific
+# dependencies. This crate is WASM-first.
+default = []
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Browser bindings for wasm32 target
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", features = ["WebGl2RenderingContext", "HtmlCanvasElement"], optional = true }
+
+[[bin]]
+name = "webgl2"
+path = "src/bin/webgl2.rs"
+required-features = ["cli"]

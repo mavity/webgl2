@@ -1,10 +1,17 @@
 {
   "name": "webgl2",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "WebGL2 tools to derisk large GPU projects on the web beyond toys and demos.",
   "main": "index.js",
   "scripts": {
+    "build:wasm": "node ./scripts/build-wasm.js",
+    "build": "npm run build:wasm",
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "wasmBuild": {
+    "outDir": "runners/wasm",
+    "target": "wasm32-unknown-unknown",
+    "profile": "release"
   },
   "repository": {
     "type": "git",
