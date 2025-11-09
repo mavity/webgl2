@@ -1,6 +1,6 @@
 [package]
 name = "webgl2"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 license-file = "LICENSE"
 authors = ["WebGL2 Platform Team"]
@@ -20,7 +20,8 @@ naga = { version = "22.1", features = ["glsl-in", "wgsl-out", "spv-out"] }
 # WASM generation
 wasm-encoder = "0.220"
 wasmparser = "0.220"
-walrus = "0.22"
+# Use a modern walrus (newer gimli/indexmap compat). Bump from 0.22 -> 0.24.x
+walrus = "0.24.4"
 
 # DWARF debug info
 gimli = { version = "0.31", features = ["write"] }
