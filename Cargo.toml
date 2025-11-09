@@ -12,7 +12,7 @@ description = "WebGL2 shader compiler, emulator, and debugger"
 [lib]
 name = "webgl2"
 path = "src/lib.rs"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Core shader infrastructure
@@ -67,7 +67,17 @@ wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
 web-sys = { version = "0.3", features = ["WebGl2RenderingContext", "HtmlCanvasElement"], optional = true }
 
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+# Test harness for running Rust tests compiled to Wasm. Keep as a target-specific
+# dev-dependency so it doesn't affect normal builds or production artifacts.
+wasm-bindgen-test = "0.3"
+
 [[bin]]
 name = "webgl2"
 path = "src/bin/webgl2.rs"
+required-features = ["cli"]
+
+[[example]]
+name = "01-basic-pipeline"
+path = "examples/01-basic-pipeline.rs"
 required-features = ["cli"]

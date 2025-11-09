@@ -1,2 +1,12 @@
+# Cargo configuration for wasm test runner.
+# This tells Cargo to use `wasm-bindgen-test-runner` to execute wasm32-unknown-unknown
+# test artifacts so developers don't need to set the CARGO_TARGET_*_RUNNER env var.
+#
+# Ensure that the `wasm-bindgen-test-runner` binary is installed on developer machines
+# and CI (install via `cargo install wasm-bindgen-cli`). To temporarily override,
+# set the CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER env var or change this file.
+
+[target.wasm32-unknown-unknown]
+runner = "wasm-bindgen-test-runner"
 [build]
 target = "wasm32-unknown-unknown"

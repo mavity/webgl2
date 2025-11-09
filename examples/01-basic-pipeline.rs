@@ -2,8 +2,8 @@
 //! 
 //! This example demonstrates the full flow from GLSL source to WASM execution
 
-use naga_wasm_backend::{WasmBackend, WasmBackendConfig};
-use wasm_gl_emu::ShaderRuntime;
+use webgl2::naga_wasm_backend::{WasmBackend, WasmBackendConfig};
+use webgl2::wasm_gl_emu::ShaderRuntime;
 
 fn main() -> anyhow::Result<()> {
     // Initialize logging
