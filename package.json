@@ -8,7 +8,7 @@
   "start": "node ./index.js",
     "build": "cargo build --target wasm32-unknown-unknown --release && cp target/wasm32-unknown-unknown/release/*.wasm .",
     "prepublishOnly": "npm run build",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test test/*.test.js --parallel=1",
     "test:smoke": "npm run build:wasm && node ./test/smoke.js"
   },
   "wasmBuild": {

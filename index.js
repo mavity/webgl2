@@ -42,6 +42,30 @@ import { WasmWebGL2RenderingContext, ERR_OK, ERR_INVALID_HANDLE, readErrorMessag
  */
 async function webGL2(opts = {}) {
   // Load WASM binary
+  const { ex, instance } = await (wasmInitPromise || initWASM());
+
+  // Create a context in WASM
+  const ctxHandle = ex.wasm_create_context();
+  if (ctxHandle === 0) {
+    const msg = readErrorMessage(instance);
+    throw new Error(`Failed to create context: ${msg}`);
+  }
+
+  // Wrap and return
+  const gl = new WasmWebGL2RenderingContext(instance, ctxHandle);
+  return gl;
+}
+
+/**
+ * @type {(
+ *  Promise<{ ex: WebAssembly.Exports, instance: WebAssembly.Instance }> |
+ * { ex: WebAssembly.Exports, instance: WebAssembly.Instance } |
+ *  undefined
+ *  )}
+ */
+var wasmInitPromise;
+
+async function initWASM() {
   let wasmBuffer;
   if (isNode) {
     // Use dynamic imports so this module can be loaded in the browser too.
@@ -78,17 +102,7 @@ async function webGL2(opts = {}) {
   if (typeof ex.wasm_create_context !== 'function') {
     throw new Error('WASM module missing wasm_create_context export');
   }
-
-  // Create a context in WASM
-  const ctxHandle = ex.wasm_create_context();
-  if (ctxHandle === 0) {
-    const msg = readErrorMessage(instance);
-    throw new Error(`Failed to create context: ${msg}`);
-  }
-
-  // Wrap and return
-  const gl = new WasmWebGL2RenderingContext(instance, ctxHandle);
-  return gl;
+  return wasmInitPromise = { ex, instance };
 }
 
 /**
