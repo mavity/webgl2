@@ -2,7 +2,7 @@
 name = "webgl2"
 version = "0.1.0"
 edition = "2021"
-license = "TBD"
+license-file = "LICENSE"
 authors = ["WebGL2 Platform Team"]
 repository = "https://github.com/mavity/mavity"
 description = "WebGL2 shader compiler, emulator, and debugger"
