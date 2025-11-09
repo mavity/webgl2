@@ -231,6 +231,8 @@ async function webGL2(opts = {}) {
     _nextTexId: 1,
     _boundTexture: null,
     _adapter: null,
+    _framebuffers: Object.create(null),
+    _boundFramebuffer: null,
   };
 
   // Helper: pack float [0..1] to byte
@@ -320,25 +322,23 @@ async function webGL2(opts = {}) {
     state._boundTexture = texId;
   }
 
-  // Set a single pixel in the framebuffer. Prefer the wasm-side implementation
-  // if available (it lives in the wasm module exported symbols), otherwise
-  // fall back to the JS framebuffer. Colors are 0..255 integers.
-  function setPixel(x, y, r, g, b, a = 255) {
-    if (state._adapter && state._adapter.instance && state._adapter.instance.exports && typeof state._adapter.instance.exports.wasm_set_pixel === 'function') {
-      try {
-        state._adapter.instance.exports.wasm_set_pixel(x >>> 0, y >>> 0, r >>> 0, g >>> 0, b >>> 0, a >>> 0);
-        return;
-      } catch (e) {
-        // fall through to JS fallback
-      }
-    }
-    // JS fallback
-    if (x < 0 || y < 0 || x >= state.width || y >= state.height) return;
-    const idx = (y * state.width + x) * 4;
-    state.framebuffer[idx + 0] = r;
-    state.framebuffer[idx + 1] = g;
-    state.framebuffer[idx + 2] = b;
-    state.framebuffer[idx + 3] = a;
+  // Framebuffer API (minimal): create/bind framebuffer and attach texture.
+  function createFramebuffer() {
+    const id = Object.keys(state._framebuffers || {}).length + 1;
+    state._framebuffers[id] = { colorAttachment: null };
+    return id;
+  }
+
+  function bindFramebuffer(target, fb) {
+    // target ignored in this minimal implementation
+    state._boundFramebuffer = fb || null;
+  }
+
+  function framebufferTexture2D(target, attachment, textarget, texture, level) {
+    // Minimal: only support COLOR_ATTACHMENT0 and textarget ignored
+    const fb = state._framebuffers[state._boundFramebuffer];
+    if (!fb) throw new Error('no framebuffer bound');
+    fb.colorAttachment = texture;
   }
 
   // texImage2D simplified: accepts typed pixel arrays in RGBA order (Uint8Array or Float32Array)
@@ -412,6 +412,39 @@ async function webGL2(opts = {}) {
   function readPixels(x, y, w, h, out) {
     // out must be a Uint8ClampedArray with at least w*h*4
     const ex = state._adapter && state._adapter.instance && state._adapter.instance.exports ? state._adapter.instance.exports : null;
+    // If a framebuffer is bound and it has a color attachment that's a
+    // texture, read from the texture pixels.
+    if (state._boundFramebuffer) {
+      const fb = state._framebuffers && state._framebuffers[state._boundFramebuffer];
+      if (fb && fb.colorAttachment) {
+        const tex = state._textures[fb.colorAttachment];
+        if (tex && tex.pixels) {
+          // read from texture storage
+          let dstOff = 0;
+          for (let row = 0; row < h; row++) {
+            const sy = y + row;
+            for (let col = 0; col < w; col++) {
+              const sx = x + col;
+              const idx = (sy * tex.width + sx) * tex.bytesPerPixel;
+              if (tex.type === 'f32') {
+                out[dstOff + 0] = Math.round((tex.pixels[idx + 0] || 0) * 255);
+                out[dstOff + 1] = Math.round((tex.pixels[idx + 1] || 0) * 255);
+                out[dstOff + 2] = Math.round((tex.pixels[idx + 2] || 0) * 255);
+                out[dstOff + 3] = Math.round((tex.pixels[idx + 3] || 1) * 255);
+              } else {
+                out[dstOff + 0] = tex.pixels[idx + 0] || 0;
+                out[dstOff + 1] = tex.pixels[idx + 1] || 0;
+                out[dstOff + 2] = tex.pixels[idx + 2] || 0;
+                out[dstOff + 3] = tex.pixels[idx + 3] || 0;
+              }
+              dstOff += 4;
+            }
+          }
+          return;
+        }
+      }
+    }
+
     if (ex && typeof ex.wasm_get_pixel === 'function') {
       // Read each pixel via wasm_get_pixel which returns packed RGBA in a u32
       let dstOff = 0;
@@ -463,12 +496,14 @@ async function webGL2(opts = {}) {
     createTexture,
     bindTexture,
     texImage2D,
+    createFramebuffer,
+    bindFramebuffer,
+    framebufferTexture2D,
 
     // simple drawing API
     clearColor,
     clear,
   drawArrays,
-  setPixel,
 
     // helpers
     writeBytes(ptr, bytes) { if (!state._adapter) throw new Error('no program loaded'); state._adapter.writeBytes(ptr, bytes); },
@@ -512,12 +547,21 @@ if (isNode && require.main === module) {
       const gl = await webGL2({ width: 16, height: 16 });
       console.log('Demo: gl ready — drawingBuffer', gl.drawingBufferWidth, 'x', gl.drawingBufferHeight);
 
-      // CornflowerBlue RGB ~= (100,149,237)
-      const x = 4, y = 4;
-      gl.setPixel(x, y, 100, 149, 237, 255);
-      const out = new Uint8ClampedArray(4);
-      gl.readPixels(x, y, 1, 1, out);
-      console.log(`Demo: pixel(${x},${y}) -> r=${out[0]}, g=${out[1]}, b=${out[2]}, a=${out[3]}`);
+  // CornflowerBlue RGB ~= (100,149,237)
+  // We'll upload a 1x1 texture with the color, attach it to a framebuffer
+  // and read back via readPixels using only WebGL-like APIs.
+  const tex = gl.createTexture();
+  gl.bindTexture(0, tex);
+  const pixel = new Uint8Array([100, 149, 237, 255]);
+  gl.texImage2D(0, 0, 0, 1, 1, 0, 0, 0, pixel);
+
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(0, fb);
+  gl.framebufferTexture2D(0, 0, 0, tex, 0);
+
+  const out = new Uint8ClampedArray(4);
+  gl.readPixels(0, 0, 1, 1, out);
+  console.log(`Demo: pixel(0,0) -> r=${out[0]}, g=${out[1]}, b=${out[2]}, a=${out[3]}`);
 
       process.exit(0);
     } catch (e) {
