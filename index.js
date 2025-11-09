@@ -1,29 +1,14 @@
+// @ts-check
+
 /*
-Unified WebAssembly loader + lightweight WebGL2-like shim for Browser and Node.js
+Top-level npm entrypoint for the package.
+This file is a copy of `runners/adapter.js` placed at project root so the
+package `main` (index.js) exports the high-level `webGL2` facade from the
+project root as requested.
 
-Primary entry: `webGL2(opts)` — returns a compact WebGL2-like rendering context.
-The public API intentionally does not accept or expose any WASM/URL/path/Buffer
-parameters. WASM instantiation and program wiring are handled internally by
-the runtime; callers interact only with the WebGL2-like facade.
-
-Usage (ES module):
-  import { webGL2 } from './runners/adapter.js';
-  const gl = await webGL2({ width: 1024, height: 1024 });
-  gl.writeFloats(gl.OFFSETS.ATTR, [0,1,0]);
-  // the runtime wires programs internally; draw calls will work once a
-  // program has been installed by the internal test harness or runtime.
-
-Usage (CommonJS / Node):
-  const { webGL2 } = require('./runners/adapter');
-  const gl = await webGL2({ width: 512 });
-
-Notes:
-  - The returned context implements a minimal WebGL2-like subset (textures,
-    texImage2D, clear, drawArrays, readPixels) intended for Phase‑0 testing
-    and CI. It's a compatibility shim, not a full GPU implementation.
-  - Default memory layout is `OFFSETS` (see `gl.OFFSETS`). Host functions
-    `texture_sample`/`log` are provided and wired to the context when a WASM
-    program is loaded by the internal runtime.
+It intentionally mirrors the `runners/adapter.js` implementation. The runtime
+expects exactly one WASM file named `webgl2.wasm` placed next to this file
+(`index.js`) — loading is opaque and automatic for callers.
 */
 
 const isNode = typeof process !== 'undefined' && process.versions != null && process.versions.node != null;
@@ -80,27 +65,15 @@ class Adapter {
       return Date.now();
     };
 
-    // Determine how to instantiate across environments
+    // Compile & instantiate from the provided bytes for all environments.
+    // Avoid re-entering file-based helpers which can cause recursion.
     let module, instance;
-    if (isNode) {
-      // Node: WebAssembly.instantiate works with BufferSource
-      module = await WebAssembly.compile(buffer);
-      // Create a temporary memory if module expects imported memory
-      // We'll inspect module imports
-      const needsMemory = module.imports && module.imports.some(i => i.module === 'env' && i.name === 'memory');
-      if (needsMemory) {
-        importObj.env.memory = new WebAssembly.Memory({ initial: 4, maximum: 256 });
-      }
-      instance = await WebAssembly.instantiate(module, importObj);
-    } else {
-      // Browser
-      module = await WebAssembly.compile(buffer);
-      const needsMemory = module.imports && module.imports.some(i => i.module === 'env' && i.name === 'memory');
-      if (needsMemory) {
-        importObj.env.memory = new WebAssembly.Memory({ initial: 4, maximum: 256 });
-      }
-      instance = await WebAssembly.instantiate(module, importObj);
+    module = await WebAssembly.compile(buffer);
+    const needsMemory = module.imports && module.imports.some(i => i.module === 'env' && i.name === 'memory');
+    if (needsMemory) {
+      importObj.env.memory = new WebAssembly.Memory({ initial: 4, maximum: 256 });
     }
+    instance = await WebAssembly.instantiate(module, importObj);
 
     // Resolve memory: prefer exported memory if present
     let memory = null;
@@ -238,12 +211,12 @@ class Adapter {
 if (!isNode) {
   // ensure Adapter isn't leaked to the global in browser
 }
-// High-level entry point: returns a WebGL2-like context object.
-// Usage:
-//   const gl = await webGL2({ width: 1024, height: 1024 });
-//   await gl.loadWasm('shader.wasm');
-//   gl.writeFloats(gl.OFFSETS.ATTR, [ ... ]);
-//   await gl.drawArrays();
+
+
+/**
+ * Create a WebGL2-like context.
+ * @returns {WebGL2RenderingContext}
+ */
 async function webGL2(opts = {}) {
   const width = opts.width || 256;
   const height = opts.height || 256;
@@ -266,54 +239,75 @@ async function webGL2(opts = {}) {
     return n;
   }
 
-  // Default async loader for a wasm "program" (vertex+fragment exports).
-  // Accepts path (Node), url (browser) or raw bytes/ArrayBuffer/Uint8Array/Buffer.
-  // Internal only: the facade auto-loads the WASM when `opts.wasm` is provided
-  // to `webGL2(opts)`. This function is intentionally not exported
-  // as part of the public WebGL2-like surface.
-  async function loadWasm(source, loadOpts = {}) {
-    let adapter;
-    if (typeof source === 'string') {
-      if (isNode) adapter = await Adapter.instantiateFromFile(source, loadOpts);
-      else adapter = await Adapter.instantiateFromUrl(source, loadOpts);
-    } else {
-      adapter = await Adapter.instantiate(source, loadOpts);
+  // Immediately load the single WASM file (opaque to callers).
+  // Policy: there is exactly one wasm file, named `webgl2.wasm`, placed next
+  // to `index.js`. webGL2() will attempt to synchronously (from the caller
+  // perspective) load and instantiate that file. On failure the function
+  // throws so callers can detect missing/invalid packaging.
+  async function _autoLoadWasm() {
+    // helper to wire adapter to this context
+    function _wireAdapter(adapter) {
+      adapter.setTextureSampler((texId, u, v, outPtr, adapterInstance) => {
+        const tex = state._textures[texId];
+        if (!tex || !tex.pixels) {
+          const off = outPtr / 4;
+          adapterInstance.f32[off + 0] = 0.0;
+          adapterInstance.f32[off + 1] = 0.0;
+          adapterInstance.f32[off + 2] = 0.0;
+          adapterInstance.f32[off + 3] = 1.0;
+          return;
+        }
+        const x = Math.floor(u * (tex.width - 1));
+        const y = Math.floor(v * (tex.height - 1));
+        const idx = (y * tex.width + x) * tex.bytesPerPixel;
+        const outOff = outPtr / 4;
+        if (tex.type === 'f32') {
+          adapterInstance.f32[outOff + 0] = tex.pixels[idx + 0];
+          adapterInstance.f32[outOff + 1] = tex.pixels[idx + 1];
+          adapterInstance.f32[outOff + 2] = tex.pixels[idx + 2];
+          adapterInstance.f32[outOff + 3] = tex.pixels[idx + 3];
+        } else {
+          adapterInstance.f32[outOff + 0] = tex.pixels[idx + 0] / 255;
+          adapterInstance.f32[outOff + 1] = tex.pixels[idx + 1] / 255;
+          adapterInstance.f32[outOff + 2] = tex.pixels[idx + 2] / 255;
+          adapterInstance.f32[outOff + 3] = tex.pixels[idx + 3] / 255;
+        }
+      });
+
+      state._adapter = adapter;
+
+      // Initialize wasm-side framebuffer if the tiny test exports exist.
+      try {
+        const ex = adapter.instance && adapter.instance.exports ? adapter.instance.exports : {};
+        if (typeof ex.wasm_fb_init === 'function') {
+          try {
+            ex.wasm_fb_init(state.width, state.height);
+          } catch (e) {
+            // ignore init errors
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
     }
 
-    // wire texture sampler to use this context's textures map
-    adapter.setTextureSampler((texId, u, v, outPtr, adapterInstance) => {
-      const tex = state._textures[texId];
-      if (!tex || !tex.pixels) {
-        // write transparent black
-        const off = outPtr / 4;
-        adapterInstance.f32[off + 0] = 0.0;
-        adapterInstance.f32[off + 1] = 0.0;
-        adapterInstance.f32[off + 2] = 0.0;
-        adapterInstance.f32[off + 3] = 1.0;
-        return;
-      }
-
-      // nearest sampling for now
-      const x = Math.floor(u * (tex.width - 1));
-      const y = Math.floor(v * (tex.height - 1));
-      const idx = (y * tex.width + x) * tex.bytesPerPixel;
-      // tex.pixels is expected to be Uint8Array RGBA or Float32Array (0..1)
-      const outOff = outPtr / 4;
-      if (tex.type === 'f32') {
-        adapterInstance.f32[outOff + 0] = tex.pixels[idx + 0];
-        adapterInstance.f32[outOff + 1] = tex.pixels[idx + 1];
-        adapterInstance.f32[outOff + 2] = tex.pixels[idx + 2];
-        adapterInstance.f32[outOff + 3] = tex.pixels[idx + 3];
-      } else {
-        adapterInstance.f32[outOff + 0] = tex.pixels[idx + 0] / 255;
-        adapterInstance.f32[outOff + 1] = tex.pixels[idx + 1] / 255;
-        adapterInstance.f32[outOff + 2] = tex.pixels[idx + 2] / 255;
-        adapterInstance.f32[outOff + 3] = tex.pixels[idx + 3] / 255;
-      }
-    });
-
-    state._adapter = adapter;
-    return adapter;
+    if (isNode) {
+      const path = require('path');
+      const fs = require('fs');
+      const wasmPath = path.join(__dirname, 'webgl2.wasm');
+      if (!fs.existsSync(wasmPath)) throw new Error(`WASM not found at ${wasmPath}`);
+      const bytes = fs.readFileSync(wasmPath);
+      const adapter = await Adapter.instantiate(bytes);
+      _wireAdapter(adapter);
+      return adapter;
+    } else {
+      // Browser: fetch the wasm relative to the current module
+      const resp = await fetch('./webgl2.wasm');
+      const ab = await resp.arrayBuffer();
+      const adapter = await Adapter.instantiate(ab);
+      _wireAdapter(adapter);
+      return adapter;
+    }
   }
 
   function createTexture() {
@@ -324,6 +318,27 @@ async function webGL2(opts = {}) {
 
   function bindTexture(target, texId) {
     state._boundTexture = texId;
+  }
+
+  // Set a single pixel in the framebuffer. Prefer the wasm-side implementation
+  // if available (it lives in the wasm module exported symbols), otherwise
+  // fall back to the JS framebuffer. Colors are 0..255 integers.
+  function setPixel(x, y, r, g, b, a = 255) {
+    if (state._adapter && state._adapter.instance && state._adapter.instance.exports && typeof state._adapter.instance.exports.wasm_set_pixel === 'function') {
+      try {
+        state._adapter.instance.exports.wasm_set_pixel(x >>> 0, y >>> 0, r >>> 0, g >>> 0, b >>> 0, a >>> 0);
+        return;
+      } catch (e) {
+        // fall through to JS fallback
+      }
+    }
+    // JS fallback
+    if (x < 0 || y < 0 || x >= state.width || y >= state.height) return;
+    const idx = (y * state.width + x) * 4;
+    state.framebuffer[idx + 0] = r;
+    state.framebuffer[idx + 1] = g;
+    state.framebuffer[idx + 2] = b;
+    state.framebuffer[idx + 3] = a;
   }
 
   // texImage2D simplified: accepts typed pixel arrays in RGBA order (Uint8Array or Float32Array)
@@ -396,6 +411,37 @@ async function webGL2(opts = {}) {
 
   function readPixels(x, y, w, h, out) {
     // out must be a Uint8ClampedArray with at least w*h*4
+    const ex = state._adapter && state._adapter.instance && state._adapter.instance.exports ? state._adapter.instance.exports : null;
+    if (ex && typeof ex.wasm_get_pixel === 'function') {
+      // Read each pixel via wasm_get_pixel which returns packed RGBA in a u32
+      let dstOff = 0;
+      for (let row = 0; row < h; row++) {
+        const sy = y + row;
+        for (let col = 0; col < w; col++) {
+          const sx = x + col;
+          try {
+            const packed = ex.wasm_get_pixel(sx >>> 0, sy >>> 0) >>> 0; // ensure unsigned
+            const r = (packed >>> 24) & 0xff;
+            const g = (packed >>> 16) & 0xff;
+            const b = (packed >>> 8) & 0xff;
+            const a = packed & 0xff;
+            out[dstOff + 0] = r;
+            out[dstOff + 1] = g;
+            out[dstOff + 2] = b;
+            out[dstOff + 3] = a;
+          } catch (e) {
+            // on error, write transparent black
+            out[dstOff + 0] = 0;
+            out[dstOff + 1] = 0;
+            out[dstOff + 2] = 0;
+            out[dstOff + 3] = 0;
+          }
+          dstOff += 4;
+        }
+      }
+      return;
+    }
+
     const src = state.framebuffer;
     const rowBytes = state.width * 4;
     for (let row = 0; row < h; row++) {
@@ -421,7 +467,8 @@ async function webGL2(opts = {}) {
     // simple drawing API
     clearColor,
     clear,
-    drawArrays,
+  drawArrays,
+  setPixel,
 
     // helpers
     writeBytes(ptr, bytes) { if (!state._adapter) throw new Error('no program loaded'); state._adapter.writeBytes(ptr, bytes); },
@@ -437,6 +484,11 @@ async function webGL2(opts = {}) {
   // instantiation and program wiring are performed by the internal runtime
   // or test harness and are intentionally not exposed here.
 
+  // Opaque automatic WASM load: instantiate the single wasm next to index.js
+  // This is unconditional; failure to load will reject so callers notice
+  // missing/invalid packaging immediately.
+  await _autoLoadWasm();
+
   return gl;
 }
 
@@ -447,4 +499,30 @@ if (isNode) {
   module.exports = { webGL2 };
 } else {
   window.webGL2 = webGL2;
+}
+
+// CLI demo: when run as `node index.js` attempt to load the built wasm and
+// call a simple exported function (hello/greet/vertex_main/main). This is a
+// best-effort demo — it will print available exports if no simple entrypoint
+// is present.
+if (isNode && require.main === module) {
+  (async () => {
+    try {
+      console.log('Demo: initializing webGL2 facade...');
+      const gl = await webGL2({ width: 16, height: 16 });
+      console.log('Demo: gl ready — drawingBuffer', gl.drawingBufferWidth, 'x', gl.drawingBufferHeight);
+
+      // CornflowerBlue RGB ~= (100,149,237)
+      const x = 4, y = 4;
+      gl.setPixel(x, y, 100, 149, 237, 255);
+      const out = new Uint8ClampedArray(4);
+      gl.readPixels(x, y, 1, 1, out);
+      console.log(`Demo: pixel(${x},${y}) -> r=${out[0]}, g=${out[1]}, b=${out[2]}, a=${out[3]}`);
+
+      process.exit(0);
+    } catch (e) {
+      console.error('Demo: failed to run webGL2 demo:', e && e.message ? e.message : e);
+      process.exit(1);
+    }
+  })();
 }

@@ -1,6 +1,6 @@
 [package]
 name = "webgl2"
-version = "0.1.2"
+version = "1.0.4"
 edition = "2021"
 license-file = "LICENSE"
 authors = ["WebGL2 Platform Team"]
@@ -12,6 +12,7 @@ description = "WebGL2 shader compiler, emulator, and debugger"
 [lib]
 name = "webgl2"
 path = "src/lib.rs"
+crate-type = ["cdylib"]
 
 [dependencies]
 # Core shader infrastructure

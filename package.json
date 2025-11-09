@@ -1,15 +1,17 @@
 {
   "name": "webgl2",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "WebGL2 tools to derisk large GPU projects on the web beyond toys and demos.",
   "main": "index.js",
   "scripts": {
+    "start": "node ./index.js",
     "build:wasm": "node ./scripts/build-wasm.js",
-    "build": "npm run build:wasm",
+    "build": "node -e \"(async()=>{const p=require('path');const dir=process.env.INIT_CWD||process.cwd();require(p.join(dir,'scripts','build-wasm.js'));})()\"",
+    "prepublishOnly": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "wasmBuild": {
-    "outDir": "runners/wasm",
+    "outDir": "wasm",
     "target": "wasm32-unknown-unknown",
     "profile": "release"
   },
@@ -24,4 +26,11 @@
     "url": "https://github.com/mavity/mavity/issues"
   },
   "homepage": "https://github.com/mavity/mavity#readme"
+  ,
+  "files": [
+    "index.js",
+    "wasm",
+    "README.md",
+    "LICENSE"
+  ]
 }
