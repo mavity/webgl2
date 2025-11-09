@@ -182,10 +182,17 @@ pub extern "C" fn wasm_bind_framebuffer(fb: u32) {
 #[no_mangle]
 pub extern "C" fn wasm_framebuffer_texture2d(fb: u32, tex: u32) {
 	unsafe {
-		if let Some(ref mut fbs) = FRAMEBUFFERS {
-			let idx = fb as usize;
-			if idx < fbs.len() {
-				fbs[idx] = Some(tex);
+		// Allow fb == u32::MAX to mean "attach to currently bound framebuffer"
+		let use_idx_opt: Option<usize> = if fb == core::u32::MAX {
+			if let Some(bound) = BOUND_FRAMEBUFFER { Some(bound as usize) } else { None }
+		} else {
+			Some(fb as usize)
+		};
+		if let Some(tidx) = use_idx_opt {
+			if let Some(ref mut fbs) = FRAMEBUFFERS {
+				if tidx < fbs.len() {
+					fbs[tidx] = Some(tex);
+				}
 			}
 		}
 	}

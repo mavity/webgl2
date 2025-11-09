@@ -230,21 +230,13 @@ async function webGL2(opts = {}) {
   // if opts.wasm provided, we'll auto-load it before returning
 
   // internal state
+  // NOTE: runtime state (textures, framebuffers, bindings) now lives in
+  // WASM exclusively. JavaScript is a thin forwarding wrapper and will
+  // throw if the WASM runtime does not provide the required exports.
   const state = {
     width,
     height,
-    // Keep a tiny JS-side framebuffer only as a fallback; primary runtime
-    // state (textures/framebuffers) is expected to live in WASM. This
-    // array is used only when the WASM runtime doesn't provide the
-    // corresponding exports (rare in packaged builds).
-    framebuffer: new Uint8ClampedArray(width * height * 4), // RGBA
     _adapter: null,
-    // Minimal fallback maps to avoid undefined property accesses when the
-    // runtime lacks wasm exports. These are not used when WASM is present.
-    _textures: {},
-    _framebuffers: {},
-    _boundTexture: null,
-    _boundFramebuffer: null,
   };
 
   // Helper: pack float [0..1] to byte
@@ -260,34 +252,11 @@ async function webGL2(opts = {}) {
   // throws so callers can detect missing/invalid packaging.
   async function _autoLoadWasm() {
     // helper to wire adapter to this context
-    function _wireAdapter(adapter) {
-      adapter.setTextureSampler((texId, u, v, outPtr, adapterInstance) => {
-        const tex = state._textures[texId];
-        if (!tex || !tex.pixels) {
-          const off = outPtr / 4;
-          adapterInstance.f32[off + 0] = 0.0;
-          adapterInstance.f32[off + 1] = 0.0;
-          adapterInstance.f32[off + 2] = 0.0;
-          adapterInstance.f32[off + 3] = 1.0;
-          return;
-        }
-        const x = Math.floor(u * (tex.width - 1));
-        const y = Math.floor(v * (tex.height - 1));
-        const idx = (y * tex.width + x) * tex.bytesPerPixel;
-        const outOff = outPtr / 4;
-        if (tex.type === 'f32') {
-          adapterInstance.f32[outOff + 0] = tex.pixels[idx + 0];
-          adapterInstance.f32[outOff + 1] = tex.pixels[idx + 1];
-          adapterInstance.f32[outOff + 2] = tex.pixels[idx + 2];
-          adapterInstance.f32[outOff + 3] = tex.pixels[idx + 3];
-        } else {
-          adapterInstance.f32[outOff + 0] = tex.pixels[idx + 0] / 255;
-          adapterInstance.f32[outOff + 1] = tex.pixels[idx + 1] / 255;
-          adapterInstance.f32[outOff + 2] = tex.pixels[idx + 2] / 255;
-          adapterInstance.f32[outOff + 3] = tex.pixels[idx + 3] / 255;
-        }
-      });
 
+    function _wireAdapter(adapter) {
+      // Do not provide a JS-side texture sampler override — textures live in
+      // WASM and sampling should be performed there where possible. Keep the
+      // adapter reference for memory helpers and logging.
       state._adapter = adapter;
 
       // Initialize higher-level WASM-side runtime state (textures,
@@ -370,39 +339,26 @@ async function webGL2(opts = {}) {
 
   function bindFramebuffer(target, fb) {
     // target ignored in this minimal implementation
-    if (!state._adapter) {
-      state._boundFramebuffer = fb || null;
-      return;
-    }
+    if (!state._adapter) throw new Error('no program loaded');
     const ex = state._adapter.instance && state._adapter.instance.exports ? state._adapter.instance.exports : null;
     if (ex && typeof ex.wasm_bind_framebuffer === 'function') {
-      try {
-        ex.wasm_bind_framebuffer(fb >>> 0);
-      } catch (e) {
-        state._boundFramebuffer = fb || null;
-      }
-      state._boundFramebuffer = fb || null;
+      ex.wasm_bind_framebuffer(fb >>> 0);
       return;
     }
-    state._boundFramebuffer = fb || null;
+    throw new Error('wasm runtime does not support bindFramebuffer');
   }
 
   function framebufferTexture2D(target, attachment, textarget, texture, level) {
     // Minimal: only support COLOR_ATTACHMENT0 and textarget ignored
-    if (!state._adapter) {
-      const fb = state._framebuffers[state._boundFramebuffer];
-      if (!fb) throw new Error('no framebuffer bound');
-      fb.colorAttachment = texture;
-      return;
-    }
+    if (!state._adapter) throw new Error('no program loaded');
     const ex = state._adapter.instance && state._adapter.instance.exports ? state._adapter.instance.exports : null;
     if (ex && typeof ex.wasm_framebuffer_texture2d === 'function') {
-      ex.wasm_framebuffer_texture2d(state._boundFramebuffer >>> 0, texture >>> 0);
+      // Ask WASM to attach the texture to the currently bound framebuffer.
+      // Use u32::MAX (0xFFFFFFFF) as the "use bound framebuffer" sentinel.
+      ex.wasm_framebuffer_texture2d(0xFFFFFFFF >>> 0, texture >>> 0);
       return;
     }
-    const fb = state._framebuffers[state._boundFramebuffer];
-    if (!fb) throw new Error('no framebuffer bound');
-    fb.colorAttachment = texture;
+    throw new Error('wasm runtime does not support framebufferTexture2D');
   }
 
   // texImage2D simplified: accepts typed pixel arrays in RGBA order (Uint8Array or Float32Array)
@@ -423,27 +379,10 @@ async function webGL2(opts = {}) {
       ex.wasm_tex_image_2d(0xFFFFFFFF >>> 0, width >>> 0, height >>> 0, ptr >>> 0);
       return;
     }
-    // fallback to JS-side texture storage (only used if WASM runtime lacks
-    // the high-level texture upload export)
-    const texId = state._boundTexture;
-    if (!texId) throw new Error('no bound texture');
-    const tex = state._textures[texId];
-    tex.width = width;
-    tex.height = height;
-    if (!pixels) {
-      tex.pixels = new Uint8Array(width * height * 4);
-      tex.type = 'u8';
-      tex.bytesPerPixel = 4;
-    } else if (pixels instanceof Float32Array) {
-      tex.pixels = pixels;
-      tex.type = 'f32';
-      tex.bytesPerPixel = 4; // floats per channel
-    } else {
-      // Node Buffer or Uint8Array
-      tex.pixels = new Uint8Array(pixels);
-      tex.type = 'u8';
-      tex.bytesPerPixel = 4;
-    }
+    // If wasm doesn't implement high-level upload, that's a usage error.
+    // JS no longer keeps texture storage — textures must be created/bound in
+    // WASM and uploaded via `wasm_tex_image_2d`.
+    throw new Error('wasm runtime does not support texImage2D');
   }
 
   function clearColor(r, g, b, a) {
@@ -452,12 +391,21 @@ async function webGL2(opts = {}) {
 
   function clear(mask) {
     const c = state._clearColor || [0, 0, 0, 0];
-    for (let i = 0; i < state.framebuffer.length; i += 4) {
-      state.framebuffer[i + 0] = floatToByte(c[0]);
-      state.framebuffer[i + 1] = floatToByte(c[1]);
-      state.framebuffer[i + 2] = floatToByte(c[2]);
-      state.framebuffer[i + 3] = floatToByte(c[3]);
+    if (!state._adapter) throw new Error('no program loaded');
+    const ex = state._adapter.instance && state._adapter.instance.exports ? state._adapter.instance.exports : null;
+    if (ex && typeof ex.wasm_set_pixel === 'function') {
+      const r = floatToByte(c[0] || 0);
+      const g = floatToByte(c[1] || 0);
+      const b = floatToByte(c[2] || 0);
+      const a = floatToByte(c[3] ?? 1);
+      for (let y = 0; y < state.height; y++) {
+        for (let x = 0; x < state.width; x++) {
+          ex.wasm_set_pixel(x >>> 0, y >>> 0, r >>> 0, g >>> 0, b >>> 0, a >>> 0);
+        }
+      }
+      return;
     }
+    throw new Error('wasm runtime does not support clear');
   }
 
   // Minimal drawArrays implementation: calls vertex entry for 'count' vertices.
@@ -499,12 +447,9 @@ async function webGL2(opts = {}) {
         }
       }
 
-      // JS fallback: write into the local framebuffer
-      const idx = (py * state.width + px) * 4;
-      state.framebuffer[idx + 0] = floatToByte(col[0] ?? 0);
-      state.framebuffer[idx + 1] = floatToByte(col[1] ?? 0);
-      state.framebuffer[idx + 2] = floatToByte(col[2] ?? 0);
-      state.framebuffer[idx + 3] = floatToByte(col[3] ?? 1);
+      // If WASM does not provide a pixel write primitive, fail — JS no
+      // longer keeps framebuffer state.
+      throw new Error('wasm runtime does not support pixel writes (wasm_set_pixel missing)');
     }
   }
 
@@ -553,39 +498,6 @@ async function webGL2(opts = {}) {
         // fall through to other paths
       }
     }
-    // If a framebuffer is bound and it has a color attachment that's a
-    // texture, read from the texture pixels.
-    if (state._boundFramebuffer) {
-      const fb = state._framebuffers && state._framebuffers[state._boundFramebuffer];
-      if (fb && fb.colorAttachment) {
-        const tex = state._textures[fb.colorAttachment];
-        if (tex && tex.pixels) {
-          // read from texture storage
-          let dstOff = 0;
-          for (let row = 0; row < h; row++) {
-            const sy = y + row;
-            for (let col = 0; col < w; col++) {
-              const sx = x + col;
-              const idx = (sy * tex.width + sx) * tex.bytesPerPixel;
-              if (tex.type === 'f32') {
-                out[dstOff + 0] = Math.round((tex.pixels[idx + 0] || 0) * 255);
-                out[dstOff + 1] = Math.round((tex.pixels[idx + 1] || 0) * 255);
-                out[dstOff + 2] = Math.round((tex.pixels[idx + 2] || 0) * 255);
-                out[dstOff + 3] = Math.round((tex.pixels[idx + 3] || 1) * 255);
-              } else {
-                out[dstOff + 0] = tex.pixels[idx + 0] || 0;
-                out[dstOff + 1] = tex.pixels[idx + 1] || 0;
-                out[dstOff + 2] = tex.pixels[idx + 2] || 0;
-                out[dstOff + 3] = tex.pixels[idx + 3] || 0;
-              }
-              dstOff += 4;
-            }
-          }
-          return;
-        }
-      }
-    }
-
     if (ex && typeof ex.wasm_get_pixel === 'function') {
       // Read each pixel via wasm_get_pixel which returns packed RGBA in a u32
       let dstOff = 0;
@@ -616,14 +528,8 @@ async function webGL2(opts = {}) {
       return;
     }
 
-    const src = state.framebuffer;
-    const rowBytes = state.width * 4;
-    for (let row = 0; row < h; row++) {
-      const sy = y + row;
-      const dstRowOff = row * w * 4;
-      const srcOff = sy * rowBytes + x * 4;
-      out.set(src.subarray(srcOff, srcOff + w * 4), dstRowOff);
-    }
+    // If we reach here the WASM runtime does not provide a read path.
+    throw new Error('wasm runtime does not support readPixels');
   }
 
   // Expose a compact WebGL2-like surface (minimal subset)
