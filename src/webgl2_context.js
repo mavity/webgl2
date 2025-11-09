@@ -14,6 +14,8 @@ export const ERR_NOT_IMPLEMENTED = 4;
 export const ERR_GL = 5;
 export const ERR_INTERNAL = 6;
 
+import { WasmWebGLTexture } from './webgl2_texture.js';
+
 /**
  * @implements {WebGL2RenderingContext}
  */
@@ -55,7 +57,8 @@ export class WasmWebGL2RenderingContext {
       const msg = readErrorMessage(this._instance);
       throw new Error(`Failed to create texture: ${msg}`);
     }
-    return handle;
+    // Return a thin wrapper object representing the texture.
+    return new WasmWebGLTexture(this, handle);
   }
 
   deleteTexture(tex) {
@@ -64,8 +67,13 @@ export class WasmWebGL2RenderingContext {
     if (!ex || typeof ex.wasm_ctx_delete_texture !== 'function') {
       throw new Error('wasm_ctx_delete_texture not found');
     }
-    const code = ex.wasm_ctx_delete_texture(this._ctxHandle, tex);
+    const handle = tex && typeof tex === 'object' && typeof tex._handle === 'number' ? tex._handle : (tex >>> 0);
+    const code = ex.wasm_ctx_delete_texture(this._ctxHandle, handle);
     _checkErr(code, this._instance);
+    // If a wrapper object was passed, mark it as deleted.
+    if (tex && typeof tex === 'object') {
+      try { tex._handle = 0; tex._deleted = true; } catch (e) { /* ignore */ }
+    }
   }
 
   bindTexture(target, tex) {
@@ -74,7 +82,8 @@ export class WasmWebGL2RenderingContext {
     if (!ex || typeof ex.wasm_ctx_bind_texture !== 'function') {
       throw new Error('wasm_ctx_bind_texture not found');
     }
-    const code = ex.wasm_ctx_bind_texture(this._ctxHandle, target >>> 0, tex >>> 0);
+    const handle = tex && typeof tex === 'object' && typeof tex._handle === 'number' ? tex._handle : (tex >>> 0);
+    const code = ex.wasm_ctx_bind_texture(this._ctxHandle, target >>> 0, handle);
     _checkErr(code, this._instance);
   }
 
@@ -156,12 +165,13 @@ export class WasmWebGL2RenderingContext {
     if (!ex || typeof ex.wasm_ctx_framebuffer_texture2d !== 'function') {
       throw new Error('wasm_ctx_framebuffer_texture2d not found');
     }
+    const texHandle = texture && typeof texture === 'object' && typeof texture._handle === 'number' ? texture._handle : (texture >>> 0);
     const code = ex.wasm_ctx_framebuffer_texture2d(
       this._ctxHandle,
       target >>> 0,
       attachment >>> 0,
       textarget >>> 0,
-      texture >>> 0,
+      texHandle,
       level >>> 0
     );
     _checkErr(code, this._instance);
@@ -340,6 +350,12 @@ export class WasmWebGL2RenderingContext {
   blendEquation(mode) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   blendEquationSeparate(modeRGB, modeAlpha) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 }
+
+/**
+ * Thin wrapper for a WebGLTexture handle returned from WASM.
+ * Holds a reference to the originating WasmWebGL2RenderingContext and the numeric handle.
+ */
+// WebGLTexture wrapper moved to `src/webgl2_texture.js`.
 
 /**
  * Read an error message from WASM memory and return it as string.
