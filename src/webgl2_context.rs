@@ -10,7 +10,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::alloc::{alloc, Layout};
+use std::alloc::{alloc, dealloc, Layout};
 
 // Errno constants (must match JS constants if exposed)
 pub const ERR_OK: u32 = 0;
@@ -104,6 +104,7 @@ fn get_registry() -> &'static RefCell<Registry> {
             SyncRefCell(RefCell::new(Registry {
                 contexts: HashMap::new(),
                 next_context_handle: FIRST_HANDLE,
+                allocations: HashMap::new(),
             }))
         })
         .0
@@ -112,6 +113,8 @@ fn get_registry() -> &'static RefCell<Registry> {
 struct Registry {
     contexts: HashMap<u32, Context>,
     next_context_handle: u32,
+    /// Track allocations created via `wasm_alloc`: ptr -> size
+    allocations: HashMap<u32, u32>,
 }
 
 impl Registry {
@@ -212,7 +215,13 @@ pub fn wasm_alloc(size: u32) -> u32 {
         set_last_error("out of memory");
         return 0;
     }
-    ptr as u32
+    let ptr_u32 = ptr as u32;
+    // Record allocation size so wasm_free can deallocate later.
+    {
+        let mut reg = get_registry().borrow_mut();
+        reg.allocations.insert(ptr_u32, size);
+    }
+    ptr_u32
 }
 
 /// Free memory allocated by wasm_alloc.
@@ -223,11 +232,24 @@ pub fn wasm_free(ptr: u32) -> u32 {
         // Freeing null is a no-op
         return ERR_OK;
     }
-    // Note: we don't track allocations, so we can't verify size.
-    // This is unsafe! For production, track allocations in a HashMap.
-    // For MVP, assume caller is honest about the size (e.g., via a companion API).
-    // For now, we'll just skip deallocation and leak instead (safe but wasteful).
-    // TODO: implement allocation tracking
+    // Look up allocation size
+    let mut reg = get_registry().borrow_mut();
+    let size = match reg.allocations.remove(&ptr) {
+        Some(s) => s,
+        None => {
+            set_last_error("invalid or unknown allocation");
+            return ERR_INVALID_ARGS;
+        }
+    };
+
+    let layout = match Layout::from_size_align(size as usize, 8) {
+        Ok(l) => l,
+        Err(_) => {
+            set_last_error("invalid allocation layout");
+            return ERR_INTERNAL;
+        }
+    };
+    unsafe { dealloc(ptr as *mut u8, layout) };
     ERR_OK
 }
 
@@ -619,4 +641,48 @@ pub fn ctx_read_pixels(
     }
 
     ERR_OK
+}
+
+// -----------------------------
+// Unit tests for allocation APIs
+// -----------------------------
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn alloc_free_roundtrip() {
+        // allocate 128 bytes
+        let ptr = wasm_alloc(128);
+        assert!(ptr != 0, "wasm_alloc returned 0");
+
+        // write into the allocation (safely)
+        unsafe {
+            let slice = std::slice::from_raw_parts_mut(ptr as *mut u8, 128);
+            for i in 0..128 {
+                slice[i] = (i & 0xff) as u8;
+            }
+        }
+
+        // free should succeed
+        let code = wasm_free(ptr);
+        assert_eq!(code, ERR_OK, "wasm_free returned non-zero");
+    }
+
+    #[test]
+    fn free_null_is_noop() {
+        let code = wasm_free(0);
+        assert_eq!(code, ERR_OK);
+    }
+
+    #[test]
+    fn double_free_fails() {
+        let ptr = wasm_alloc(32);
+        assert!(ptr != 0);
+        let first = wasm_free(ptr);
+        assert_eq!(first, ERR_OK);
+        // second free should return invalid args
+        let second = wasm_free(ptr);
+        assert_eq!(second, ERR_INVALID_ARGS);
+    }
 }
