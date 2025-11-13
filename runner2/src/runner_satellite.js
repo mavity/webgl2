@@ -46,21 +46,65 @@ and writes a coverage file to <outdir>/v8-coverage.json.
     const wasmPath = path.resolve(opts.target_wasm);
     const bytes = fs.readFileSync(wasmPath);
     let exitCode = 0;
+    let harnessUsed = null;
+    let testNames = [];
     try {
       const module = await WebAssembly.compile(bytes);
+      // Inspect the `name` custom section for function names to heuristically find tests
+      try {
+        const nameSections = WebAssembly.Module.customSections(module, 'name');
+        if (nameSections && nameSections.length > 0) {
+          const arr = new Uint8Array(nameSections[0]);
+          let i = 0;
+          function readLEB() { let res = 0, shift = 0; while (true) { const b = arr[i++]; res |= (b & 0x7f) << shift; if (!(b & 0x80)) break; shift += 7; } return res; }
+          function readString() { const len = readLEB(); let s = ''; for (let j = 0; j < len; j++) s += String.fromCharCode(arr[i++]); return s; }
+          while (i < arr.length) {
+            const type = arr[i++];
+            const sub = readLEB();
+            if (type === 1) {
+              const count = readLEB();
+              for (let k = 0; k < count; k++) {
+                const _idx = readLEB();
+                const name = readString();
+                if (name.includes('::tests::') || /(^|_)test/.test(name) || name.includes('runner_wasm_test_example')) {
+                  testNames.push(name);
+                }
+              }
+            } else {
+              i += sub; // skip other subsections
+            }
+          }
+        }
+      } catch (err) {
+        // Non-fatal if parsing name section fails
+        // console.error('error parsing name section', err);
+      }
       const imports = {};
-      // Provide a minimal env if needed
+      // Provide a minimal env with a stubbed `eval` import so we can instantiate
+      // modules that declare `env.eval` (our runner crate) without failing.
       imports.env = imports.env || {};
+      imports.env.eval = function(jsPtr, scratchPtr) {
+        // This stub intentionally does nothing. If the module expects a host to
+        // evaluate JS and write to scratch, the stub won't provide that; but
+        // for running the Rust test harness, we only need to instantiate and run tests.
+        return;
+      };
       // attach inspector-specific functions? keep imports minimal so tests can run
-      const { instance } = await WebAssembly.instantiate(module, imports);
+      const instRes = await WebAssembly.instantiate(module, imports);
+      const instance = instRes.instance ? instRes.instance : instRes;
       // Run canonical test harness entrypoints
       if (typeof instance.exports.__run_tests === 'function') {
+        harnessUsed = '__run_tests';
         instance.exports.__run_tests();
       } else if (typeof instance.exports._start === 'function') {
+        harnessUsed = '_start';
         instance.exports._start();
       } else if (typeof instance.exports.main === 'function') {
+        harnessUsed = 'main';
         // main may take args; assume no args for test cases
         instance.exports.main();
+      } else {
+        throw new Error('no test entrypoint found in wasm module');
       }
     } catch (e) {
       // If wasm cannot be instantiated for tests, log and set exit nonzero
@@ -80,7 +124,7 @@ and writes a coverage file to <outdir>/v8-coverage.json.
     fs.writeFileSync(covPath, JSON.stringify(covRes, null, 2), 'utf8');
 
     // Provide a compact JSON summary on stdout for the caller
-    console.log(JSON.stringify({ exitCode, coverageFile: covPath }));
+    console.log(JSON.stringify({ exitCode, coverageFile: covPath, harnessUsed, testCount: testNames.length, testNames }));
     process.exit(exitCode);
   } catch (err) {
     console.error('satellite error', err && err.stack ? err.stack : err);

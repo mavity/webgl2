@@ -348,4 +348,11 @@ mod tests {
         assert!(lcov.contains("SF:unknown"));
         assert!(lcov.contains("DA:10,1") || lcov.contains("DA:20,1"));
     }
+
+    // Trial end-to-end test that will compile in wasm test build run by the runner.
+    #[test]
+    fn runner_wasm_test_example() {
+        // Simple assertion to provide a detectable test in wasm built test harness.
+        assert_eq!(2 + 2, 4);
+    }
 }
