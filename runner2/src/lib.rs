@@ -8,6 +8,10 @@ extern "C" {
     fn eval(js_ptr: u32, scratch_ptr: u32);
 }
 
+// Embed the satellite script into the binary. The runtime will still only need
+// `runner.js` and `runner.wasm` — no separate `runner_satellite.js` at runtime.
+const RUNNER_SATELLITE_JS: &str = include_str!("runner_satellite.js");
+
 // Safe helper: return the total memory size in bytes
 fn wasm_memory_len_bytes() -> usize {
     (wasm32::memory_size(0) as usize) * 65536
@@ -136,71 +140,26 @@ pub extern "C" fn run(argv_ptr: u32) -> i32 {
     let od = out_dir.as_str();
         // Inline worker script (no external worker.js dependency). We spawn node -e '<script>'
         // with args for CLI options. This allows the runner to work with only `runner.js` and `runner.wasm`.
-        let snippet_s = r#"(function() {{
-    const cp = require('child_process');
-    const p  = require('path');
-    // Inline worker script: parse args and run wasm with inspector coverage collection.
-    const inline = `const fs = require('fs');
-const path = require('path');
-const inspector = require('inspector');
-function postSync(session, method, params) {{
-    const SAB = new SharedArrayBuffer(4);
-    const ia = new Int32Array(SAB);
-    ia[0] = 0;
-    let result = null;
-    let error = null;
-    session.post(method, params, (err, res) => {{ if (err) error = err; else result = res; ia[0] = 1; Atomics.notify(ia, 0, 1); }});
-    while (Atomics.load(ia, 0) === 0) Atomics.wait(ia, 0, 0, 1000);
-    if (error) throw error; return result;
-}
+                let snippet_s = r#"(function() {
+        const cp = require('child_process');
+        const p  = require('path');
 
-function runWorkerSync(opts) {{
-    const target = opts.target_wasm;
-    const out = opts.out || './coverage';
-    if (!target || !fs.existsSync(target)) {{ return {{ exitCode: 2, error: `target wasm not found: ${target}` }}; }}
-    fs.mkdirSync(out, {{ recursive: true }});
-    const wasmBuf = fs.readFileSync(target);
-    const module = new WebAssembly.Module(wasmBuf);
-    const imports = {{ env: {{}} }};
-    const instance = new WebAssembly.Instance(module, imports);
-    const session = new inspector.Session();
-    session.connect();
-    try {{ postSync(session, 'Profiler.enable', {{}}); postSync(session, 'Profiler.startPreciseCoverage', {{ callCount: true, detailed: true }}); }} catch (e) {{ console.warn('[WorkerInline] inspector error:', e && e.message ? e.message : e); }}
-    let exitCode = 0;
-    try {{
-        if (instance.exports.__run_tests) {{ const rc = instance.exports.__run_tests(); exitCode = Number(rc) || 0; }}
-        else if (instance.exports._start) {{ try {{ instance.exports._start(); exitCode = 0; }} catch(e) {{ exitCode = 1; }} }}
-        else if (instance.exports.main) {{ try {{ instance.exports.main(); exitCode = 0; }} catch(e) {{ exitCode = 1; }} }}
-        else {{ exitCode = 1; }}
-    }} catch (err) {{ console.error('[WorkerInline] Error running tests:', err && err.message ? err.message : err); exitCode = 1; }}
-    let coverage = null;
-    try {{ coverage = postSync(session, 'Profiler.takePreciseCoverage', {{}}); postSync(session, 'Profiler.stopPreciseCoverage', {{}}); session.disconnect(); }} catch(e) {{ console.warn('[WorkerInline] Failed to capture coverage:', e && e.message ? e.message : e); }}
-    try {{ fs.writeFileSync(path.join(out, 'v8-coverage.json'), JSON.stringify(coverage, null, 2), 'utf8'); }} catch(e) {{ console.warn('[WorkerInline] write coverage error:', e && e.message ? e.message : e); }}
-    return {{ exitCode: exitCode, coverageFile: path.join(out, 'v8-coverage.json'), coverage: coverage }};
-};
-
-// CLI argument parsing wrapper for inline '-e' script
-const rawArgs = process.argv.slice(1); // slice(1) because with -e Node sets argv[1] as '-e'
-let opts = {{ target_wasm: null, out: null, harness: null }};
-for (let i = 0; i < rawArgs.length; i++) {{
-    const a = rawArgs[i];
-    if (a === '--target-wasm' && i + 1 < rawArgs.length) {{ opts.target_wasm = rawArgs[++i]; }}
-    else if (a === '--out' && i + 1 < rawArgs.length) {{ opts.out = rawArgs[++i]; }}
-    else if (a === '--harness' && i + 1 < rawArgs.length) {{ opts.harness = rawArgs[++i]; }}
-}}
-const result = runWorkerSync(opts);
-console.log(JSON.stringify(result));`;
-
-    const res = cp.spawnSync('node', ['-e', inline, '--target-wasm', '{TWASM}', '--out', '{OD}', '--harness', 'libtest'], {{ encoding: 'utf8' }});
-    return {{
-        exitCode: res.status,
-        stdout: (res.stdout && res.stdout.toString()) || '',
-        stderr: (res.stderr && res.stderr.toString()) || '',
-        coverageFile: p.join('{OD}', 'v8-coverage.json')
-    }};
-    }} )()"#
+        // Child Node script run as a satellite process.
+        // This script uses the Inspector protocol to capture V8 precise coverage while it runs
+        // the supplied WASM module (libtest harness or equivalent). It writes coverage JSON
+        // to the provided output path and exits with the child's exit code.
+        const inline_script = {SAT_JS};
+        const res = cp.spawnSync('node', ['-', '--target-wasm', '{TWASM}', '--out', '{OD}', '--harness', 'libtest'], { encoding: 'utf8', input: inline_script, maxBuffer: 50 * 1024 * 1024 });
+        return {
+                exitCode: res.status,
+                stdout: (res.stdout && res.stdout.toString()) || '',
+                stderr: (res.stderr && res.stderr.toString()) || '',
+                coverageFile: p.join('{OD}', 'v8-coverage.json')
+        };
+} )()"#
         .replace("{TWASM}", t_wasm)
-        .replace("{OD}", od);
+        .replace("{OD}", od)
+        .replace("{SAT_JS}", serde_json::to_string(RUNNER_SATELLITE_JS).unwrap().as_str());
 
     let result_json = eval_js_on_heap(&snippet_s, 8 * 1024);
     if let Some(res) = result_json {
@@ -359,4 +318,34 @@ fn symbolicate_offsets(wasm_bytes: &[u8], offsets: &Vec<u64>) -> Result<String, 
         }
     }
     Ok(lcov)
+}
+
+// Conventional Rust unit tests for normal development
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_flag_value() {
+        let args = vec!["prog".to_string(), "--target-wasm".to_string(), "foo.wasm".to_string(), "--out".to_string(), "outdir".to_string()];
+        assert_eq!(find_flag_value(&args, "--target-wasm"), Some("foo.wasm".to_string()));
+        assert_eq!(find_flag_value(&args, "--out"), Some("outdir".to_string()));
+        assert_eq!(find_flag_value(&args, "--notthere"), None);
+    }
+
+    #[test]
+    fn test_has_flag() {
+        let args = vec!["a".to_string(), "--verbose".to_string(), "b".to_string()];
+        assert!(has_flag(&args, "--verbose"));
+        assert!(!has_flag(&args, "--noway"));
+    }
+
+    #[test]
+    fn test_symbolicate_offsets_empty() {
+        let res = symbolicate_offsets(&[], &vec![10, 20]);
+        assert!(res.is_ok());
+        let lcov = res.unwrap();
+        assert!(lcov.contains("SF:unknown"));
+        assert!(lcov.contains("DA:10,1") || lcov.contains("DA:20,1"));
+    }
 }
