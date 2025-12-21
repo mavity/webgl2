@@ -1,6 +1,6 @@
 {
   "name": "webgl2",
-"version": "1.0.7",
+  "version": "1.0.8",
   "description": "WebGL2 tools to derisk large GPU projects on the web beyond toys and demos.",
   "type": "module",
   "main": "index.js",
@@ -23,7 +23,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "TBD",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/mavity/mavity/issues"
   },

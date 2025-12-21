@@ -52,6 +52,27 @@ export class WasmWebGL2RenderingContext {
     this._instance = instance;
     this._ctxHandle = ctxHandle;
     this._destroyed = false;
+    /** @type {import('./webgl2_resources.js').WasmWebGLProgram | null} */
+    this._currentProgram = null;
+
+    WasmWebGL2RenderingContext.activeContext = this;
+  }
+
+  _executeShader(type, attrPtr, uniformPtr, varyingPtr, privatePtr) {
+    console.log(`DEBUG: _executeShader type=${type} attrPtr=${attrPtr}`);
+    if (!this._currentProgram) {
+      console.log("DEBUG: No current program");
+      return;
+    }
+    const shaderInstance = type === this.VERTEX_SHADER ? this._currentProgram._vsInstance : this._currentProgram._fsInstance;
+    if (shaderInstance && shaderInstance.exports.main) {
+      console.log("DEBUG: Executing shader main");
+      // @ts-ignore
+      shaderInstance.exports.main(attrPtr, uniformPtr, varyingPtr, privatePtr);
+      console.log("DEBUG: Shader main executed");
+    } else {
+      console.log(`DEBUG: Shader instance or main not found. vsInstance=${!!this._currentProgram._vsInstance}`);
+    }
   }
 
   destroy() {
@@ -342,6 +363,45 @@ export class WasmWebGL2RenderingContext {
     const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
     const code = ex.wasm_ctx_link_program(this._ctxHandle, programHandle);
     _checkErr(code, this._instance);
+
+    // After linking, we need to instantiate the WASM modules on the host
+    if (program && typeof program === 'object') {
+      this._instantiateProgramShaders(program);
+    }
+  }
+
+  _instantiateProgramShaders(program) {
+    const vsWasm = this.getProgramWasm(program, this.VERTEX_SHADER);
+    const fsWasm = this.getProgramWasm(program, this.FRAGMENT_SHADER);
+
+    console.log(`DEBUG: _instantiateProgramShaders vsWasm=${!!vsWasm} fsWasm=${!!fsWasm}`);
+
+    if (vsWasm) {
+      try {
+        const vsModule = new WebAssembly.Module(vsWasm);
+        program._vsInstance = new WebAssembly.Instance(vsModule, {
+          env: {
+            memory: this._instance.exports.memory
+          }
+        });
+        console.log("DEBUG: VS Instance created");
+      } catch (e) {
+        console.log(`DEBUG: VS Instance creation failed: ${e}`);
+      }
+    }
+    if (fsWasm) {
+      try {
+        const fsModule = new WebAssembly.Module(fsWasm);
+        program._fsInstance = new WebAssembly.Instance(fsModule, {
+          env: {
+            memory: this._instance.exports.memory
+          }
+        });
+        console.log("DEBUG: FS Instance created");
+      } catch (e) {
+        console.log(`DEBUG: FS Instance creation failed: ${e}`);
+      }
+    }
   }
 
   deleteProgram(program) {
@@ -367,6 +427,7 @@ export class WasmWebGL2RenderingContext {
     const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
     const code = ex.wasm_ctx_use_program(this._ctxHandle, programHandle);
     _checkErr(code, this._instance);
+    this._currentProgram = program;
   }
 
   getShaderParameter(shader, pname) {
@@ -549,6 +610,44 @@ export class WasmWebGL2RenderingContext {
     );
     _checkErr(code, this._instance);
   }
+
+  vertexAttrib1f(index, v0) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_vertex_attrib1f !== 'function') {
+      throw new Error('wasm_ctx_vertex_attrib1f not found');
+    }
+    const code = ex.wasm_ctx_vertex_attrib1f(this._ctxHandle, index >>> 0, +v0);
+    _checkErr(code, this._instance);
+  }
+  vertexAttrib2f(index, v0, v1) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_vertex_attrib2f !== 'function') {
+      throw new Error('wasm_ctx_vertex_attrib2f not found');
+    }
+    const code = ex.wasm_ctx_vertex_attrib2f(this._ctxHandle, index >>> 0, +v0, +v1);
+    _checkErr(code, this._instance);
+  }
+  vertexAttrib3f(index, v0, v1, v2) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_vertex_attrib3f !== 'function') {
+      throw new Error('wasm_ctx_vertex_attrib3f not found');
+    }
+    const code = ex.wasm_ctx_vertex_attrib3f(this._ctxHandle, index >>> 0, +v0, +v1, +v2);
+    _checkErr(code, this._instance);
+  }
+  vertexAttrib4f(index, v0, v1, v2, v3) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_vertex_attrib4f !== 'function') {
+      throw new Error('wasm_ctx_vertex_attrib4f not found');
+    }
+    const code = ex.wasm_ctx_vertex_attrib4f(this._ctxHandle, index >>> 0, +v0, +v1, +v2, +v3);
+    _checkErr(code, this._instance);
+  }
+
   vertexAttribDivisor(index, divisor) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
   createBuffer() {

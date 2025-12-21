@@ -8,7 +8,7 @@ mod builtins;
 mod control_flow;
 pub mod debug;
 mod expressions;
-mod types;
+pub mod types;
 
 use naga::{valid::ModuleInfo, Module};
 use std::collections::HashMap;
@@ -118,8 +118,9 @@ impl WasmBackend {
         module: &Module,
         info: &ModuleInfo,
         source: &str,
+        stage: naga::ShaderStage,
     ) -> Result<WasmModule, BackendError> {
-        backend::compile_module(self, module, info, source)
+        backend::compile_module(self, module, info, source, stage)
     }
 }
 

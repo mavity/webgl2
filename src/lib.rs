@@ -16,6 +16,24 @@ pub mod glsl_introspection;
 pub mod js_codegen;
 pub mod webgl2_context;
 
+#[link(wasm_import_module = "env")]
+extern "C" {
+    fn print(ptr: *const u8, len: usize);
+    fn wasm_execute_shader(type_: u32, attr_ptr: i32, uniform_ptr: i32, varying_ptr: i32, private_ptr: i32);
+}
+
+pub fn js_print(s: &str) {
+    unsafe {
+        print(s.as_ptr(), s.len());
+    }
+}
+
+pub fn js_execute_shader(type_: u32, attr_ptr: i32, uniform_ptr: i32, varying_ptr: i32, private_ptr: i32) {
+    unsafe {
+        wasm_execute_shader(type_, attr_ptr, uniform_ptr, varying_ptr, private_ptr);
+    }
+}
+
 // Re-export commonly used types
 pub use naga_wasm_backend::{WasmBackend, WasmBackendConfig, WasmModule, BackendError};
 #[cfg(feature = "cli")]
@@ -429,6 +447,30 @@ pub extern "C" fn wasm_ctx_disable_vertex_attrib_array(ctx: u32, index: u32) -> 
 #[no_mangle]
 pub extern "C" fn wasm_ctx_vertex_attrib_pointer(ctx: u32, index: u32, size: i32, type_: u32, normalized: u32, stride: i32, offset: u32) -> u32 {
 	webgl2_context::ctx_vertex_attrib_pointer(ctx, index, size, type_, normalized != 0, stride, offset)
+}
+
+/// Set vertex attribute default value (1f).
+#[no_mangle]
+pub extern "C" fn wasm_ctx_vertex_attrib1f(ctx: u32, index: u32, v0: f32) -> u32 {
+	webgl2_context::ctx_vertex_attrib1f(ctx, index, v0)
+}
+
+/// Set vertex attribute default value (2f).
+#[no_mangle]
+pub extern "C" fn wasm_ctx_vertex_attrib2f(ctx: u32, index: u32, v0: f32, v1: f32) -> u32 {
+	webgl2_context::ctx_vertex_attrib2f(ctx, index, v0, v1)
+}
+
+/// Set vertex attribute default value (3f).
+#[no_mangle]
+pub extern "C" fn wasm_ctx_vertex_attrib3f(ctx: u32, index: u32, v0: f32, v1: f32, v2: f32) -> u32 {
+	webgl2_context::ctx_vertex_attrib3f(ctx, index, v0, v1, v2)
+}
+
+/// Set vertex attribute default value (4f).
+#[no_mangle]
+pub extern "C" fn wasm_ctx_vertex_attrib4f(ctx: u32, index: u32, v0: f32, v1: f32, v2: f32, v3: f32) -> u32 {
+	webgl2_context::ctx_vertex_attrib4f(ctx, index, v0, v1, v2, v3)
 }
 
 /// Get a parameter (vector version).

@@ -27,6 +27,10 @@ export class WasmWebGLProgram {
     this._ctx = ctx;
     this._handle = handle;
     this._deleted = false;
+    /** @type {WebAssembly.Instance | null} */
+    this._vsInstance = null;
+    /** @type {WebAssembly.Instance | null} */
+    this._fsInstance = null;
   }
 }
 

@@ -108,7 +108,22 @@ async function initWASM() {
   const wasmModule = await WebAssembly.compile(wasmBuffer);
 
   // Instantiate WASM (no imports needed, memory is exported)
-  const instance = await WebAssembly.instantiate(wasmModule, {});
+  let instance;
+  const importObject = {
+    env: {
+      print: (ptr, len) => {
+        const mem = new Uint8Array(instance.exports.memory.buffer);
+        const bytes = mem.subarray(ptr, ptr + len);
+        console.log(new TextDecoder('utf-8').decode(bytes));
+      },
+      wasm_execute_shader: (type, attrPtr, uniformPtr, varyingPtr, privatePtr) => {
+        if (WasmWebGL2RenderingContext.activeContext) {
+          WasmWebGL2RenderingContext.activeContext._executeShader(type, attrPtr, uniformPtr, varyingPtr, privatePtr);
+        }
+      }
+    }
+  };
+  instance = await WebAssembly.instantiate(wasmModule, importObject);
 
   // Verify required exports
   const ex = instance.exports;

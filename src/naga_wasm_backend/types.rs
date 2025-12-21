@@ -16,6 +16,20 @@ pub fn scalar_to_wasm(kind: ScalarKind, _width: u8) -> Result<ValType, BackendEr
     }
 }
 
+/// Map a Naga type to WASM value type
+pub fn naga_to_wasm_type(type_inner: &TypeInner) -> Result<ValType, BackendError> {
+    match type_inner {
+        TypeInner::Scalar(scalar) => scalar_to_wasm(scalar.kind, scalar.width),
+        TypeInner::Vector { scalar, .. } => scalar_to_wasm(scalar.kind, scalar.width),
+        TypeInner::Matrix { scalar, .. } => scalar_to_wasm(scalar.kind, scalar.width),
+        TypeInner::Pointer { .. } => Ok(ValType::I32),
+        _ => Err(BackendError::UnsupportedFeature(format!(
+            "Unsupported Naga type for WASM: {:?}",
+            type_inner
+        ))),
+    }
+}
+
 /// Get the number of components in a vector
 pub fn vector_component_count(size: VectorSize) -> u32 {
     match size {

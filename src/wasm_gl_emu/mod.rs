@@ -4,16 +4,8 @@
 //! compiled WASM shaders in a CPU-based rasterizer, enabling full debugging
 //! capabilities.
 
-// Runtime selection: native (wasmtime) or web (wasm-bindgen)
-#[cfg(feature = "cli")]
-mod runtime_native;
-
-#[cfg(feature = "web")]
-mod runtime_web;
-
-// Default to native runtime when no feature is specified
-#[cfg(not(any(feature = "cli", feature = "web")))]
-mod runtime_native;
+// Runtime selection: wasmi (for wasm32 and native)
+mod runtime_wasmi;
 
 mod framebuffer;
 mod pipeline;
@@ -21,12 +13,8 @@ mod rasterizer;
 mod state;
 mod texture;
 
-#[cfg(feature = "cli")]
-pub use runtime_native::ShaderRuntime;
-pub use runtime_native::RuntimeError;
-
-#[cfg(feature = "web")]
-pub use runtime_web::instantiate_shader;
+pub use runtime_wasmi::ShaderRuntime;
+pub use runtime_wasmi::RuntimeError;
 
 pub use framebuffer::Framebuffer;
 pub use pipeline::{Pipeline, VertexOutput};
