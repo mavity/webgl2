@@ -15,13 +15,15 @@ pub(super) fn compile_module(
     info: &ModuleInfo,
     source: &str,
     stage: naga::ShaderStage,
+    uniform_locations: &HashMap<String, u32>,
+    varying_locations: &HashMap<String, u32>,
 ) -> Result<WasmModule, BackendError> {
     tracing::info!(
         "Starting WASM compilation for module with {} entry points",
         module.entry_points.len()
     );
 
-    let mut compiler = Compiler::new(backend, info, source, stage);
+    let mut compiler = Compiler::new(backend, info, source, stage, uniform_locations, varying_locations);
     compiler.compile(module)?;
 
     Ok(compiler.finish())
@@ -33,6 +35,8 @@ struct Compiler<'a> {
     _info: &'a ModuleInfo,
     _source: &'a str,
     stage: naga::ShaderStage,
+    uniform_locations: &'a HashMap<String, u32>,
+    varying_locations: &'a HashMap<String, u32>,
 
     // WASM module sections
     types: TypeSection,
@@ -46,14 +50,22 @@ struct Compiler<'a> {
     entry_points: HashMap<String, u32>,
     function_count: u32,
     naga_function_map: HashMap<naga::Handle<naga::Function>, u32>,
-    global_offsets: HashMap<naga::Handle<naga::GlobalVariable>, u32>,
+    global_offsets: HashMap<naga::Handle<naga::GlobalVariable>, (u32, u32)>,
+    argument_local_offsets: HashMap<u32, u32>,
 
     // Debug info (if enabled)
     debug_generator: Option<super::debug::DwarfGenerator>,
 }
 
 impl<'a> Compiler<'a> {
-    fn new(backend: &'a WasmBackend, info: &'a ModuleInfo, source: &'a str, stage: naga::ShaderStage) -> Self {
+    fn new(
+        backend: &'a WasmBackend,
+        info: &'a ModuleInfo,
+        source: &'a str,
+        stage: naga::ShaderStage,
+        uniform_locations: &'a HashMap<String, u32>,
+        varying_locations: &'a HashMap<String, u32>,
+    ) -> Self {
         let debug_generator = if backend.config.debug_info {
             Some(super::debug::DwarfGenerator::new(source))
         } else {
@@ -65,6 +77,8 @@ impl<'a> Compiler<'a> {
             _info: info,
             _source: source,
             stage,
+            uniform_locations,
+            varying_locations,
             types: TypeSection::new(),
             imports: ImportSection::new(),
             functions: FunctionSection::new(),
@@ -75,6 +89,7 @@ impl<'a> Compiler<'a> {
             function_count: 0,
             naga_function_map: HashMap::new(),
             global_offsets: HashMap::new(),
+            argument_local_offsets: HashMap::new(),
             debug_generator,
         }
     }
@@ -102,10 +117,9 @@ impl<'a> Compiler<'a> {
         }
 
         // Calculate global offsets per address space
-        let mut uniform_offset = 0;
         let mut varying_offset = 0;
-        let mut attr_offset = 0;
         let mut private_offset = 0;
+        let mut attr_offset = 0;
 
         // First pass: find gl_Position and put it at the start of varying buffer
         for (handle, var) in module.global_variables.iter() {
@@ -116,7 +130,7 @@ impl<'a> Compiler<'a> {
             };
 
             if is_position {
-                self.global_offsets.insert(handle, 0);
+                self.global_offsets.insert(handle, (0, 2));
                 varying_offset = 16; // gl_Position is vec4 (16 bytes)
                 break;
             }
@@ -138,38 +152,65 @@ impl<'a> Compiler<'a> {
             }
             let size = super::types::type_size(&module.types[var.ty].inner).unwrap_or(4);
             
-            // Heuristic for GLSL: 
-            // - Uniform -> Uniform
-            // - Private -> could be In, Out, or actual Private
-            // For now, let's assume:
-            // - If it has a name and we are in VS:
-            //   - "gl_Position" -> Out (already handled)
-            //   - other names -> In (Attributes)
-            // This is a very rough heuristic.
-            
-            let offset = match var.space {
+            crate::js_print(&format!("DEBUG: Global '{}' space={:?} binding={:?}", var.name.as_deref().unwrap_or("?"), var.space, var.binding));
+
+            let (offset, base_ptr) = match var.space {
                 naga::AddressSpace::Uniform => {
-                    let o = uniform_offset;
-                    uniform_offset += 16; // Each uniform gets 16 bytes to match ctx_uniform setters
-                    o
+                    if let Some(name) = &var.name {
+                        if let Some(&loc) = self.uniform_locations.get(name) {
+                            let offset = loc * 16;
+                            crate::js_print(&format!("DEBUG: Uniform '{}' assigned offset {}", name, offset));
+                            (offset, 1)
+                        } else {
+                            crate::js_print(&format!("DEBUG: Uniform '{}' NOT FOUND in locations", name));
+                            (0, 1)
+                        }
+                    } else {
+                        (0, 1)
+                    }
                 }
-                naga::AddressSpace::Handle => 0,
-                naga::AddressSpace::Private => {
-                    // Heuristic: if it's not gl_Position and we are in VS, it's probably an attribute
-                    // Actually, let's just put everything in Private for now unless it's gl_Position
-                    let o = private_offset;
-                    private_offset += size;
-                    private_offset = (private_offset + 3) & !3;
-                    o
+                naga::AddressSpace::Handle => (0, 1),
+                naga::AddressSpace::Private | naga::AddressSpace::Function => {
+                    // Check if it's an output in FS
+                    let is_output = if self.stage == naga::ShaderStage::Fragment {
+                        if let Some(name) = &var.name {
+                            name == "color" || name == "gl_FragColor" || name == "gl_FragColor_1"
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    if is_output {
+                        crate::js_print(&format!("DEBUG: Global '{}' is FS output, assigned offset 0 in private", var.name.as_deref().unwrap_or("?")));
+                        (0, 3)
+                    } else if let Some(name) = &var.name {
+                        if let Some(&loc) = self.varying_locations.get(name) {
+                            let offset = loc * 16;
+                            crate::js_print(&format!("DEBUG: Global '{}' is varying, assigned offset {} in varying", name, offset));
+                            (offset, 2)
+                        } else {
+                            let o = private_offset;
+                            private_offset += size;
+                            private_offset = (private_offset + 3) & !3;
+                            (o, 3)
+                        }
+                    } else {
+                        let o = private_offset;
+                        private_offset += size;
+                        private_offset = (private_offset + 3) & !3;
+                        (o, 3)
+                    }
                 }
                 _ => {
                     let o = varying_offset;
                     varying_offset += size;
                     varying_offset = (varying_offset + 3) & !3;
-                    o
+                    (o, 2)
                 }
             };
-            self.global_offsets.insert(handle, offset);
+            self.global_offsets.insert(handle, (offset, base_ptr));
         }
 
         // Compile all internal functions first
@@ -180,9 +221,12 @@ impl<'a> Compiler<'a> {
 
         // Compile each entry point
         for (idx, entry_point) in module.entry_points.iter().enumerate() {
-            crate::js_print(&format!("DEBUG: Entry point '{}' has {} arguments", entry_point.name, entry_point.function.arguments.len()));
+            crate::js_print(&format!("DEBUG: Entry point '{}' stage={:?} has {} arguments", entry_point.name, entry_point.stage, entry_point.function.arguments.len()));
             for (i, arg) in entry_point.function.arguments.iter().enumerate() {
                 crate::js_print(&format!("DEBUG: Argument {}: name={:?}, binding={:?}", i, arg.name, arg.binding));
+            }
+            if let Some(ref result) = entry_point.function.result {
+                crate::js_print(&format!("DEBUG: Entry point result: binding={:?}", result.binding));
             }
             self.compile_entry_point(entry_point, module, idx)?;
         }
@@ -199,24 +243,29 @@ impl<'a> Compiler<'a> {
         let func_idx = self.function_count;
         self.function_count += 1;
 
-        let mut params = vec![];
-        let mut results = vec![];
+        let mut params: Vec<ValType> = vec![];
+        let mut results: Vec<ValType> = vec![];
+        let mut argument_local_offsets = HashMap::new();
+        let mut current_param_idx = 0;
 
         if let Some(_) = entry_point {
             // Entry point signature: (attr_ptr, uniform_ptr, varying_ptr, private_ptr) -> ()
             params = vec![ValType::I32, ValType::I32, ValType::I32, ValType::I32];
+            current_param_idx = 4;
         } else {
             // Internal function signature based on Naga
             crate::js_print(&format!("DEBUG: Internal function has {} arguments", func.arguments.len()));
             for (i, arg) in func.arguments.iter().enumerate() {
-                let ty = super::types::naga_to_wasm_type(&module.types[arg.ty].inner)?;
-                crate::js_print(&format!("DEBUG: Internal arg {}: type={:?}", i, ty));
-                params.push(ty);
+                let types = super::types::naga_to_wasm_types(&module.types[arg.ty].inner)?;
+                crate::js_print(&format!("DEBUG: Internal arg {}: types={:?}", i, types));
+                argument_local_offsets.insert(i as u32, current_param_idx);
+                current_param_idx += types.len() as u32;
+                params.extend(types);
             }
             if let Some(ret) = &func.result {
-                let ty = super::types::naga_to_wasm_type(&module.types[ret.ty].inner)?;
-                crate::js_print(&format!("DEBUG: Internal return: type={:?}", ty));
-                results.push(ty);
+                let types = super::types::naga_to_wasm_types(&module.types[ret.ty].inner)?;
+                crate::js_print(&format!("DEBUG: Internal return: types={:?}", types));
+                results.extend(types);
             }
         }
 
@@ -224,8 +273,47 @@ impl<'a> Compiler<'a> {
         self.types.ty().function(params, results);
         self.functions.function(type_idx);
 
+        let mut typifier = Typifier::new();
+        let resolve_ctx = naga::proc::ResolveContext::with_locals(
+            module,
+            &func.local_variables,
+            &func.arguments,
+        );
+        for (handle, expr) in func.expressions.iter() {
+            // crate::js_print(&format!("DEBUG: Expr {:?}: {:?}", handle, expr));
+            typifier.grow(handle, &func.expressions, &resolve_ctx).map_err(|e| BackendError::UnsupportedFeature(format!("Typifier error: {:?}", e)))?;
+        }
+
+        // Calculate local variable offsets
+        let mut local_offsets = HashMap::new();
+        let mut current_local_offset = 0;
+        for (handle, var) in func.local_variables.iter() {
+            let size = super::types::type_size(&module.types[var.ty].inner).unwrap_or(4);
+            local_offsets.insert(handle, current_local_offset);
+            current_local_offset += size;
+        }
+
+        // Map CallResult expressions to WASM locals
+        let mut call_result_locals = HashMap::new();
+        let mut locals_types = vec![];
+        let mut next_local_idx = current_param_idx;
+
+        for (handle, expr) in func.expressions.iter() {
+            if let naga::Expression::CallResult(func_handle) = expr {
+                let called_func = &module.functions[*func_handle];
+                if let Some(ret) = &called_func.result {
+                    let types = super::types::naga_to_wasm_types(&module.types[ret.ty].inner)?;
+                    call_result_locals.insert(handle, next_local_idx);
+                    for _ in 0..types.len() {
+                        locals_types.push((1, ValType::F32));
+                    }
+                    next_local_idx += types.len() as u32;
+                }
+            }
+        }
+
         // Create function body
-        let mut wasm_func = Function::new(vec![]); // TODO: locals
+        let mut wasm_func = Function::new(locals_types);
 
         if let Some(_) = entry_point {
             // Set globals from arguments
@@ -233,16 +321,6 @@ impl<'a> Compiler<'a> {
                 wasm_func.instruction(&Instruction::LocalGet(i));
                 wasm_func.instruction(&Instruction::GlobalSet(i));
             }
-        }
-
-        let mut typifier = Typifier::new();
-        let resolve_ctx = naga::proc::ResolveContext::with_locals(
-            module,
-            &func.local_variables,
-            &func.arguments,
-        );
-        for (handle, _) in func.expressions.iter() {
-            typifier.grow(handle, &func.expressions, &resolve_ctx).map_err(|e| BackendError::UnsupportedFeature(format!("Typifier error: {:?}", e)))?;
         }
 
         let stage = self.stage;
@@ -256,9 +334,12 @@ impl<'a> Compiler<'a> {
                 module,
                 &mut wasm_func,
                 &self.global_offsets,
+                &local_offsets,
+                &call_result_locals,
                 stage,
                 &typifier,
                 &self.naga_function_map,
+                &argument_local_offsets,
                 is_entry_point,
             )?;
         }

@@ -1477,12 +1477,77 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
         p.vs_info = vs_info;
         p.fs_info = fs_info;
 
+        // Extract attributes and uniforms from Naga modules to ensure consistent locations
+        p.attributes.clear();
+        p.uniforms.clear();
+        let mut uniform_locations = HashMap::new();
+        let mut next_uniform_loc = 0;
+        let mut varying_locations = HashMap::new();
+        let mut next_varying_loc = 1; // 0 is reserved for gl_Position
+
+        if let Some(vs) = &p.vs_module {
+            for ep in &vs.entry_points {
+                if ep.stage == ShaderStage::Vertex {
+                    for arg in &ep.function.arguments {
+                        if let Some(name) = &arg.name {
+                            if let Some(Binding::Location { location, .. }) = &arg.binding {
+                                p.attributes.insert(name.clone(), *location as i32);
+                            }
+                        }
+                    }
+                }
+            }
+            for (_, var) in vs.global_variables.iter() {
+                if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
+                    if let Some(name) = &var.name {
+                        if !p.uniforms.contains_key(name) {
+                            p.uniforms.insert(name.clone(), next_uniform_loc as i32);
+                            uniform_locations.insert(name.clone(), next_uniform_loc);
+                            next_uniform_loc += 1;
+                        }
+                    }
+                } else if var.space == AddressSpace::Private {
+                    if let Some(name) = &var.name {
+                        if name != "gl_Position" && name != "gl_Position_1" && !p.attributes.contains_key(name) {
+                            if !varying_locations.contains_key(name) {
+                                varying_locations.insert(name.clone(), next_varying_loc);
+                                next_varying_loc += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if let Some(fs) = &p.fs_module {
+            for (_, var) in fs.global_variables.iter() {
+                if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
+                    if let Some(name) = &var.name {
+                        if !p.uniforms.contains_key(name) {
+                            p.uniforms.insert(name.clone(), next_uniform_loc as i32);
+                            uniform_locations.insert(name.clone(), next_uniform_loc);
+                            next_uniform_loc += 1;
+                        }
+                    }
+                } else if var.space == AddressSpace::Private {
+                    if let Some(name) = &var.name {
+                        if name != "color" && name != "gl_FragColor" && name != "gl_FragColor_1" {
+                            if !varying_locations.contains_key(name) {
+                                varying_locations.insert(name.clone(), next_varying_loc);
+                                next_varying_loc += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Compile to WASM
         let backend = WasmBackend::new(WasmBackendConfig::default());
         
         if let (Some(vs), Some(vsi)) = (&p.vs_module, &p.vs_info) {
             crate::js_print("DEBUG: Compiling VS to WASM");
-            match backend.compile(vs, vsi, &vs_source, naga::ShaderStage::Vertex) {
+            match backend.compile(vs, vsi, &vs_source, naga::ShaderStage::Vertex, &uniform_locations, &varying_locations) {
                 Ok(wasm) => {
                     crate::js_print(&format!("DEBUG: VS WASM compiled, size={}", wasm.wasm_bytes.len()));
                     p.vs_wasm = Some(wasm.wasm_bytes);
@@ -1498,7 +1563,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
 
         if let (Some(fs), Some(fsi)) = (&p.fs_module, &p.fs_info) {
             crate::js_print("DEBUG: Compiling FS to WASM");
-            match backend.compile(fs, fsi, &fs_source, naga::ShaderStage::Fragment) {
+            match backend.compile(fs, fsi, &fs_source, naga::ShaderStage::Fragment, &uniform_locations, &varying_locations) {
                 Ok(wasm) => {
                     crate::js_print(&format!("DEBUG: FS WASM compiled, size={}", wasm.wasm_bytes.len()));
                     p.fs_wasm = Some(wasm.wasm_bytes);
@@ -1512,101 +1577,9 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
             }
         }
 
-        // Instantiate runtimes
-        /*
-        if let Some(wasm_bytes) = &p.vs_wasm {
-            match ShaderRuntime::new(wasm_bytes) {
-                Ok(rt) => p.vs_runtime = Some(rt),
-                Err(e) => {
-                    p.linked = false;
-                    p.info_log = format!("VS Runtime error: {:?}", e);
-                    return ERR_OK;
-                }
-            }
-        }
-
-        if let Some(wasm_bytes) = &p.fs_wasm {
-            match ShaderRuntime::new(wasm_bytes) {
-                Ok(rt) => p.fs_runtime = Some(rt),
-                Err(e) => {
-                    p.linked = false;
-                    p.info_log = format!("FS Runtime error: {:?}", e);
-                    return ERR_OK;
-                }
-            }
-        }
-        */
-
         p.linked = true;
-        
-        // Extract attributes and uniforms from Naga modules
-        p.attributes.clear();
-        p.uniforms.clear();
-
-        let mut debug_info = String::from("Program linked successfully.");
-        let mut uniform_offset = 0;
-
-        if let Some(vs) = &p.vs_module {
-            for ep in &vs.entry_points {
-                println!("DEBUG: VS Entry point: {}", ep.name);
-                if ep.stage == ShaderStage::Vertex {
-                    for arg in &ep.function.arguments {
-                        if let Some(name) = &arg.name {
-                            if let Some(Binding::Location { location, .. }) = &arg.binding {
-                                p.attributes.insert(name.clone(), *location as i32);
-                            }
-                        }
-                    }
-                }
-            }
-            for (_, var) in vs.global_variables.iter() {
-                if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
-                    let size = crate::naga_wasm_backend::types::type_size(&vs.types[var.ty].inner).unwrap_or(4);
-                    let ty = &vs.types[var.ty];
-                    if let TypeInner::Struct { members, .. } = &ty.inner {
-                        for member in members {
-                            if let Some(m_name) = &member.name {
-                                let loc = (uniform_offset / 4) as i32;
-                                p.uniforms.entry(m_name.clone()).or_insert(loc);
-                                debug_info.push_str(&format!(" Found uniform member: {}", m_name));
-                                // For members, we'd need more complex logic, but let's assume 4-byte alignment
-                                uniform_offset += 4; // Simplified
-                            }
-                        }
-                    } else if let Some(name) = &var.name {
-                        let loc = (uniform_offset / 4) as i32;
-                        p.uniforms.entry(name.clone()).or_insert(loc);
-                        debug_info.push_str(&format!(" Found uniform: {}", name));
-                        uniform_offset += size;
-                        uniform_offset = (uniform_offset + 3) & !3;
-                    }
-                }
-            }
-        }
-        
-        if let Some(fs) = &p.fs_module {
-            for (_, var) in fs.global_variables.iter() {
-                if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
-                    let ty = &fs.types[var.ty];
-                    if let TypeInner::Struct { members, .. } = &ty.inner {
-                        for member in members {
-                            if let Some(m_name) = &member.name {
-                                let loc = p.uniforms.len() as i32;
-                                p.uniforms.entry(m_name.clone()).or_insert(loc);
-                                debug_info.push_str(&format!(" Found uniform member: {}", m_name));
-                            }
-                        }
-                    } else if let Some(name) = &var.name {
-                        let loc = p.uniforms.len() as i32;
-                        p.uniforms.entry(name.clone()).or_insert(loc);
-                        debug_info.push_str(&format!(" Found uniform: {}", name));
-                    }
-                }
-            }
-        }
-
-        p.info_log = debug_info;
-        ERR_OK
+        p.info_log = "Program linked successfully.".to_string();
+        return ERR_OK;
     } else {
         set_last_error("program not found");
         ERR_INVALID_HANDLE
@@ -2106,7 +2079,7 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
                     
                     // Copy uniforms to memory (at 0x1000)
                     let uniform_ptr = 0x1000;
-                    std::ptr::copy_nonoverlapping(ctx_obj.uniform_data.as_ptr(), uniform_ptr as *mut u8, ctx_obj.uniform_data.len());
+                    std::ptr::copy_nonoverlapping(ctx_obj.uniform_data.as_ptr() as *const u8, uniform_ptr as *mut u8, ctx_obj.uniform_data.len());
                 }
 
                 // Run VS
@@ -2170,7 +2143,7 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
                         unsafe {
                             std::ptr::copy_nonoverlapping(attr_bytes.as_ptr(), attr_ptr as *mut u8, attr_bytes.len());
                             let uniform_ptr = 0x1000;
-                            std::ptr::copy_nonoverlapping(ctx_obj.uniform_data.as_ptr(), uniform_ptr as *mut u8, ctx_obj.uniform_data.len());
+                            std::ptr::copy_nonoverlapping(ctx_obj.uniform_data.as_ptr() as *const u8, uniform_ptr as *mut u8, ctx_obj.uniform_data.len());
                         }
                         let uniform_ptr = 0x1000;
                         let varying_ptr = 0x3000;

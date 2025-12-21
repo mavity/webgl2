@@ -16,17 +16,45 @@ pub fn scalar_to_wasm(kind: ScalarKind, _width: u8) -> Result<ValType, BackendEr
     }
 }
 
-/// Map a Naga type to WASM value type
-pub fn naga_to_wasm_type(type_inner: &TypeInner) -> Result<ValType, BackendError> {
+/// Map a Naga type to WASM value types
+pub fn naga_to_wasm_types(type_inner: &TypeInner) -> Result<Vec<ValType>, BackendError> {
     match type_inner {
-        TypeInner::Scalar(scalar) => scalar_to_wasm(scalar.kind, scalar.width),
-        TypeInner::Vector { scalar, .. } => scalar_to_wasm(scalar.kind, scalar.width),
-        TypeInner::Matrix { scalar, .. } => scalar_to_wasm(scalar.kind, scalar.width),
-        TypeInner::Pointer { .. } => Ok(ValType::I32),
+        TypeInner::Scalar(scalar) => Ok(vec![scalar_to_wasm(scalar.kind, scalar.width)?]),
+        TypeInner::Vector { size, scalar } => {
+            let val_type = scalar_to_wasm(scalar.kind, scalar.width)?;
+            let count = vector_component_count(*size) as usize;
+            Ok(vec![val_type; count])
+        }
+        TypeInner::Matrix {
+            columns,
+            rows,
+            scalar,
+        } => {
+            let val_type = scalar_to_wasm(scalar.kind, scalar.width)?;
+            let count = (vector_component_count(*columns) * vector_component_count(*rows)) as usize;
+            Ok(vec![val_type; count])
+        }
+        TypeInner::Pointer { .. } => Ok(vec![ValType::I32]),
         _ => Err(BackendError::UnsupportedFeature(format!(
             "Unsupported Naga type for WASM: {:?}",
             type_inner
         ))),
+    }
+}
+
+/// Get the number of components in a type
+pub fn component_count(type_inner: &TypeInner) -> u32 {
+    match type_inner {
+        TypeInner::Scalar(_) => 1,
+        TypeInner::Vector { size, .. } => vector_component_count(*size),
+        TypeInner::Matrix { columns, rows, .. } => {
+            vector_component_count(*columns) * vector_component_count(*rows)
+        }
+        TypeInner::Array { size, .. } => match size {
+            naga::ArraySize::Constant(count) => count.get(),
+            _ => 1,
+        },
+        _ => 1,
     }
 }
 

@@ -119,8 +119,10 @@ impl WasmBackend {
         info: &ModuleInfo,
         source: &str,
         stage: naga::ShaderStage,
+        uniform_locations: &HashMap<String, u32>,
+        varying_locations: &HashMap<String, u32>,
     ) -> Result<WasmModule, BackendError> {
-        backend::compile_module(self, module, info, source, stage)
+        backend::compile_module(self, module, info, source, stage, uniform_locations, varying_locations)
     }
 }
 

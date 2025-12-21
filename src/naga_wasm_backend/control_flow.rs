@@ -14,17 +14,20 @@ pub fn translate_statement(
     func: &naga::Function,
     module: &naga::Module,
     wasm_func: &mut Function,
-    global_offsets: &HashMap<naga::Handle<naga::GlobalVariable>, u32>,
+    global_offsets: &HashMap<naga::Handle<naga::GlobalVariable>, (u32, u32)>,
+    local_offsets: &HashMap<naga::Handle<naga::LocalVariable>, u32>,
+    call_result_locals: &HashMap<naga::Handle<naga::Expression>, u32>,
     stage: naga::ShaderStage,
     typifier: &Typifier,
     naga_function_map: &HashMap<naga::Handle<naga::Function>, u32>,
+    argument_local_offsets: &HashMap<u32, u32>,
     is_entry_point: bool,
 ) -> Result<(), BackendError> {
     // crate::js_print(&format!("DEBUG: Statement: {:?}", stmt));
     match stmt {
         naga::Statement::Block(block) => {
             for s in block {
-                translate_statement(s, func, module, wasm_func, global_offsets, stage, typifier, naga_function_map, is_entry_point)?;
+                translate_statement(s, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point)?;
             }
         }
         naga::Statement::Store { pointer, value } => {
@@ -56,17 +59,12 @@ pub fn translate_statement(
 
             for i in 0..num_components {
                 // Evaluate pointer (address)
-                super::expressions::translate_expression(*pointer, func, module, wasm_func, global_offsets, stage, typifier, naga_function_map, is_entry_point)?;
-                // Add offset for this component
-                if i > 0 {
-                    wasm_func.instruction(&Instruction::I32Const((i * 4) as i32));
-                    wasm_func.instruction(&Instruction::I32Add);
-                }
+                super::expressions::translate_expression(*pointer, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point)?;
                 // Evaluate value component i
-                super::expressions::translate_expression_component(*value, i, func, module, wasm_func, global_offsets, stage, typifier, naga_function_map, is_entry_point)?;
+                super::expressions::translate_expression_component(*value, i, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point)?;
                 // Store
                 wasm_func.instruction(&Instruction::F32Store(wasm_encoder::MemArg {
-                    offset: 0,
+                    offset: (i * 4) as u64,
                     align: 2,
                     memory_index: 0,
                 }));
@@ -75,7 +73,7 @@ pub fn translate_statement(
         naga::Statement::Call { function, arguments, result } => {
             // Push arguments
             for arg in arguments {
-                super::expressions::translate_expression(*arg, func, module, wasm_func, global_offsets, stage, typifier, naga_function_map, is_entry_point)?;
+                super::expressions::translate_expression(*arg, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point)?;
             }
             // Call
             if let Some(&wasm_idx) = naga_function_map.get(function) {
@@ -84,20 +82,34 @@ pub fn translate_statement(
                 return Err(BackendError::UnsupportedFeature(format!("Call to unknown function: {:?}", function)));
             }
             // Handle result if any
-            if let Some(_res) = result {
-                // For now, we don't support storing the result of a call in an expression
-                // because Naga's IR uses handles for expressions, and we'd need to map them to locals.
-                // But if the function returns something, it will be on the WASM stack.
-                // If it's not used, we should pop it.
-                let called_func = &module.functions[*function];
-                if called_func.result.is_some() {
-                    wasm_func.instruction(&Instruction::Drop);
+            if let Some(res_handle) = result {
+                if let Some(&local_idx) = call_result_locals.get(res_handle) {
+                    // Store all components of the result into locals
+                    let called_func = &module.functions[*function];
+                    if let Some(ret) = &called_func.result {
+                        let types = super::types::naga_to_wasm_types(&module.types[ret.ty].inner)?;
+                        // WASM returns values in order, so we need to store them in reverse order if we use LocalSet?
+                        // Actually, LocalSet pops the top value. If the function returns (f32, f32), the stack is [..., v1, v2].
+                        // So we should do LocalSet(local_idx + 1), then LocalSet(local_idx).
+                        for i in (0..types.len()).rev() {
+                            wasm_func.instruction(&Instruction::LocalSet(local_idx + i as u32));
+                        }
+                    }
+                } else {
+                    // If it's not used, we should pop it.
+                    let called_func = &module.functions[*function];
+                    if let Some(ret) = &called_func.result {
+                        let types = super::types::naga_to_wasm_types(&module.types[ret.ty].inner)?;
+                        for _ in 0..types.len() {
+                            wasm_func.instruction(&Instruction::Drop);
+                        }
+                    }
                 }
             }
         }
         naga::Statement::Return { value } => {
             if let Some(expr_handle) = value {
-                super::expressions::translate_expression(*expr_handle, func, module, wasm_func, global_offsets, stage, typifier, naga_function_map, is_entry_point)?;
+                super::expressions::translate_expression(*expr_handle, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point)?;
             }
             wasm_func.instruction(&Instruction::Return);
         }
