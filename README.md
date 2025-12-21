@@ -25,7 +25,7 @@ npm run build
 npm test
 ```
 
-[🧊Demo](https://raw.githack.com/mavity/webgl2/refs/heads/main/index.html)
+[🧊Demo](https://webgl2/was.hm)
 
 ## ✨ Key Features
 
