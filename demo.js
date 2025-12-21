@@ -320,18 +320,45 @@ async function main() {
         savePNG(width, height, Buffer.from(pixels), 'output.png');
         console.log("Saved output.png");
     } else {
-        // Browser: Display in canvas
-        const canvas = document.getElementById('canvas') || (() => {
-            const c = document.createElement('canvas');
-            c.id = 'canvas';
-            c.width = width;
-            c.height = height;
-            document.body.appendChild(c);
-            return c;
-        })();
+        // Browser: Apply styles and create UI
+        const style = document.createElement('style');
+        style.textContent = `
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                background: #222;
+                color: #fff;
+                font-family: monospace;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                padding: 20px;
+                gap: 20px;
+            }
+            h1 {
+                font-size: 24px;
+                font-weight: normal;
+            }
+            canvas {
+                border: 2px solid #fff;
+                background: #000;
+                image-rendering: pixelated;
+                image-rendering: crisp-edges;
+            }
+        `;
+        document.head.appendChild(style);
         
+        // Create title
+        const h1 = document.createElement('h1');
+        h1.textContent = 'WebGL2 Polymorphic Cube Renderer';
+        document.body.appendChild(h1);
+        
+        // Create canvas
+        const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
+        document.body.appendChild(canvas);
         
         const ctx = canvas.getContext('2d');
         const imageData = ctx.createImageData(width, height);
@@ -353,9 +380,7 @@ async function main() {
 }
 
 // Auto-run if this is Node
-if (isNode) {
-    main().catch(console.error);
-}
+main().catch(console.error);
 
 // Export for browser
 export { renderCube, main };
