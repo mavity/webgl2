@@ -5,7 +5,7 @@
 use super::BackendError;
 
 use wasm_encoder::{Instruction, Function};
-use naga::{Expression, BinaryOperator, ScalarKind, Literal};
+use naga::{Expression, BinaryOperator, Literal};
 use std::collections::HashMap;
 use naga::front::Typifier;
 
@@ -251,7 +251,7 @@ pub fn translate_expression_component(
         Expression::Splat { size: _, value } => {
             translate_expression_component(*value, 0, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point, scratch_base)?;
         }
-        Expression::CallResult(handle) => {
+        Expression::CallResult(_handle) => {
             if let Some(&local_idx) = call_result_locals.get(&expr_handle) {
                 wasm_func.instruction(&Instruction::LocalGet(local_idx + component_idx));
             } else {

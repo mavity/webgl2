@@ -120,7 +120,7 @@ impl<'a> Compiler<'a> {
         // Calculate global offsets per address space
         let mut varying_offset = 0;
         let mut private_offset = 0;
-        let mut attr_offset = 0;
+        let _attr_offset = 0;
 
         // First pass: find gl_Position and put it at the start of varying buffer
         for (handle, var) in module.global_variables.iter() {
@@ -140,7 +140,7 @@ impl<'a> Compiler<'a> {
         // We need to know which variables are inputs/outputs
         // For now, let's look at the first entry point
         if let Some(ep) = module.entry_points.first() {
-            for arg in &ep.function.arguments {
+            for _arg in &ep.function.arguments {
                 // Naga GLSL frontend often uses Private for inputs
                 // We can't easily link them back to GlobalVariable handles here
                 // without more complex analysis.
@@ -215,13 +215,6 @@ impl<'a> Compiler<'a> {
 
         // Compile each entry point
         for (idx, entry_point) in module.entry_points.iter().enumerate() {
-            crate::js_print(&format!("DEBUG: Entry point '{}' stage={:?} has {} arguments", entry_point.name, entry_point.stage, entry_point.function.arguments.len()));
-            for (i, arg) in entry_point.function.arguments.iter().enumerate() {
-                crate::js_print(&format!("DEBUG: Argument {}: name={:?}, binding={:?}", i, arg.name, arg.binding));
-            }
-            if let Some(ref result) = entry_point.function.result {
-                crate::js_print(&format!("DEBUG: Entry point result: binding={:?}", result.binding));
-            }
             self.compile_entry_point(entry_point, module, idx)?;
         }
 
@@ -248,17 +241,14 @@ impl<'a> Compiler<'a> {
             current_param_idx = 6;
         } else {
             // Internal function signature based on Naga
-            crate::js_print(&format!("DEBUG: Internal function has {} arguments", func.arguments.len()));
             for (i, arg) in func.arguments.iter().enumerate() {
                 let types = super::types::naga_to_wasm_types(&module.types[arg.ty].inner)?;
-                crate::js_print(&format!("DEBUG: Internal arg {}: types={:?}", i, types));
                 argument_local_offsets.insert(i as u32, current_param_idx);
                 current_param_idx += types.len() as u32;
                 params.extend(types);
             }
             if let Some(ret) = &func.result {
                 let types = super::types::naga_to_wasm_types(&module.types[ret.ty].inner)?;
-                crate::js_print(&format!("DEBUG: Internal return: types={:?}", types));
                 results.extend(types);
             }
         }
@@ -273,7 +263,7 @@ impl<'a> Compiler<'a> {
             &func.local_variables,
             &func.arguments,
         );
-        for (handle, expr) in func.expressions.iter() {
+        for (handle, _expr) in func.expressions.iter() {
             // crate::js_print(&format!("DEBUG: Expr {:?}: {:?}", handle, expr));
             typifier.grow(handle, &func.expressions, &resolve_ctx).map_err(|e| BackendError::UnsupportedFeature(format!("Typifier error: {:?}", e)))?;
         }
@@ -310,7 +300,6 @@ impl<'a> Compiler<'a> {
         let scratch_base = next_local_idx;
         locals_types.push((32, ValType::I32)); // 32 scratch i32s
         locals_types.push((32, ValType::F32)); // 32 scratch f32s
-        next_local_idx += 64;
 
         // Create function body
         let mut wasm_func = Function::new(locals_types);

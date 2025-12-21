@@ -56,8 +56,6 @@ pub fn translate_statement(
                 _ => 1,
             };
 
-            crate::js_print(&format!("DEBUG: Store num_components={}", num_components));
-
             for i in 0..num_components {
                 // Evaluate pointer (address)
                 super::expressions::translate_expression(*pointer, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point, scratch_base)?;

@@ -4,6 +4,7 @@ import { webGL2 } from '../index.js';
 
 async function run() {
     const gl = await webGL2();
+    gl.verbosity = 0; // Disable debug logs for this demo
     gl.viewport(0, 0, 640, 480);
     
     // Shaders

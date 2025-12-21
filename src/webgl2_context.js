@@ -1051,6 +1051,22 @@ export class WasmWebGL2RenderingContext {
   blendFuncSeparate(sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   blendEquation(mode) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   blendEquationSeparate(modeRGB, modeAlpha) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+
+  get verbosity() {
+    this._assertNotDestroyed();
+    // We don't have a getter in WASM yet, so we'd need to track it or add one.
+    // For now, let's just return a default or track it in JS.
+    return this._verbosity || 0;
+  }
+
+  set verbosity(level) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (ex && typeof ex.wasm_ctx_set_verbosity === 'function') {
+      ex.wasm_ctx_set_verbosity(this._ctxHandle, level >>> 0);
+    }
+    this._verbosity = level;
+  }
 }
 
 /**

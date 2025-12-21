@@ -28,6 +28,20 @@ pub fn js_print(s: &str) {
     }
 }
 
+pub fn js_log(level: u32, s: &str) {
+    // Level 0: Error, 1: Warning, 2: Info, 3: Debug
+    // For now, we just prefix and print.
+    // In the future, we can check a global verbosity level.
+    let prefix = match level {
+        0 => "ERROR: ",
+        1 => "WARN: ",
+        2 => "INFO: ",
+        3 => "DEBUG: ",
+        _ => "",
+    };
+    js_print(&format!("{}{}", prefix, s));
+}
+
 pub fn js_execute_shader(type_: u32, attr_ptr: i32, uniform_ptr: i32, varying_ptr: i32, private_ptr: i32, texture_ptr: i32) {
     unsafe {
         wasm_execute_shader(type_, attr_ptr, uniform_ptr, varying_ptr, private_ptr, texture_ptr);
@@ -495,4 +509,10 @@ pub extern "C" fn wasm_ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i
 #[no_mangle]
 pub extern "C" fn wasm_ctx_draw_elements(ctx: u32, mode: u32, count: i32, type_: u32, offset: u32) -> u32 {
 	webgl2_context::ctx_draw_elements(ctx, mode, count, type_, offset)
+}
+
+/// Set verbosity level.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_set_verbosity(ctx: u32, level: u32) -> u32 {
+	webgl2_context::ctx_set_verbosity(ctx, level)
 }

@@ -15,10 +15,10 @@ use std::sync::Arc;
 
 use naga::front::glsl::{Frontend, Options};
 use naga::valid::{Validator, ValidationFlags, Capabilities};
-use naga::{ShaderStage, AddressSpace, Binding, TypeInner};
+use naga::{ShaderStage, AddressSpace, Binding};
 
 use crate::naga_wasm_backend::{WasmBackend, WasmBackendConfig};
-use crate::wasm_gl_emu::{Framebuffer, Rasterizer, ShaderRuntime};
+use crate::wasm_gl_emu::{ShaderRuntime};
 
 // Errno constants (must match JS constants if exposed)
 pub const ERR_OK: u32 = 0;
@@ -193,6 +193,7 @@ pub struct Context {
     active_texture_unit: u32,
     texture_units: Vec<Option<u32>>,
     gl_error: u32,
+    pub verbosity: u32, // 0: None, 1: Error, 2: Info, 3: Debug
 }
 
 impl Context {
@@ -232,6 +233,19 @@ impl Context {
             active_texture_unit: 0,
             texture_units: vec![None; 16],
             gl_error: GL_NO_ERROR,
+            verbosity: 2, // Default to Info
+        }
+    }
+
+    fn log(&self, level: u32, s: &str) {
+        if level <= self.verbosity {
+            crate::js_log(level, s);
+        }
+    }
+
+    fn log_static(verbosity: u32, level: u32, s: &str) {
+        if level <= verbosity {
+            crate::js_log(level, s);
         }
     }
 
@@ -1297,14 +1311,15 @@ pub fn ctx_compile_shader(ctx: u32, shader: u32) -> u32 {
 
         let mut frontend = Frontend::default();
         let options = Options::from(stage);
+        let verbosity = ctx_obj.verbosity;
 
         match frontend.parse(&options, &s.source) {
             Ok(module) => {
-                crate::js_print("DEBUG: Shader parsed successfully");
+                Context::log_static(verbosity, 3, "Shader parsed successfully");
                 let mut validator = Validator::new(ValidationFlags::all() & !ValidationFlags::BINDINGS, Capabilities::all());
                 match validator.validate(&module) {
                     Ok(info) => {
-                        crate::js_print("DEBUG: Shader validated successfully");
+                        Context::log_static(verbosity, 3, "Shader validated successfully");
                         s.compiled = true;
                         s.info_log = "Shader compiled successfully".to_string();
                         s.module = Some(Arc::new(module));
@@ -1312,7 +1327,7 @@ pub fn ctx_compile_shader(ctx: u32, shader: u32) -> u32 {
                         ERR_OK
                     }
                     Err(e) => {
-                        crate::js_print(&format!("DEBUG: Shader validation error: {:?}", e));
+                        Context::log_static(verbosity, 1, &format!("Shader validation error: {:?}", e));
                         s.compiled = false;
                         s.info_log = format!("Validation error: {:?}", e);
                         ERR_OK
@@ -1320,7 +1335,7 @@ pub fn ctx_compile_shader(ctx: u32, shader: u32) -> u32 {
                 }
             }
             Err(e) => {
-                crate::js_print(&format!("DEBUG: Shader parse error: {:?} for source:\n{}", e, s.source));
+                Context::log_static(verbosity, 1, &format!("Shader parse error: {:?} for source:\n{}", e, s.source));
                 s.compiled = false;
                 s.info_log = format!("Compilation error: {:?}", e);
                 ERR_OK
@@ -1425,7 +1440,6 @@ pub fn ctx_delete_program(ctx: u32, program: u32) -> u32 {
 /// Attach a shader to a program.
 pub fn ctx_attach_shader(ctx: u32, program: u32, shader: u32) -> u32 {
     clear_last_error();
-    crate::js_print(&format!("DEBUG: ctx_attach_shader ctx={} program={} shader={}", ctx, program, shader));
     let mut reg = get_registry().borrow_mut();
     let ctx_obj = match reg.contexts.get_mut(&ctx) {
         Some(c) => c,
@@ -1434,6 +1448,7 @@ pub fn ctx_attach_shader(ctx: u32, program: u32, shader: u32) -> u32 {
             return ERR_INVALID_HANDLE;
         }
     };
+    ctx_obj.log(3, &format!("ctx_attach_shader ctx={} program={} shader={}", ctx, program, shader));
 
     if !ctx_obj.shaders.contains_key(&shader) {
         set_last_error("shader not found");
@@ -1454,7 +1469,6 @@ pub fn ctx_attach_shader(ctx: u32, program: u32, shader: u32) -> u32 {
 /// Link a program.
 pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
     clear_last_error();
-    crate::js_print(&format!("DEBUG: ctx_link_program ctx={} program={}", ctx, program));
     let mut reg = get_registry().borrow_mut();
     let ctx_obj = match reg.contexts.get_mut(&ctx) {
         Some(c) => c,
@@ -1463,6 +1477,8 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
             return ERR_INVALID_HANDLE;
         }
     };
+    let verbosity = ctx_obj.verbosity;
+    Context::log_static(verbosity, 3, &format!("ctx_link_program ctx={} program={}", ctx, program));
     
     if let Some(p) = ctx_obj.programs.get_mut(&program) {
         let mut vs_module = None;
@@ -1473,23 +1489,23 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
         let mut fs_source = String::new();
 
         for &s_id in &p.attached_shaders {
-            crate::js_print(&format!("DEBUG: Checking attached shader {}", s_id));
+            Context::log_static(verbosity, 3, &format!("Checking attached shader {}", s_id));
             if let Some(s) = ctx_obj.shaders.get(&s_id) {
                 if !s.compiled {
-                    crate::js_print(&format!("DEBUG: Shader {} is NOT compiled", s_id));
+                    Context::log_static(verbosity, 3, &format!("Shader {} is NOT compiled", s_id));
                     p.linked = false;
                     p.info_log = format!("Shader {} is not compiled", s_id);
                     return ERR_OK;
                 }
                 match s.type_ {
                     0x8B31 => {
-                        crate::js_print("DEBUG: Found VS");
+                        Context::log_static(verbosity, 3, "Found VS");
                         vs_module = s.module.clone();
                         vs_info = s.info.clone();
                         vs_source = s.source.clone();
                     }
                     0x8B30 => {
-                        crate::js_print("DEBUG: Found FS");
+                        Context::log_static(verbosity, 3, "Found FS");
                         fs_module = s.module.clone();
                         fs_info = s.info.clone();
                         fs_source = s.source.clone();
@@ -1497,12 +1513,12 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                     _ => {}
                 }
             } else {
-                crate::js_print(&format!("DEBUG: Shader {} NOT FOUND in context", s_id));
+                Context::log_static(verbosity, 3, &format!("Shader {} NOT FOUND in context", s_id));
             }
         }
 
         if vs_module.is_none() || fs_module.is_none() {
-            crate::js_print(&format!("DEBUG: Missing shaders: VS={} FS={}", vs_module.is_none(), fs_module.is_none()));
+            Context::log_static(verbosity, 3, &format!("Missing shaders: VS={} FS={}", vs_module.is_none(), fs_module.is_none()));
             p.linked = false;
             p.info_log = "Program must have both vertex and fragment shaders".to_string();
             return ERR_OK;
@@ -1582,14 +1598,14 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
         let backend = WasmBackend::new(WasmBackendConfig::default());
         
         if let (Some(vs), Some(vsi)) = (&p.vs_module, &p.vs_info) {
-            crate::js_print("DEBUG: Compiling VS to WASM");
+            Context::log_static(verbosity, 3, "Compiling VS to WASM");
             match backend.compile(vs, vsi, &vs_source, naga::ShaderStage::Vertex, &uniform_locations, &varying_locations) {
                 Ok(wasm) => {
-                    crate::js_print(&format!("DEBUG: VS WASM compiled, size={}", wasm.wasm_bytes.len()));
+                    Context::log_static(verbosity, 3, &format!("VS WASM compiled, size={}", wasm.wasm_bytes.len()));
                     p.vs_wasm = Some(wasm.wasm_bytes);
                 }
                 Err(e) => {
-                    crate::js_print(&format!("DEBUG: VS Backend error: {:?}", e));
+                    Context::log_static(verbosity, 1, &format!("VS Backend error: {:?}", e));
                     p.linked = false;
                     p.info_log = format!("VS Backend error: {:?}", e);
                     return ERR_OK;
@@ -1598,14 +1614,14 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
         }
 
         if let (Some(fs), Some(fsi)) = (&p.fs_module, &p.fs_info) {
-            crate::js_print("DEBUG: Compiling FS to WASM");
+            Context::log_static(verbosity, 3, "Compiling FS to WASM");
             match backend.compile(fs, fsi, &fs_source, naga::ShaderStage::Fragment, &uniform_locations, &varying_locations) {
                 Ok(wasm) => {
-                    crate::js_print(&format!("DEBUG: FS WASM compiled, size={}", wasm.wasm_bytes.len()));
+                    Context::log_static(verbosity, 3, &format!("FS WASM compiled, size={}", wasm.wasm_bytes.len()));
                     p.fs_wasm = Some(wasm.wasm_bytes);
                 }
                 Err(e) => {
-                    crate::js_print(&format!("DEBUG: FS Backend error: {:?}", e));
+                    Context::log_static(verbosity, 1, &format!("FS Backend error: {:?}", e));
                     p.linked = false;
                     p.info_log = format!("FS Backend error: {:?}", e);
                     return ERR_OK;
@@ -2254,8 +2270,20 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
     ERR_OK
 }
 
+/// Set verbosity level for the context.
+pub fn ctx_set_verbosity(ctx: u32, level: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    if let Some(ctx_obj) = reg.contexts.get_mut(&ctx) {
+        ctx_obj.verbosity = level;
+        ERR_OK
+    } else {
+        ERR_INVALID_HANDLE
+    }
+}
+
 /// Draw elements.
-pub fn ctx_draw_elements(ctx: u32, mode: u32, count: i32, type_: u32, offset: u32) -> u32 {
+pub fn ctx_draw_elements(ctx: u32, _mode: u32, _count: i32, _type_: u32, _offset: u32) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();
     let ctx_obj = match reg.contexts.get_mut(&ctx) {
@@ -2263,7 +2291,7 @@ pub fn ctx_draw_elements(ctx: u32, mode: u32, count: i32, type_: u32, offset: u3
         None => return ERR_INVALID_HANDLE,
     };
     
-    let program_id = match ctx_obj.current_program {
+    let _program_id = match ctx_obj.current_program {
         Some(p) => p,
         None => {
             set_last_error("no program bound");
@@ -2271,10 +2299,8 @@ pub fn ctx_draw_elements(ctx: u32, mode: u32, count: i32, type_: u32, offset: u3
         }
     };
 
-    unsafe {
-        // TODO: Implement internal software rasterization/execution
-        ERR_OK
-    }
+    // TODO: Implement internal software rasterization/execution
+    ERR_OK
 }
 
 // ============================================================================
@@ -2295,16 +2321,6 @@ pub fn ctx_read_pixels(
     dest_ptr: u32,
     dest_len: u32,
 ) -> u32 {
-    clear_last_error();
-
-    let reg = get_registry().borrow();
-    let ctx_obj = match reg.contexts.get(&ctx) {
-        Some(c) => c,
-        None => {
-            set_last_error("invalid context handle");
-            return ERR_INVALID_HANDLE;
-        }
-    };
     clear_last_error();
 
     let reg = get_registry().borrow();
