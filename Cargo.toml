@@ -1,6 +1,6 @@
 [package]
 name = "webgl2"
-version = "1.0.12"
+version = "1.0.13"
 edition = "2021"
 license-file = "LICENSE"
 authors = ["WebGL2 Platform Team"]
@@ -16,7 +16,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Core shader infrastructure
-naga = { path = "external/wgpu/naga", features = ["glsl-in", "wgsl-out", "spv-out"] }
+naga = { version = "28.0.0", path = "external/wgpu/naga", features = ["glsl-in", "wgsl-out", "spv-out"] }
 
 # WASM generation
 wasm-encoder = "0.220"
