@@ -11,17 +11,16 @@ async function initFS() {
 }
 
 async function renderCube() {
-    let webGL2;
-    try {
-        const { webGL2: webGL2Loaded } = await import(
-            typeof loadModulePath === 'string' ?
-                loadModulePath :
-                './index.js');
-        webGL2 = webGL2Loaded;
-    } catch {
-        const { webGL2: webGL2Loaded } = await import('https://esm.run/webgl2');
-        webGL2 = webGL2Loaded;
-    }
+    let loadLocal =
+        isNode || (
+            typeof location !== 'undefined' &&
+            typeof location?.hostname === 'string' &&
+            location.hostname.toString() === 'localhost'
+        );
+    const { webGL2 } = await import(
+        loadLocal ? './index.js' :
+        'https://esm.run/webgl2'
+    );
 
     const gl = await webGL2();
     gl.verbosity = 0; // Disable debug logs for this demo
