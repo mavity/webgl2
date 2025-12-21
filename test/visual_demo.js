@@ -118,9 +118,9 @@ async function run() {
             const idx = (y * 16 + x) * 4;
             const isCheck = ((x >> 2) ^ (y >> 2)) & 1;
             if (isCheck) {
-                texData[idx] = 255; texData[idx+1] = 0; texData[idx+2] = 0; texData[idx+3] = 255; // Red
+                texData[idx] = 255; texData[idx+1] = 215; texData[idx+2] = 0; texData[idx+3] = 255; // Gold
             } else {
-                texData[idx] = 0; texData[idx+1] = 0; texData[idx+2] = 255; texData[idx+3] = 255; // Blue
+                texData[idx] = 100; texData[idx+1] = 149; texData[idx+2] = 237; texData[idx+3] = 255; // CornflowerBlue
             }
         }
     }
