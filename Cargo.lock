@@ -1447,7 +1447,7 @@ dependencies = [
 
 [[package]]
 name = "webgl2"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "anyhow",
  "getrandom",

@@ -116,9 +116,9 @@ async function initWASM() {
         const bytes = mem.subarray(ptr, ptr + len);
         console.log(new TextDecoder('utf-8').decode(bytes));
       },
-      wasm_execute_shader: (type, attrPtr, uniformPtr, varyingPtr, privatePtr) => {
+      wasm_execute_shader: (type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr) => {
         if (WasmWebGL2RenderingContext.activeContext) {
-          WasmWebGL2RenderingContext.activeContext._executeShader(type, attrPtr, uniformPtr, varyingPtr, privatePtr);
+          WasmWebGL2RenderingContext.activeContext._executeShader(type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
         }
       }
     }

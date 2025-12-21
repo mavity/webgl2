@@ -35,6 +35,8 @@ pub fn naga_to_wasm_types(type_inner: &TypeInner) -> Result<Vec<ValType>, Backen
             Ok(vec![val_type; count])
         }
         TypeInner::Pointer { .. } => Ok(vec![ValType::I32]),
+        TypeInner::Image { .. } => Ok(vec![ValType::I32]),
+        TypeInner::Sampler { .. } => Ok(vec![ValType::I32]),
         _ => Err(BackendError::UnsupportedFeature(format!(
             "Unsupported Naga type for WASM: {:?}",
             type_inner

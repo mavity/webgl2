@@ -175,6 +175,7 @@ pub struct Context {
     depth_func: u32,
     blend_enabled: bool,
     active_texture_unit: u32,
+    texture_units: Vec<Option<u32>>,
     gl_error: u32,
 }
 
@@ -213,6 +214,7 @@ impl Context {
             depth_func: 0x0203, // GL_LEQUAL
             blend_enabled: false,
             active_texture_unit: 0,
+            texture_units: vec![None; 16],
             gl_error: GL_NO_ERROR,
         }
     }
@@ -319,6 +321,23 @@ impl Context {
                 }
             } else {
                 dest[base_idx..base_idx + 4].copy_from_slice(&attr.default_value);
+            }
+        }
+    }
+
+    fn prepare_texture_metadata(&self, dest_ptr: u32) {
+        for (i, tex_handle) in self.texture_units.iter().enumerate() {
+            let offset = i * 32;
+            if let Some(h) = tex_handle {
+                if let Some(tex) = self.textures.get(h) {
+                    unsafe {
+                        let base = (dest_ptr + offset as u32) as *mut i32;
+                        *base.offset(0) = tex.width as i32;
+                        *base.offset(1) = tex.height as i32;
+                        *base.offset(2) = tex.data.as_ptr() as i32;
+                        // Rest is padding for now
+                    }
+                }
             }
         }
     }
@@ -568,10 +587,11 @@ pub fn ctx_bind_texture(ctx: u32, _target: u32, tex: u32) -> u32 {
             return ERR_INVALID_HANDLE;
         }
     };
-    if tex == 0 {
-        ctx_obj.bound_texture = None;
-    } else {
-        ctx_obj.bound_texture = Some(tex);
+    let tex_val = if tex == 0 { None } else { Some(tex) };
+    ctx_obj.bound_texture = tex_val;
+    let unit = ctx_obj.active_texture_unit as usize;
+    if unit < ctx_obj.texture_units.len() {
+        ctx_obj.texture_units[unit] = tex_val;
     }
     ERR_OK
 }
@@ -1265,7 +1285,7 @@ pub fn ctx_compile_shader(ctx: u32, shader: u32) -> u32 {
         match frontend.parse(&options, &s.source) {
             Ok(module) => {
                 crate::js_print("DEBUG: Shader parsed successfully");
-                let mut validator = Validator::new(ValidationFlags::all(), Capabilities::all());
+                let mut validator = Validator::new(ValidationFlags::all() & !ValidationFlags::BINDINGS, Capabilities::all());
                 match validator.validate(&module) {
                     Ok(info) => {
                         crate::js_print("DEBUG: Shader validated successfully");
@@ -1284,7 +1304,7 @@ pub fn ctx_compile_shader(ctx: u32, shader: u32) -> u32 {
                 }
             }
             Err(e) => {
-                crate::js_print(&format!("DEBUG: Shader parse error: {:?}", e));
+                crate::js_print(&format!("DEBUG: Shader parse error: {:?} for source:\n{}", e, s.source));
                 s.compiled = false;
                 s.info_log = format!("Compilation error: {:?}", e);
                 ERR_OK
@@ -2062,6 +2082,7 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
     for i in 0..count {
         let mut pos = {
             ctx_obj.fetch_vertex_attributes((first + i) as u32, &mut vertex_data);
+            crate::js_print(&format!("DEBUG: Vertex data for vertex {}: {:?}", i, &vertex_data[0..8]));
             let mut p = [vertex_data[0], vertex_data[1], vertex_data[2], vertex_data[3]];
 
             // Execute VS via callback if available
@@ -2080,15 +2101,20 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
                     // Copy uniforms to memory (at 0x1000)
                     let uniform_ptr = 0x1000;
                     std::ptr::copy_nonoverlapping(ctx_obj.uniform_data.as_ptr() as *const u8, uniform_ptr as *mut u8, ctx_obj.uniform_data.len());
+                    
+                    // Prepare texture metadata (at 0x5000)
+                    let texture_ptr = 0x5000;
+                    ctx_obj.prepare_texture_metadata(texture_ptr);
                 }
 
                 // Run VS
                 let uniform_ptr = 0x1000;
                 let varying_ptr = 0x3000;
                 let private_ptr = 0x4000;
+                let texture_ptr = 0x5000;
                 
                 // Call JS to run the shader
-                crate::js_execute_shader(0x8B31 /* VERTEX_SHADER */, attr_ptr as i32, uniform_ptr as i32, varying_ptr as i32, private_ptr as i32);
+                crate::js_execute_shader(0x8B31 /* VERTEX_SHADER */, attr_ptr as i32, uniform_ptr as i32, varying_ptr as i32, private_ptr as i32, texture_ptr as i32);
 
                 // Read gl_Position from varying_ptr (first 4 floats)
                 let mut pos_bytes = [0u8; 16];
@@ -2108,7 +2134,8 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
         let uniform_ptr = 0x1000;
         let varying_ptr = 0x3000;
         let private_ptr = 0x4000;
-        crate::js_execute_shader(0x8B30 /* FRAGMENT_SHADER */, 0, uniform_ptr as i32, varying_ptr as i32, private_ptr as i32);
+        let texture_ptr = 0x5000;
+        crate::js_execute_shader(0x8B30 /* FRAGMENT_SHADER */, 0, uniform_ptr as i32, varying_ptr as i32, private_ptr as i32, texture_ptr as i32);
 
         // Read color from private_ptr (offset 0)
         let mut color_bytes = [0u8; 16];
@@ -2144,11 +2171,15 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
                             std::ptr::copy_nonoverlapping(attr_bytes.as_ptr(), attr_ptr as *mut u8, attr_bytes.len());
                             let uniform_ptr = 0x1000;
                             std::ptr::copy_nonoverlapping(ctx_obj.uniform_data.as_ptr() as *const u8, uniform_ptr as *mut u8, ctx_obj.uniform_data.len());
+                            
+                            let texture_ptr = 0x5000;
+                            ctx_obj.prepare_texture_metadata(texture_ptr);
                         }
                         let uniform_ptr = 0x1000;
                         let varying_ptr = 0x3000;
                         let private_ptr = 0x4000;
-                        crate::js_execute_shader(0x8B31, attr_ptr as i32, uniform_ptr as i32, varying_ptr as i32, private_ptr as i32);
+                        let texture_ptr = 0x5000;
+                        crate::js_execute_shader(0x8B31, attr_ptr as i32, uniform_ptr as i32, varying_ptr as i32, private_ptr as i32, texture_ptr as i32);
                         let mut pos_bytes = [0u8; 16];
                         unsafe {
                             std::ptr::copy_nonoverlapping(varying_ptr as *const u8, pos_bytes.as_mut_ptr(), 16);

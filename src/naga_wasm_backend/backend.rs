@@ -104,8 +104,9 @@ impl<'a> Compiler<'a> {
             page_size_log2: None,
         });
 
-        // Define 4 globals for base pointers
-        for _ in 0..4 {
+        // Define 5 globals for base pointers
+        // 0: attr, 1: uniform, 2: varying, 3: private, 4: textures
+        for _ in 0..5 {
             self.globals.global(
                 wasm_encoder::GlobalType {
                     val_type: ValType::I32,
@@ -155,26 +156,25 @@ impl<'a> Compiler<'a> {
             crate::js_print(&format!("DEBUG: Global '{}' space={:?} binding={:?}", var.name.as_deref().unwrap_or("?"), var.space, var.binding));
 
             let (offset, base_ptr) = match var.space {
-                naga::AddressSpace::Uniform => {
+                naga::AddressSpace::Uniform | naga::AddressSpace::Handle => {
                     if let Some(name) = &var.name {
                         if let Some(&loc) = self.uniform_locations.get(name) {
                             let offset = loc * 16;
-                            crate::js_print(&format!("DEBUG: Uniform '{}' assigned offset {}", name, offset));
+                            crate::js_print(&format!("DEBUG: Uniform/Handle '{}' assigned offset {}", name, offset));
                             (offset, 1)
                         } else {
-                            crate::js_print(&format!("DEBUG: Uniform '{}' NOT FOUND in locations", name));
+                            crate::js_print(&format!("DEBUG: Uniform/Handle '{}' NOT FOUND in locations", name));
                             (0, 1)
                         }
                     } else {
                         (0, 1)
                     }
                 }
-                naga::AddressSpace::Handle => (0, 1),
                 naga::AddressSpace::Private | naga::AddressSpace::Function => {
                     // Check if it's an output in FS
                     let is_output = if self.stage == naga::ShaderStage::Fragment {
                         if let Some(name) = &var.name {
-                            name == "color" || name == "gl_FragColor" || name == "gl_FragColor_1"
+                            name == "color" || name == "gl_FragColor" || name == "fragColor" || name == "gl_FragColor_1"
                         } else {
                             false
                         }
@@ -249,9 +249,9 @@ impl<'a> Compiler<'a> {
         let mut current_param_idx = 0;
 
         if let Some(_) = entry_point {
-            // Entry point signature: (attr_ptr, uniform_ptr, varying_ptr, private_ptr) -> ()
-            params = vec![ValType::I32, ValType::I32, ValType::I32, ValType::I32];
-            current_param_idx = 4;
+            // Entry point signature: (type, attr_ptr, uniform_ptr, varying_ptr, private_ptr, texture_ptr) -> ()
+            params = vec![ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32];
+            current_param_idx = 6;
         } else {
             // Internal function signature based on Naga
             crate::js_print(&format!("DEBUG: Internal function has {} arguments", func.arguments.len()));
@@ -312,14 +312,22 @@ impl<'a> Compiler<'a> {
             }
         }
 
+        // Add scratch locals for complex operations (like texture sampling)
+        let scratch_base = next_local_idx;
+        locals_types.push((32, ValType::I32)); // 32 scratch i32s
+        locals_types.push((32, ValType::F32)); // 32 scratch f32s
+        next_local_idx += 64;
+
         // Create function body
         let mut wasm_func = Function::new(locals_types);
 
         if let Some(_) = entry_point {
             // Set globals from arguments
-            for i in 0..4 {
-                wasm_func.instruction(&Instruction::LocalGet(i));
-                wasm_func.instruction(&Instruction::GlobalSet(i));
+            // 0: attr, 1: uniform, 2: varying, 3: private, 4: textures
+            // Arguments are (type, attr, uniform, varying, private, texture)
+            for i in 0..5 {
+                wasm_func.instruction(&Instruction::LocalGet(i as u32 + 1));
+                wasm_func.instruction(&Instruction::GlobalSet(i as u32));
             }
         }
 
@@ -341,6 +349,7 @@ impl<'a> Compiler<'a> {
                 &self.naga_function_map,
                 &argument_local_offsets,
                 is_entry_point,
+                scratch_base,
             )?;
         }
 

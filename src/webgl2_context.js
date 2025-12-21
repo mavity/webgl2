@@ -58,20 +58,15 @@ export class WasmWebGL2RenderingContext {
     WasmWebGL2RenderingContext.activeContext = this;
   }
 
-  _executeShader(type, attrPtr, uniformPtr, varyingPtr, privatePtr) {
-    console.log(`DEBUG: _executeShader type=${type} attrPtr=${attrPtr}`);
+  _executeShader(type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr) {
     if (!this._currentProgram) {
       console.log("DEBUG: No current program");
       return;
     }
     const shaderInstance = type === this.VERTEX_SHADER ? this._currentProgram._vsInstance : this._currentProgram._fsInstance;
     if (shaderInstance && shaderInstance.exports.main) {
-      console.log("DEBUG: Executing shader main");
       // @ts-ignore
-      shaderInstance.exports.main(attrPtr, uniformPtr, varyingPtr, privatePtr);
-      console.log("DEBUG: Shader main executed");
-    } else {
-      console.log(`DEBUG: Shader instance or main not found. vsInstance=${!!this._currentProgram._vsInstance}`);
+      shaderInstance.exports.main(type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
     }
   }
 
@@ -374,8 +369,6 @@ export class WasmWebGL2RenderingContext {
     const vsWasm = this.getProgramWasm(program, this.VERTEX_SHADER);
     const fsWasm = this.getProgramWasm(program, this.FRAGMENT_SHADER);
 
-    console.log(`DEBUG: _instantiateProgramShaders vsWasm=${!!vsWasm} fsWasm=${!!fsWasm}`);
-
     if (vsWasm) {
       try {
         const vsModule = new WebAssembly.Module(vsWasm);
@@ -384,7 +377,6 @@ export class WasmWebGL2RenderingContext {
             memory: this._instance.exports.memory
           }
         });
-        console.log("DEBUG: VS Instance created");
       } catch (e) {
         console.log(`DEBUG: VS Instance creation failed: ${e}`);
       }
@@ -397,7 +389,6 @@ export class WasmWebGL2RenderingContext {
             memory: this._instance.exports.memory
           }
         });
-        console.log("DEBUG: FS Instance created");
       } catch (e) {
         console.log(`DEBUG: FS Instance creation failed: ${e}`);
       }

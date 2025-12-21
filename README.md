@@ -6,22 +6,32 @@ A **Rust + WASM** based toolkit for debugging GLSL shaders and generating ergono
 
 ## 🎯 Quick Start
 
-```bash
-# Build the project
-npm run build
+```javascript
+import { webGL2 } from 'webgl2';
 
-# Run node tests
-npm run tests
+// Initialize the Rust-backed WebGL2 context
+const gl = await webGL2();
+
+// Use it like a standard WebGL2RenderingContext
+const buffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
 ```
 
-### Build via npm
-
-This repository is both a Rust workspace and an npm package. Run the npm build helper to build the Rust workspace for the WASM target and copy produced .wasm files into `runners/wasm/`:
-
 ```bash
-# from repository root
+# Build the project (Rust + WASM)
 npm run build
+
+# Run the extensive test suite
+npm test
 ```
+
+## ✨ Key Features
+
+- **Rust-Owned Context**: All WebGL2 state (textures, buffers, framebuffers) lives in Rust for deterministic resource management.
+- **GLSL to WASM Compiler**: Compiles GLSL shaders directly to WebAssembly using Naga IR.
+- **Integrated Debugging**: Generates DWARF debug information for shaders, enabling step-through debugging in browser DevTools.
+- **Software Rasterizer**: A full software-based WebGL2 implementation for headless testing and GPU-independent execution.
+- **JS Thin-Forwarder**: Ergonomic JavaScript bindings that forward calls to the WASM core with minimal overhead.
 
 ## 🚀 Project Overview and Goals
 
@@ -37,24 +47,31 @@ The project aims to create a **Composite WebGL2 Development Platform** built wit
 
 ## 🏗️ Architecture
 
-This project uses **Naga** (from the wgpu/WebGPU ecosystem) as the shader IR, rather than building a custom IR from scratch. This significantly reduces complexity while providing a proven, well-maintained foundation.
+The platform follows a "Rust-first" architecture where the GPU state and shader execution are managed by a high-performance Rust core compiled to WASM.
+
+1. **Frontend**: A thin JS wrapper (`WasmWebGL2RenderingContext`) that mirrors the WebGL2 API.
+2. **Compiler**: Uses **Naga** to parse GLSL and a custom **WASM Backend** to emit executable WASM modules with DWARF debug info.
+3. **Emulator**: A software rasterizer (`wasm_gl_emu`) that executes shader logic and manages the framebuffer.
+4. **Context**: A centralized registry (`webgl2_context.rs`) that tracks all GL resources and handles lifecycle.
 
 ## 🔧 Development Status
 
-**Current Phase: Phase 0 - Foundation Setup** ✅
+**Current Phase: Phase 1 - Core Emulator & Compiler** ✅
 
-- [x] Workspace structure created
-- [x] Core crate skeletons implemented
-- [x] Basic WASM backend (emits empty functions)
-- [x] Runtime structure (wasmtime integration)
-- [x] CLI tool with compile/validate/codegen/run commands
-- [ ] DWARF debug information generation (in progress)
-- [ ] Browser DevTools integration validation
+- [x] Rust-owned WebGL2 Context & Resource Registry
+- [x] Naga-to-WASM backend with DWARF support
+- [x] Software Rasterizer for shader emulation
+- [x] JS/TS ergonomic bindings
+- [x] Extensive WebGL2 API test coverage (>100 tests)
+- [ ] Browser DevTools integration validation (in progress)
 
 ## 📚 Documentation
 
 - [`docs/1-plan.md`](docs/1-plan.md) - Original project proposal and plan
-- [`docs/1.1-ir-wasm.md`](docs/1.1-ir-wasm.md) - Naga IR → WASM architecture (recommended reading)
+- [`docs/1.1-ir-wasm.md`](docs/1.1-ir-wasm.md) - Naga IR → WASM architecture
+- [`docs/1.1.1-webgl2-prototype.md`](docs/1.1.1-webgl2-prototype.md) - Rust-owned Context design
+- [`docs/1.1.2-texture.md`](docs/1.1.2-texture.md) - Texture implementation details
+- [`docs/1.1.3-rust-wasm-test-coverage.md`](docs/1.1.3-rust-wasm-test-coverage.md) - Testing strategy and coverage
 
 ## 🧪 Testing
 

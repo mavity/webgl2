@@ -22,12 +22,13 @@ pub fn translate_statement(
     naga_function_map: &HashMap<naga::Handle<naga::Function>, u32>,
     argument_local_offsets: &HashMap<u32, u32>,
     is_entry_point: bool,
+    scratch_base: u32,
 ) -> Result<(), BackendError> {
     // crate::js_print(&format!("DEBUG: Statement: {:?}", stmt));
     match stmt {
         naga::Statement::Block(block) => {
             for s in block {
-                translate_statement(s, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point)?;
+                translate_statement(s, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point, scratch_base)?;
             }
         }
         naga::Statement::Store { pointer, value } => {
@@ -55,13 +56,13 @@ pub fn translate_statement(
                 _ => 1,
             };
 
-            // crate::js_print(&format!("DEBUG: Store num_components={}", num_components));
+            crate::js_print(&format!("DEBUG: Store num_components={}", num_components));
 
             for i in 0..num_components {
                 // Evaluate pointer (address)
-                super::expressions::translate_expression(*pointer, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point)?;
+                super::expressions::translate_expression(*pointer, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point, scratch_base)?;
                 // Evaluate value component i
-                super::expressions::translate_expression_component(*value, i, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point)?;
+                super::expressions::translate_expression_component(*value, i, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point, scratch_base)?;
                 // Store
                 wasm_func.instruction(&Instruction::F32Store(wasm_encoder::MemArg {
                     offset: (i * 4) as u64,
@@ -73,7 +74,7 @@ pub fn translate_statement(
         naga::Statement::Call { function, arguments, result } => {
             // Push arguments
             for arg in arguments {
-                super::expressions::translate_expression(*arg, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point)?;
+                super::expressions::translate_expression(*arg, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point, scratch_base)?;
             }
             // Call
             if let Some(&wasm_idx) = naga_function_map.get(function) {
@@ -109,7 +110,9 @@ pub fn translate_statement(
         }
         naga::Statement::Return { value } => {
             if let Some(expr_handle) = value {
-                super::expressions::translate_expression(*expr_handle, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point)?;
+                if !is_entry_point {
+                    super::expressions::translate_expression(*expr_handle, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point, scratch_base)?;
+                }
             }
             wasm_func.instruction(&Instruction::Return);
         }

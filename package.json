@@ -1,16 +1,15 @@
 {
   "name": "webgl2",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "WebGL2 tools to derisk large GPU projects on the web beyond toys and demos.",
   "type": "module",
   "main": "index.js",
   "scripts": {
     "start": "node ./index.js",
-    "build": "cargo build --target wasm32-unknown-unknown --release && cp target/wasm32-unknown-unknown/release/*.wasm .",
-    "build:wasm": "node scripts/build-wasm.cjs",
+    "build": "cargo build --target wasm32-unknown-unknown --release && node -e \"fs.copyFileSync('target/wasm32-unknown-unknown/release/webgl2.wasm', 'webgl2.wasm')\"",
     "prepublishOnly": "npm run build",
     "test": "node --test test/*.test.js",
-    "test:smoke": "npm run build:wasm && node ./test/smoke.js"
+    "test:smoke": "npm run build && node ./test/smoke.js"
   },
   "wasmBuild": {
     "outDir": "wasm",

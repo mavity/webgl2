@@ -19,7 +19,7 @@ pub mod webgl2_context;
 #[link(wasm_import_module = "env")]
 extern "C" {
     fn print(ptr: *const u8, len: usize);
-    fn wasm_execute_shader(type_: u32, attr_ptr: i32, uniform_ptr: i32, varying_ptr: i32, private_ptr: i32);
+    fn wasm_execute_shader(type_: u32, attr_ptr: i32, uniform_ptr: i32, varying_ptr: i32, private_ptr: i32, texture_ptr: i32);
 }
 
 pub fn js_print(s: &str) {
@@ -28,9 +28,9 @@ pub fn js_print(s: &str) {
     }
 }
 
-pub fn js_execute_shader(type_: u32, attr_ptr: i32, uniform_ptr: i32, varying_ptr: i32, private_ptr: i32) {
+pub fn js_execute_shader(type_: u32, attr_ptr: i32, uniform_ptr: i32, varying_ptr: i32, private_ptr: i32, texture_ptr: i32) {
     unsafe {
-        wasm_execute_shader(type_, attr_ptr, uniform_ptr, varying_ptr, private_ptr);
+        wasm_execute_shader(type_, attr_ptr, uniform_ptr, varying_ptr, private_ptr, texture_ptr);
     }
 }
 
