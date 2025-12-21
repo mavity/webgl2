@@ -10,7 +10,26 @@ async function initFS() {
     }
 }
 
-async function renderCube() {
+// Animation state for browser
+const animationState = {
+    running: false,
+    frameCount: 0,
+    lastFpsTime: Date.now(),
+    fps: 0,
+    fpsElement: null,
+    button: null,
+    canvas: null,
+    ctx: null,
+    width: 0,
+    height: 0
+};
+
+// Global rendering context (lazy initialized)
+let renderContext = null;
+
+async function initializeRenderContext() {
+    if (renderContext) return renderContext;
+    
     let loadLocal =
         isNode || (
             typeof location !== 'undefined' &&
@@ -150,7 +169,7 @@ async function renderCube() {
     const uSamplerLoc = gl.getUniformLocation(program, "u_sampler");
     gl.uniform1i(uSamplerLoc, 0);
     
-    // Matrix math
+    // Matrix math functions
     function perspective(fovy, aspect, near, far) {
         const f = 1.0 / Math.tan(fovy / 2);
         const nf = 1 / (near - far);
@@ -210,12 +229,29 @@ async function renderCube() {
         return multiply(m, t);
     }
     
+    // Calculate initial MVP matrix
     let mvp = perspective(Math.PI / 4, 640 / 480, 0.1, 100.0);
     mvp = translate(mvp, 0, 0, -3);
     mvp = rotateX(mvp, 0.5);
     mvp = rotateY(mvp, 0.8);
     
     const mvpLoc = gl.getUniformLocation(program, "u_mvp");
+    
+    renderContext = {
+        gl,
+        program,
+        mvpLoc,
+        mvp: new Float32Array(mvp)
+    };
+    
+    return renderContext;
+}
+
+async function renderCube() {
+    const ctx = await initializeRenderContext();
+    const { gl, program, mvpLoc, mvp } = ctx;
+    
+    // Set MVP matrix
     gl.uniformMatrix4fv(mvpLoc, false, mvp);
     console.log("MVP Matrix:", mvp);
     
@@ -319,6 +355,51 @@ function adler32(buf) {
 }
 
 // Main entry point
+async function displayFrame(pixels, width, height) {
+    if (!animationState.ctx) return;
+    
+    const imageData = animationState.ctx.createImageData(width, height);
+    
+    // Flip Y axis: gl.readPixels is bottom-up, canvas is top-down
+    const flipped = new Uint8ClampedArray(pixels.length);
+    for (let y = 0; y < height; y++) {
+        const srcY = height - 1 - y;
+        const srcOffset = srcY * width * 4;
+        const dstOffset = y * width * 4;
+        flipped.set(pixels.subarray(srcOffset, srcOffset + width * 4), dstOffset);
+    }
+    
+    imageData.data.set(flipped);
+    animationState.ctx.putImageData(imageData, 0, 0);
+}
+
+function updateFpsCounter() {
+    const now = Date.now();
+    const deltaTime = now - animationState.lastFpsTime;
+    
+    if (deltaTime >= 500) {
+        animationState.fps = Math.round((animationState.frameCount * 1000) / deltaTime);
+        if (animationState.fpsElement) {
+            animationState.fpsElement.textContent = `FPS: ${animationState.fps}`;
+        }
+        animationState.frameCount = 0;
+        animationState.lastFpsTime = now;
+    }
+}
+
+async function animate() {
+    if (!animationState.running) return;
+    
+    const result = await renderCube();
+    const { pixels, width, height } = result;
+    
+    await displayFrame(pixels, width, height);
+    animationState.frameCount++;
+    updateFpsCounter();
+    
+    requestAnimationFrame(animate);
+}
+
 async function main() {
     await initFS();
     const result = await renderCube();
@@ -349,6 +430,32 @@ async function main() {
                 font-size: 24px;
                 font-weight: normal;
             }
+            #controls {
+                display: flex;
+                gap: 15px;
+                align-items: center;
+            }
+            button {
+                padding: 8px 16px;
+                font-size: 14px;
+                background: #444;
+                color: #fff;
+                border: 1px solid #666;
+                border-radius: 4px;
+                cursor: pointer;
+                font-family: monospace;
+            }
+            button:hover {
+                background: #555;
+            }
+            button:active {
+                background: #333;
+            }
+            #fps {
+                font-size: 14px;
+                color: #aaa;
+                min-width: 80px;
+            }
             canvas {
                 border: 2px solid #fff;
                 background: #000;
@@ -363,6 +470,34 @@ async function main() {
         h1.textContent = 'WebGL2 Polymorphic Cube Renderer';
         document.body.appendChild(h1);
         
+        // Create controls container
+        const controls = document.createElement('div');
+        controls.id = 'controls';
+        
+        // Create play/pause button
+        const button = document.createElement('button');
+        button.textContent = '▶ Play';
+        button.onclick = () => {
+            animationState.running = !animationState.running;
+            if (animationState.running) {
+                button.textContent = '⏸ Pause';
+                animationState.frameCount = 0;
+                animationState.lastFpsTime = Date.now();
+                requestAnimationFrame(animate);
+            } else {
+                button.textContent = '▶ Play';
+            }
+        };
+        controls.appendChild(button);
+        
+        // Create FPS display
+        const fpsDisplay = document.createElement('div');
+        fpsDisplay.id = 'fps';
+        fpsDisplay.textContent = 'FPS: 0';
+        controls.appendChild(fpsDisplay);
+        
+        document.body.appendChild(controls);
+        
         // Create canvas
         const canvas = document.createElement('canvas');
         canvas.width = width;
@@ -370,26 +505,25 @@ async function main() {
         document.body.appendChild(canvas);
         
         const ctx = canvas.getContext('2d');
-        const imageData = ctx.createImageData(width, height);
         
-        // Flip Y axis: gl.readPixels is bottom-up, canvas is top-down
-        const flipped = new Uint8ClampedArray(pixels.length);
-        for (let y = 0; y < height; y++) {
-            const srcY = height - 1 - y;
-            const srcOffset = srcY * width * 4;
-            const dstOffset = y * width * 4;
-            flipped.set(pixels.subarray(srcOffset, srcOffset + width * 4), dstOffset);
-        }
+        // Store references in animationState
+        animationState.button = button;
+        animationState.canvas = canvas;
+        animationState.ctx = ctx;
+        animationState.width = width;
+        animationState.height = height;
+        animationState.fpsElement = fpsDisplay;
         
-        imageData.data.set(flipped);
-        ctx.putImageData(imageData, 0, 0);
+        // Display initial frame
+        await displayFrame(pixels, width, height);
         
         console.log("Rendered cube to canvas");
     }
 }
 
-// Auto-run if this is Node
-main().catch(console.error);
+// Auto-run if this is Node, export for browser
+if (isNode) {
+    main().catch(console.error);
+}
 
-// Export for browser
 export { renderCube, main };
