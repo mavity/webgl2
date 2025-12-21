@@ -1,10 +1,10 @@
 [package]
 name = "webgl2"
-version = "1.0.13"
+version = "1.0.14"
 edition = "2021"
 license-file = "LICENSE"
 authors = ["WebGL2 Platform Team"]
-repository = "https://github.com/mavity/mavity"
+repository = "https://github.com/mavity/webgl2"
 description = "WebGL2 shader compiler, emulator, and debugger"
 
 # No native binary in this package; this crate is WASM/library-only
