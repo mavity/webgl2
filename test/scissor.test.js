@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('scissor throws not implemented', async () => {
+test('scissor does not throw', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.scissor(0,0,1,1), /not implemented/); } finally { gl.destroy(); }
+  try {
+    gl.scissor(0, 0, 100, 100);
+  } finally {
+    gl.destroy();
+  }
 });

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('uniform2f throws not implemented', async () => {
+test('uniform2f does not throw', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.uniform2f(0, 0.0, 0.0), /not implemented/); } finally { gl.destroy(); }
+  try { gl.uniform2f(null, 0.0, 0.0); } finally { gl.destroy(); }
 });

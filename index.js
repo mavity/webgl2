@@ -107,17 +107,16 @@ async function initWASM() {
   // Compile WASM module
   const wasmModule = await WebAssembly.compile(wasmBuffer);
 
-  // Create memory (WASM will import it)
-  const memory = new WebAssembly.Memory({ initial: 16, maximum: 256 });
-
-  // Instantiate WASM
-  const importObj = { env: { memory } };
-  const instance = await WebAssembly.instantiate(wasmModule, importObj);
+  // Instantiate WASM (no imports needed, memory is exported)
+  const instance = await WebAssembly.instantiate(wasmModule, {});
 
   // Verify required exports
   const ex = instance.exports;
   if (typeof ex.wasm_create_context !== 'function') {
     throw new Error('WASM module missing wasm_create_context export');
+  }
+  if (!(ex.memory instanceof WebAssembly.Memory)) {
+    throw new Error('WASM module missing memory export');
   }
   return wasmInitPromise = { ex, instance };
 }

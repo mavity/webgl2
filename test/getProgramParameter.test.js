@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('getProgramParameter throws not implemented', async () => {
+test('getProgramParameter does not throw', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.getProgramParameter(1,0), /not implemented/); } finally { gl.destroy(); }
+  try {
+    const program = gl.createProgram();
+    gl.getProgramParameter(program, gl.LINK_STATUS);
+  } finally { gl.destroy(); }
 });

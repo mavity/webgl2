@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('createShader throws not implemented', async () => {
+test('createShader returns a shader object', async () => {
   const gl = await webGL2();
   try {
-    assert.throws(() => gl.createShader(0), /not implemented/);
+    const shader = gl.createShader(0x8B31); // VERTEX_SHADER
+    assert.ok(shader, 'Shader should be created');
+    assert.strictEqual(typeof shader, 'object', 'Shader should be an object');
   } finally { gl.destroy(); }
 });

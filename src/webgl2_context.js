@@ -15,11 +15,35 @@ export const ERR_GL = 5;
 export const ERR_INTERNAL = 6;
 
 import { WasmWebGLTexture } from './webgl2_texture.js';
+import { WasmWebGLShader, WasmWebGLProgram, WasmWebGLBuffer } from './webgl2_resources.js';
 
 /**
  * @implements {WebGL2RenderingContext}
  */
 export class WasmWebGL2RenderingContext {
+  // Constants
+  FRAGMENT_SHADER = 0x8B30;
+  VERTEX_SHADER = 0x8B31;
+  TRIANGLES = 0x0004;
+  COLOR_BUFFER_BIT = 0x00004000;
+  DEPTH_BUFFER_BIT = 0x00000100;
+  STENCIL_BUFFER_BIT = 0x00000400;
+  COMPILE_STATUS = 0x8B81;
+  LINK_STATUS = 0x8B82;
+  DELETE_STATUS = 0x8B80;
+  VALIDATE_STATUS = 0x8B83;
+  ARRAY_BUFFER = 0x8892;
+  ELEMENT_ARRAY_BUFFER = 0x8893;
+  STATIC_DRAW = 0x88E4;
+  FLOAT = 0x1406;
+  UNSIGNED_SHORT = 0x1403;
+  UNSIGNED_BYTE = 0x1401;
+  RGBA = 0x1908;
+  VIEWPORT = 0x0BA2;
+  COLOR_CLEAR_VALUE = 0x0C22;
+  BUFFER_SIZE = 0x8764;
+  NO_ERROR = 0;
+
   /**
    * @param {WebAssembly.Instance} instance
    * @param {u32} ctxHandle
@@ -229,7 +253,7 @@ export class WasmWebGL2RenderingContext {
       const msg = readErrorMessage(this._instance);
       throw new Error(`Failed to create shader: ${msg}`);
     }
-    return handle;
+    return new WasmWebGLShader(this, handle);
   }
 
   shaderSource(shader, source) {
@@ -276,6 +300,9 @@ export class WasmWebGL2RenderingContext {
     const shaderHandle = shader && typeof shader === 'object' && typeof shader._handle === 'number' ? shader._handle : (shader >>> 0);
     const code = ex.wasm_ctx_delete_shader(this._ctxHandle, shaderHandle);
     _checkErr(code, this._instance);
+    if (shader && typeof shader === 'object') {
+      try { shader._handle = 0; shader._deleted = true; } catch (e) { /* ignore */ }
+    }
   }
 
   createProgram() {
@@ -289,7 +316,7 @@ export class WasmWebGL2RenderingContext {
       const msg = readErrorMessage(this._instance);
       throw new Error(`Failed to create program: ${msg}`);
     }
-    return handle;
+    return new WasmWebGLProgram(this, handle);
   }
 
   attachShader(program, shader) {
@@ -326,6 +353,9 @@ export class WasmWebGL2RenderingContext {
     const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
     const code = ex.wasm_ctx_delete_program(this._ctxHandle, programHandle);
     _checkErr(code, this._instance);
+    if (program && typeof program === 'object') {
+      try { program._handle = 0; program._deleted = true; } catch (e) { /* ignore */ }
+    }
   }
 
   useProgram(program) {
@@ -532,7 +562,7 @@ export class WasmWebGL2RenderingContext {
       const msg = readErrorMessage(this._instance);
       throw new Error(`Failed to create buffer: ${msg}`);
     }
-    return handle;
+    return new WasmWebGLBuffer(this, handle);
   }
 
   bindBuffer(target, buffer) {
@@ -554,8 +584,9 @@ export class WasmWebGL2RenderingContext {
     }
     const handle = buffer && typeof buffer === 'object' && typeof buffer._handle === 'number' ? buffer._handle : (buffer >>> 0);
     const code = ex.wasm_ctx_delete_buffer(this._ctxHandle, handle);
-    _checkErr(code, this._instance);
-  }
+    _checkErr(code, this._instance);    if (buffer && typeof buffer === 'object') {
+      try { buffer._handle = 0; buffer._deleted = true; } catch (e) { /* ignore */ }
+    }  }
 
   bufferData(target, data, usage) {
     this._assertNotDestroyed();
@@ -591,7 +622,19 @@ export class WasmWebGL2RenderingContext {
 
   bufferSubData(target, offset, data) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   copyBufferSubData(readTarget, writeTarget, readOffset, writeOffset, size) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  getBufferParameter(target, pname) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  getBufferParameter(target, pname) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_buffer_parameter !== 'function') {
+      throw new Error('wasm_ctx_get_buffer_parameter not found');
+    }
+    const val = ex.wasm_ctx_get_buffer_parameter(this._ctxHandle, target >>> 0, pname >>> 0);
+    if (val < 0) {
+      const msg = readErrorMessage(this._instance);
+      throw new Error(`getBufferParameter failed: ${msg}`);
+    }
+    return val;
+  }
   isBuffer(buffer) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
   drawArrays(mode, first, count) {
@@ -650,7 +693,15 @@ export class WasmWebGL2RenderingContext {
   samplerParameteri(sampler, pname, param) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   samplerParameterf(sampler, pname, param) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
-  activeTexture(texture) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  activeTexture(texture) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_active_texture !== 'function') {
+      throw new Error('wasm_ctx_active_texture not found');
+    }
+    const code = ex.wasm_ctx_active_texture(this._ctxHandle, texture >>> 0);
+    _checkErr(code, this._instance);
+  }
   texParameteri(target, pname, param) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   generateMipmap(target) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   copyTexImage2D(target, level, internalformat, x, y, width, height, border) { this._assertNotDestroyed(); throw new Error('not implemented'); }
@@ -779,7 +830,39 @@ export class WasmWebGL2RenderingContext {
   getActiveUniform(program, index) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   getActiveAttrib(program, index) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
-  getParameter(pname) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  getParameter(pname) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_parameter_v !== 'function') {
+      throw new Error('wasm_ctx_get_parameter_v not found');
+    }
+
+    if (pname === 0x0BA2 /* VIEWPORT */) {
+      const ptr = ex.wasm_alloc(16);
+      try {
+        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 16);
+        _checkErr(code, this._instance);
+        const mem = new Int32Array(ex.memory.buffer, ptr, 4);
+        return new Int32Array(mem);
+      } finally {
+        ex.wasm_free(ptr, 16);
+      }
+    }
+
+    if (pname === 0x0C22 /* COLOR_CLEAR_VALUE */) {
+      const ptr = ex.wasm_alloc(16);
+      try {
+        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 16);
+        _checkErr(code, this._instance);
+        const mem = new Float32Array(ex.memory.buffer, ptr, 4);
+        return new Float32Array(mem);
+      } finally {
+        ex.wasm_free(ptr, 16);
+      }
+    }
+
+    throw new Error(`getParameter for ${pname} not implemented`);
+  }
   getError() {
     this._assertNotDestroyed();
     const ex = this._instance.exports;
@@ -795,6 +878,24 @@ export class WasmWebGL2RenderingContext {
   isFramebuffer(fb) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   isProgram(p) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   isShader(s) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  enable(cap) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_enable !== 'function') {
+      throw new Error('wasm_ctx_enable not found');
+    }
+    const code = ex.wasm_ctx_enable(this._ctxHandle, cap >>> 0);
+    _checkErr(code, this._instance);
+  }
+  disable(cap) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_disable !== 'function') {
+      throw new Error('wasm_ctx_disable not found');
+    }
+    const code = ex.wasm_ctx_disable(this._ctxHandle, cap >>> 0);
+    _checkErr(code, this._instance);
+  }
   isEnabled(cap) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
   viewport(x, y, width, height) {
@@ -806,7 +907,15 @@ export class WasmWebGL2RenderingContext {
     const code = ex.wasm_ctx_viewport(this._ctxHandle, x >>> 0, y >>> 0, width >>> 0, height >>> 0);
     _checkErr(code, this._instance);
   }
-  scissor(x, y, width, height) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  scissor(x, y, width, height) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_scissor !== 'function') {
+      throw new Error('wasm_ctx_scissor not found');
+    }
+    const code = ex.wasm_ctx_scissor(this._ctxHandle, x | 0, y | 0, width >>> 0, height >>> 0);
+    _checkErr(code, this._instance);
+  }
   clear(mask) {
     this._assertNotDestroyed();
     const ex = this._instance.exports;
@@ -826,7 +935,15 @@ export class WasmWebGL2RenderingContext {
     _checkErr(code, this._instance);
   }
   clearDepth(depth) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  depthFunc(func) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  depthFunc(func) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_depth_func !== 'function') {
+      throw new Error('wasm_ctx_depth_func not found');
+    }
+    const code = ex.wasm_ctx_depth_func(this._ctxHandle, func >>> 0);
+    _checkErr(code, this._instance);
+  }
   depthMask(flag) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   colorMask(r, g, b, a) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   polygonOffset(factor, units) { this._assertNotDestroyed(); throw new Error('not implemented'); }

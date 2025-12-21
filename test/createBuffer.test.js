@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('createBuffer throws not implemented', async () => {
+test('createBuffer returns a buffer object', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.createBuffer(), /not implemented/); } finally { gl.destroy(); }
+  try {
+    const buffer = gl.createBuffer();
+    assert.ok(buffer);
+  } finally { gl.destroy(); }
 });

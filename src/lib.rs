@@ -205,6 +205,36 @@ pub extern "C" fn wasm_ctx_viewport(ctx: u32, x: i32, y: i32, width: u32, height
 	webgl2_context::ctx_viewport(ctx, x, y, width, height)
 }
 
+/// Set the scissor box.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_scissor(ctx: u32, x: i32, y: i32, width: u32, height: u32) -> u32 {
+	webgl2_context::ctx_scissor(ctx, x, y, width, height)
+}
+
+/// Set the depth function.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_depth_func(ctx: u32, func: u32) -> u32 {
+	webgl2_context::ctx_depth_func(ctx, func)
+}
+
+/// Set the active texture unit.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_active_texture(ctx: u32, texture: u32) -> u32 {
+	webgl2_context::ctx_active_texture(ctx, texture)
+}
+
+/// Enable a capability.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_enable(ctx: u32, cap: u32) -> u32 {
+	webgl2_context::ctx_enable(ctx, cap)
+}
+
+/// Disable a capability.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_disable(ctx: u32, cap: u32) -> u32 {
+	webgl2_context::ctx_disable(ctx, cap)
+}
+
 /// Get the last GL error.
 #[no_mangle]
 pub extern "C" fn wasm_ctx_get_error(ctx: u32) -> u32 {
@@ -399,6 +429,18 @@ pub extern "C" fn wasm_ctx_disable_vertex_attrib_array(ctx: u32, index: u32) -> 
 #[no_mangle]
 pub extern "C" fn wasm_ctx_vertex_attrib_pointer(ctx: u32, index: u32, size: i32, type_: u32, normalized: u32, stride: i32, offset: u32) -> u32 {
 	webgl2_context::ctx_vertex_attrib_pointer(ctx, index, size, type_, normalized != 0, stride, offset)
+}
+
+/// Get a parameter (vector version).
+#[no_mangle]
+pub extern "C" fn wasm_ctx_get_parameter_v(ctx: u32, pname: u32, dest_ptr: u32, dest_len: u32) -> u32 {
+	webgl2_context::ctx_get_parameter_v(ctx, pname, dest_ptr, dest_len)
+}
+
+/// Get buffer parameter.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_get_buffer_parameter(ctx: u32, target: u32, pname: u32) -> i32 {
+	webgl2_context::ctx_get_buffer_parameter(ctx, target, pname)
 }
 
 /// Draw arrays.

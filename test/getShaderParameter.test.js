@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('getShaderParameter throws not implemented', async () => {
+test('getShaderParameter does not throw', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.getShaderParameter(1,0), /not implemented/); } finally { gl.destroy(); }
+  try {
+    const shader = gl.createShader(gl.VERTEX_SHADER);
+    gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+  } finally { gl.destroy(); }
 });

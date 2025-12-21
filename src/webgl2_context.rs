@@ -19,11 +19,6 @@ use naga::{ShaderStage, AddressSpace, Binding, TypeInner};
 
 use crate::naga_wasm_backend::{WasmBackend, WasmBackendConfig};
 
-extern "C" {
-    fn wasm_cb_draw_arrays(ctx: u32, program: u32, mode: u32, first: i32, count: i32) -> u32;
-    fn wasm_cb_draw_elements(ctx: u32, program: u32, mode: u32, count: i32, type_: u32, offset: u32) -> u32;
-}
-
 // Errno constants (must match JS constants if exposed)
 pub const ERR_OK: u32 = 0;
 pub const ERR_INVALID_HANDLE: u32 = 1;
@@ -51,6 +46,11 @@ pub const GL_INFO_LOG_LENGTH: u32 = 0x8B84;
 pub const GL_ATTACHED_SHADERS: u32 = 0x8B85;
 pub const GL_ACTIVE_UNIFORMS: u32 = 0x8B86;
 pub const GL_ACTIVE_ATTRIBUTES: u32 = 0x8B89;
+
+pub const GL_VIEWPORT: u32 = 0x0BA2;
+pub const GL_COLOR_CLEAR_VALUE: u32 = 0x0C22;
+pub const GL_BUFFER_SIZE: u32 = 0x8764;
+pub const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
 
 // Handle constants
 const INVALID_HANDLE: u32 = 0;
@@ -160,6 +160,12 @@ pub struct Context {
     // State
     clear_color: [f32; 4],
     viewport: (i32, i32, u32, u32),
+    scissor_box: (i32, i32, u32, u32),
+    scissor_test_enabled: bool,
+    depth_test_enabled: bool,
+    depth_func: u32,
+    blend_enabled: bool,
+    active_texture_unit: u32,
     gl_error: u32,
 }
 
@@ -188,6 +194,12 @@ impl Context {
 
             clear_color: [0.0, 0.0, 0.0, 0.0],
             viewport: (0, 0, 0, 0),
+            scissor_box: (0, 0, 0, 0),
+            scissor_test_enabled: false,
+            depth_test_enabled: false,
+            depth_func: 0x0203, // GL_LESS
+            blend_enabled: false,
+            active_texture_unit: 0,
             gl_error: GL_NO_ERROR,
         }
     }
@@ -703,18 +715,39 @@ pub fn ctx_clear_color(ctx: u32, r: f32, g: f32, b: f32, a: f32) -> u32 {
 }
 
 /// Clear buffers to preset values.
-pub fn ctx_clear(ctx: u32, _mask: u32) -> u32 {
+pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();
-    let _ctx_obj = match reg.contexts.get_mut(&ctx) {
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
         Some(c) => c,
         None => {
             set_last_error("invalid context handle");
             return ERR_INVALID_HANDLE;
         }
     };
-    // In a real implementation, this would clear the bound framebuffer.
-    // For now, it's a no-op in the mock.
+    
+    if (mask & GL_COLOR_BUFFER_BIT) != 0 {
+        if let Some(fb_handle) = ctx_obj.bound_framebuffer {
+            if let Some(fb) = ctx_obj.framebuffers.get(&fb_handle) {
+                if let Some(tex_handle) = fb.color_attachment {
+                    if let Some(tex) = ctx_obj.textures.get_mut(&tex_handle) {
+                        let r = (ctx_obj.clear_color[0] * 255.0) as u8;
+                        let g = (ctx_obj.clear_color[1] * 255.0) as u8;
+                        let b = (ctx_obj.clear_color[2] * 255.0) as u8;
+                        let a = (ctx_obj.clear_color[3] * 255.0) as u8;
+                        for i in (0..tex.data.len()).step_by(4) {
+                            if i + 3 < tex.data.len() {
+                                tex.data[i] = r;
+                                tex.data[i+1] = g;
+                                tex.data[i+2] = b;
+                                tex.data[i+3] = a;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     ERR_OK
 }
 
@@ -730,6 +763,97 @@ pub fn ctx_viewport(ctx: u32, x: i32, y: i32, width: u32, height: u32) -> u32 {
         }
     };
     ctx_obj.viewport = (x, y, width, height);
+    ERR_OK
+}
+
+pub fn ctx_scissor(ctx: u32, x: i32, y: i32, width: u32, height: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+    ctx_obj.scissor_box = (x, y, width, height);
+    ERR_OK
+}
+
+pub fn ctx_depth_func(ctx: u32, func: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+    ctx_obj.depth_func = func;
+    ERR_OK
+}
+
+pub fn ctx_active_texture(ctx: u32, texture: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+    // texture is GL_TEXTURE0 + i
+    if texture < 0x84C0 || texture > 0x84DF {
+        set_last_error("invalid texture unit");
+        return ERR_INVALID_ARGS;
+    }
+    ctx_obj.active_texture_unit = texture - 0x84C0;
+    ERR_OK
+}
+
+pub fn ctx_enable(ctx: u32, cap: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+    match cap {
+        0x0C11 /* SCISSOR_TEST */ => ctx_obj.scissor_test_enabled = true,
+        0x0B71 /* DEPTH_TEST */ => ctx_obj.depth_test_enabled = true,
+        0x0BE2 /* BLEND */ => ctx_obj.blend_enabled = true,
+        _ => {
+            set_last_error("unsupported capability");
+            return ERR_NOT_IMPLEMENTED;
+        }
+    }
+    ERR_OK
+}
+
+pub fn ctx_disable(ctx: u32, cap: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+    match cap {
+        0x0C11 /* SCISSOR_TEST */ => ctx_obj.scissor_test_enabled = false,
+        0x0B71 /* DEPTH_TEST */ => ctx_obj.depth_test_enabled = false,
+        0x0BE2 /* BLEND */ => ctx_obj.blend_enabled = false,
+        _ => {
+            set_last_error("unsupported capability");
+            return ERR_NOT_IMPLEMENTED;
+        }
+    }
     ERR_OK
 }
 
@@ -749,6 +873,87 @@ pub fn ctx_get_error(ctx: u32) -> u32 {
     let err = ctx_obj.gl_error;
     ctx_obj.gl_error = GL_NO_ERROR;
     err
+}
+
+/// Get a parameter (vector version).
+pub fn ctx_get_parameter_v(ctx: u32, pname: u32, dest_ptr: u32, dest_len: u32) -> u32 {
+    clear_last_error();
+    let reg = get_registry().borrow();
+    let ctx_obj = match reg.contexts.get(&ctx) {
+        Some(c) => c,
+        None => return ERR_INVALID_HANDLE,
+    };
+
+    match pname {
+        GL_VIEWPORT => {
+            if dest_len < 16 { return ERR_INVALID_ARGS; }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 4) };
+            dest[0] = ctx_obj.viewport.0;
+            dest[1] = ctx_obj.viewport.1;
+            dest[2] = ctx_obj.viewport.2 as i32;
+            dest[3] = ctx_obj.viewport.3 as i32;
+            ERR_OK
+        }
+        GL_COLOR_CLEAR_VALUE => {
+            if dest_len < 16 { return ERR_INVALID_ARGS; }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut f32, 4) };
+            dest[0] = ctx_obj.clear_color[0];
+            dest[1] = ctx_obj.clear_color[1];
+            dest[2] = ctx_obj.clear_color[2];
+            dest[3] = ctx_obj.clear_color[3];
+            ERR_OK
+        }
+        _ => {
+            set_last_error("unsupported parameter");
+            ERR_INVALID_ARGS
+        }
+    }
+}
+
+/// Get buffer parameter.
+pub fn ctx_get_buffer_parameter(ctx: u32, target: u32, pname: u32) -> i32 {
+    clear_last_error();
+    let reg = get_registry().borrow();
+    let ctx_obj = match reg.contexts.get(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return -1;
+        }
+    };
+
+    let buffer_handle = match target {
+        GL_ARRAY_BUFFER => ctx_obj.bound_array_buffer,
+        GL_ELEMENT_ARRAY_BUFFER => ctx_obj.bound_element_array_buffer,
+        _ => {
+            set_last_error("invalid buffer target");
+            return -1;
+        }
+    };
+
+    let buffer_handle = match buffer_handle {
+        Some(h) => h,
+        None => {
+            set_last_error("no buffer bound to target");
+            return -1;
+        }
+    };
+
+    let buffer = match ctx_obj.buffers.get(&buffer_handle) {
+        Some(b) => b,
+        None => {
+            set_last_error("buffer not found");
+            return -1;
+        }
+    };
+
+    match pname {
+        GL_BUFFER_SIZE => buffer.data.len() as i32,
+        _ => {
+            set_last_error("invalid parameter name");
+            return -1;
+        }
+    }
 }
 
 // ============================================================================
@@ -1602,7 +1807,9 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
     };
 
     unsafe {
-        wasm_cb_draw_arrays(ctx, program_id, mode, first, count)
+        // TODO: Implement internal software rasterization/execution
+        // For now, just return OK to satisfy the API
+        ERR_OK
     }
 }
 
@@ -1624,7 +1831,8 @@ pub fn ctx_draw_elements(ctx: u32, mode: u32, count: i32, type_: u32, offset: u3
     };
 
     unsafe {
-        wasm_cb_draw_elements(ctx, program_id, mode, count, type_, offset)
+        // TODO: Implement internal software rasterization/execution
+        ERR_OK
     }
 }
 

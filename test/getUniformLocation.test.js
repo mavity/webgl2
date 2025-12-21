@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('getUniformLocation throws not implemented', async () => {
+test('getUniformLocation does not throw', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.getUniformLocation(1,'u'), /not implemented/); } finally { gl.destroy(); }
+  try {
+    const program = gl.createProgram();
+    gl.getUniformLocation(program, 'u_matrix');
+  } finally { gl.destroy(); }
 });

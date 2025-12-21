@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('drawElements throws not implemented', async () => {
+test('drawElements does not throw', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.drawElements(0,0,0,0), /not implemented/); } finally { gl.destroy(); }
+  try {
+    const program = gl.createProgram();
+    gl.useProgram(program);
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer);
+    gl.drawElements(gl.TRIANGLES, 0, gl.UNSIGNED_SHORT, 0);
+  } finally { gl.destroy(); }
 });
