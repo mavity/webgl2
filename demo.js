@@ -1,5 +1,3 @@
-import { webGL2 } from './index.js';
-
 // Environment detection
 const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
 
@@ -13,6 +11,11 @@ async function initFS() {
 }
 
 async function renderCube() {
+    const { webGL2 } = await import(
+        typeof loadModulePath === 'string' ?
+            loadModulePath :
+            './index.js');
+
     const gl = await webGL2();
     gl.verbosity = 0; // Disable debug logs for this demo
     gl.viewport(0, 0, 640, 480);

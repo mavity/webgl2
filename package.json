@@ -1,6 +1,6 @@
 {
   "name": "webgl2",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "WebGL2 tools to derisk large GPU projects on the web beyond toys and demos.",
   "type": "module",
   "main": "index.js",
@@ -10,11 +10,6 @@
     "prepublishOnly": "npm run build",
     "test": "node --test test/*.test.js",
     "test:smoke": "npm run build && node ./test/smoke.js"
-  },
-  "wasmBuild": {
-    "outDir": "wasm",
-    "target": "wasm32-unknown-unknown",
-    "profile": "release"
   },
   "repository": {
     "type": "git",
@@ -27,6 +22,7 @@
   ,
   "files": [
     "index.js",
+    "src/*.js",
     "wasm",
     "README.md",
     "LICENSE"
