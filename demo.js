@@ -21,7 +21,8 @@ const animationState = {
     canvas: null,
     ctx: null,
     width: 0,
-    height: 0
+    height: 0,
+    startTime: null
 };
 
 // Global rendering context (lazy initialized)
@@ -241,15 +242,30 @@ async function initializeRenderContext() {
         gl,
         program,
         mvpLoc,
-        mvp: new Float32Array(mvp)
+        mvp: new Float32Array(mvp),
+        // Store functions and base values for dynamic rotation
+        perspective,
+        translate,
+        rotateX,
+        rotateY,
+        multiply
     };
     
     return renderContext;
 }
 
-async function renderCube() {
+async function renderCube(elapsedTime = 0) {
     const ctx = await initializeRenderContext();
-    const { gl, program, mvpLoc, mvp } = ctx;
+    const { gl, program, mvpLoc, perspective, translate, rotateX, rotateY, multiply } = ctx;
+    
+    // Calculate rotation angle: 1 full rotation (2π) in 5 seconds
+    const rotationAngle = (elapsedTime / 5000) * Math.PI * 2;
+    
+    // Recalculate MVP with time-based rotation
+    let mvp = perspective(Math.PI / 4, 640 / 480, 0.1, 100.0);
+    mvp = translate(mvp, 0, 0, -3);
+    mvp = rotateX(mvp, 0.5);
+    mvp = rotateY(mvp, 0.8 + rotationAngle);
     
     // Set MVP matrix
     gl.uniformMatrix4fv(mvpLoc, false, mvp);
@@ -390,7 +406,8 @@ function updateFpsCounter() {
 async function animate() {
     if (!animationState.running) return;
     
-    const result = await renderCube();
+    const elapsedTime = Date.now() - animationState.startTime;
+    const result = await renderCube(elapsedTime);
     const { pixels, width, height } = result;
     
     await displayFrame(pixels, width, height);
@@ -483,6 +500,7 @@ async function main() {
                 button.textContent = '⏸ Pause';
                 animationState.frameCount = 0;
                 animationState.lastFpsTime = Date.now();
+                animationState.startTime = Date.now();
                 requestAnimationFrame(animate);
             } else {
                 button.textContent = '▶ Play';
