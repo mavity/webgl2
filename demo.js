@@ -11,10 +11,17 @@ async function initFS() {
 }
 
 async function renderCube() {
-    const { webGL2 } = await import(
-        typeof loadModulePath === 'string' ?
-            loadModulePath :
-            './index.js');
+    let webGL2;
+    try {
+        const { webGL2: webGL2Loaded } = await import(
+            typeof loadModulePath === 'string' ?
+                loadModulePath :
+                './index.js');
+        webGL2 = webGL2Loaded;
+    } catch {
+        const { webGL2: webGL2Loaded } = await import('https://esm.run/webgl2');
+        webGL2 = webGL2Loaded;
+    }
 
     const gl = await webGL2();
     gl.verbosity = 0; // Disable debug logs for this demo

@@ -1,6 +1,6 @@
 # WebGL2 Development Platform: VISION
 
-A **Rust + WASM** based toolkit for debugging GLSL shaders and generating ergonomic WebGL2 bindings.
+GPU in WASM: slow but guaranteed and immovable like Sisyphus's rock.
 
 ![WebGL2 Singing Dog Logo](./webgl2.png)
 
@@ -24,6 +24,8 @@ npm run build
 # Run the extensive test suite
 npm test
 ```
+
+[🧊Demo](https://raw.githack.com/mavity/webgl2/refs/heads/main/index.html)
 
 ## ✨ Key Features
 

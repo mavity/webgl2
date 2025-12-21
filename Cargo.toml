@@ -1,6 +1,6 @@
 [package]
 name = "webgl2"
-version = "1.0.19"
+version = "1.0.20"
 edition = "2021"
 license-file = "LICENSE"
 authors = ["WebGL2 Platform Team"]
