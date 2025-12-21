@@ -218,42 +218,379 @@ export class WasmWebGL2RenderingContext {
   // These are intentionally not implemented in the prototype. They allow
   // callers to detect missing functionality early with a uniform error.
 
-  createShader(type) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  shaderSource(shader, source) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  compileShader(shader) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  deleteShader(shader) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  createShader(type) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_create_shader !== 'function') {
+      throw new Error('wasm_ctx_create_shader not found');
+    }
+    const handle = ex.wasm_ctx_create_shader(this._ctxHandle, type >>> 0);
+    if (handle === 0) {
+      const msg = readErrorMessage(this._instance);
+      throw new Error(`Failed to create shader: ${msg}`);
+    }
+    return handle;
+  }
 
-  createProgram() { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  attachShader(program, shader) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  shaderSource(shader, source) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_shader_source !== 'function') {
+      throw new Error('wasm_ctx_shader_source not found');
+    }
+
+    const shaderHandle = shader && typeof shader === 'object' && typeof shader._handle === 'number' ? shader._handle : (shader >>> 0);
+    const sourceStr = String(source);
+    const bytes = new TextEncoder().encode(sourceStr);
+    const len = bytes.length;
+    const ptr = ex.wasm_alloc(len);
+    if (ptr === 0) throw new Error('Failed to allocate memory for shaderSource');
+
+    try {
+      const mem = new Uint8Array(ex.memory.buffer);
+      mem.set(bytes, ptr);
+      const code = ex.wasm_ctx_shader_source(this._ctxHandle, shaderHandle, ptr, len);
+      _checkErr(code, this._instance);
+    } finally {
+      ex.wasm_free(ptr);
+    }
+  }
+
+  compileShader(shader) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_compile_shader !== 'function') {
+      throw new Error('wasm_ctx_compile_shader not found');
+    }
+    const shaderHandle = shader && typeof shader === 'object' && typeof shader._handle === 'number' ? shader._handle : (shader >>> 0);
+    const code = ex.wasm_ctx_compile_shader(this._ctxHandle, shaderHandle);
+    _checkErr(code, this._instance);
+  }
+
+  deleteShader(shader) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_delete_shader !== 'function') {
+      throw new Error('wasm_ctx_delete_shader not found');
+    }
+    const shaderHandle = shader && typeof shader === 'object' && typeof shader._handle === 'number' ? shader._handle : (shader >>> 0);
+    const code = ex.wasm_ctx_delete_shader(this._ctxHandle, shaderHandle);
+    _checkErr(code, this._instance);
+  }
+
+  createProgram() {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_create_program !== 'function') {
+      throw new Error('wasm_ctx_create_program not found');
+    }
+    const handle = ex.wasm_ctx_create_program(this._ctxHandle);
+    if (handle === 0) {
+      const msg = readErrorMessage(this._instance);
+      throw new Error(`Failed to create program: ${msg}`);
+    }
+    return handle;
+  }
+
+  attachShader(program, shader) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_attach_shader !== 'function') {
+      throw new Error('wasm_ctx_attach_shader not found');
+    }
+    const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
+    const shaderHandle = shader && typeof shader === 'object' && typeof shader._handle === 'number' ? shader._handle : (shader >>> 0);
+    const code = ex.wasm_ctx_attach_shader(this._ctxHandle, programHandle, shaderHandle);
+    _checkErr(code, this._instance);
+  }
+
   detachShader(program, shader) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  linkProgram(program) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  deleteProgram(program) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  useProgram(program) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
-  getShaderParameter(shader, pname) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  getProgramParameter(program, pname) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  getShaderInfoLog(shader) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  getProgramInfoLog(program) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  linkProgram(program) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_link_program !== 'function') {
+      throw new Error('wasm_ctx_link_program not found');
+    }
+    const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
+    const code = ex.wasm_ctx_link_program(this._ctxHandle, programHandle);
+    _checkErr(code, this._instance);
+  }
 
-  getAttribLocation(program, name) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  bindAttribLocation(program, index, name) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  deleteProgram(program) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_delete_program !== 'function') {
+      throw new Error('wasm_ctx_delete_program not found');
+    }
+    const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
+    const code = ex.wasm_ctx_delete_program(this._ctxHandle, programHandle);
+    _checkErr(code, this._instance);
+  }
 
-  enableVertexAttribArray(index) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  disableVertexAttribArray(index) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  vertexAttribPointer(index, size, type, normalized, stride, offset) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  useProgram(program) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_use_program !== 'function') {
+      throw new Error('wasm_ctx_use_program not found');
+    }
+    const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
+    const code = ex.wasm_ctx_use_program(this._ctxHandle, programHandle);
+    _checkErr(code, this._instance);
+  }
+
+  getShaderParameter(shader, pname) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_shader_parameter !== 'function') {
+      throw new Error('wasm_ctx_get_shader_parameter not found');
+    }
+    const shaderHandle = shader && typeof shader === 'object' && typeof shader._handle === 'number' ? shader._handle : (shader >>> 0);
+    const val = ex.wasm_ctx_get_shader_parameter(this._ctxHandle, shaderHandle, pname >>> 0);
+    
+    // WebGL returns boolean for status parameters
+    if (pname === 0x8B81 /* COMPILE_STATUS */ || pname === 0x8B80 /* DELETE_STATUS */) {
+      return !!val;
+    }
+    return val;
+  }
+
+  getProgramParameter(program, pname) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_program_parameter !== 'function') {
+      throw new Error('wasm_ctx_get_program_parameter not found');
+    }
+    const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
+    const val = ex.wasm_ctx_get_program_parameter(this._ctxHandle, programHandle, pname >>> 0);
+
+    // WebGL returns boolean for status parameters
+    if (pname === 0x8B82 /* LINK_STATUS */ || pname === 0x8B80 /* DELETE_STATUS */ || pname === 0x8B83 /* VALIDATE_STATUS */) {
+      return !!val;
+    }
+    return val;
+  }
+
+  getShaderInfoLog(shader) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_shader_info_log !== 'function') {
+      throw new Error('wasm_ctx_get_shader_info_log not found');
+    }
+    const shaderHandle = shader && typeof shader === 'object' && typeof shader._handle === 'number' ? shader._handle : (shader >>> 0);
+    
+    const maxLen = 1024;
+    const ptr = ex.wasm_alloc(maxLen);
+    if (ptr === 0) throw new Error('Failed to allocate memory for getShaderInfoLog');
+
+    try {
+      const len = ex.wasm_ctx_get_shader_info_log(this._ctxHandle, shaderHandle, ptr, maxLen);
+      const mem = new Uint8Array(ex.memory.buffer);
+      const bytes = mem.subarray(ptr, ptr + len);
+      return new TextDecoder().decode(bytes);
+    } finally {
+      ex.wasm_free(ptr);
+    }
+  }
+
+  getProgramInfoLog(program) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_program_info_log !== 'function') {
+      throw new Error('wasm_ctx_get_program_info_log not found');
+    }
+    const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
+
+    const maxLen = 1024;
+    const ptr = ex.wasm_alloc(maxLen);
+    if (ptr === 0) throw new Error('Failed to allocate memory for getProgramInfoLog');
+
+    try {
+      const len = ex.wasm_ctx_get_program_info_log(this._ctxHandle, programHandle, ptr, maxLen);
+      const mem = new Uint8Array(ex.memory.buffer);
+      const bytes = mem.subarray(ptr, ptr + len);
+      return new TextDecoder().decode(bytes);
+    } finally {
+      ex.wasm_free(ptr);
+    }
+  }
+
+  getAttribLocation(program, name) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_attrib_location !== 'function') {
+      throw new Error('wasm_ctx_get_attrib_location not found');
+    }
+    const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
+    const nameStr = String(name);
+    const bytes = new TextEncoder().encode(nameStr);
+    const len = bytes.length;
+    const ptr = ex.wasm_alloc(len);
+    if (ptr === 0) throw new Error('Failed to allocate memory for getAttribLocation');
+
+    try {
+      const mem = new Uint8Array(ex.memory.buffer);
+      mem.set(bytes, ptr);
+      return ex.wasm_ctx_get_attrib_location(this._ctxHandle, programHandle, ptr, len);
+    } finally {
+      ex.wasm_free(ptr);
+    }
+  }
+
+  bindAttribLocation(program, index, name) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_bind_attrib_location !== 'function') {
+      throw new Error('wasm_ctx_bind_attrib_location not found');
+    }
+    const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
+    const nameStr = String(name);
+    const bytes = new TextEncoder().encode(nameStr);
+    const len = bytes.length;
+    const ptr = ex.wasm_alloc(len);
+    if (ptr === 0) throw new Error('Failed to allocate memory for bindAttribLocation');
+
+    try {
+      const mem = new Uint8Array(ex.memory.buffer);
+      mem.set(bytes, ptr);
+      const code = ex.wasm_ctx_bind_attrib_location(this._ctxHandle, programHandle, index >>> 0, ptr, len);
+      _checkErr(code, this._instance);
+    } finally {
+      ex.wasm_free(ptr);
+    }
+  }
+
+  enableVertexAttribArray(index) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_enable_vertex_attrib_array !== 'function') {
+      throw new Error('wasm_ctx_enable_vertex_attrib_array not found');
+    }
+    const code = ex.wasm_ctx_enable_vertex_attrib_array(this._ctxHandle, index >>> 0);
+    _checkErr(code, this._instance);
+  }
+
+  disableVertexAttribArray(index) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_disable_vertex_attrib_array !== 'function') {
+      throw new Error('wasm_ctx_disable_vertex_attrib_array not found');
+    }
+    const code = ex.wasm_ctx_disable_vertex_attrib_array(this._ctxHandle, index >>> 0);
+    _checkErr(code, this._instance);
+  }
+
+  vertexAttribPointer(index, size, type, normalized, stride, offset) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_vertex_attrib_pointer !== 'function') {
+      throw new Error('wasm_ctx_vertex_attrib_pointer not found');
+    }
+    const code = ex.wasm_ctx_vertex_attrib_pointer(
+      this._ctxHandle,
+      index >>> 0,
+      size >>> 0,
+      type >>> 0,
+      normalized ? 1 : 0,
+      stride >>> 0,
+      offset >>> 0
+    );
+    _checkErr(code, this._instance);
+  }
   vertexAttribDivisor(index, divisor) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
-  createBuffer() { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  bindBuffer(target, buffer) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  deleteBuffer(buffer) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  bufferData(target, data, usage) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  createBuffer() {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_create_buffer !== 'function') {
+      throw new Error('wasm_ctx_create_buffer not found');
+    }
+    const handle = ex.wasm_ctx_create_buffer(this._ctxHandle);
+    if (handle === 0) {
+      const msg = readErrorMessage(this._instance);
+      throw new Error(`Failed to create buffer: ${msg}`);
+    }
+    return handle;
+  }
+
+  bindBuffer(target, buffer) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_bind_buffer !== 'function') {
+      throw new Error('wasm_ctx_bind_buffer not found');
+    }
+    const handle = buffer && typeof buffer === 'object' && typeof buffer._handle === 'number' ? buffer._handle : (buffer >>> 0);
+    const code = ex.wasm_ctx_bind_buffer(this._ctxHandle, target >>> 0, handle);
+    _checkErr(code, this._instance);
+  }
+
+  deleteBuffer(buffer) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_delete_buffer !== 'function') {
+      throw new Error('wasm_ctx_delete_buffer not found');
+    }
+    const handle = buffer && typeof buffer === 'object' && typeof buffer._handle === 'number' ? buffer._handle : (buffer >>> 0);
+    const code = ex.wasm_ctx_delete_buffer(this._ctxHandle, handle);
+    _checkErr(code, this._instance);
+  }
+
+  bufferData(target, data, usage) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_buffer_data !== 'function') {
+      throw new Error('wasm_ctx_buffer_data not found');
+    }
+
+    let bytes;
+    if (data instanceof ArrayBuffer) {
+      bytes = new Uint8Array(data);
+    } else if (ArrayBuffer.isView(data)) {
+      bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    } else if (typeof data === 'number') {
+      bytes = new Uint8Array(data);
+    } else {
+      throw new Error('Invalid data type for bufferData');
+    }
+
+    const len = bytes.length;
+    const ptr = ex.wasm_alloc(len);
+    if (ptr === 0) throw new Error('Failed to allocate memory for bufferData');
+
+    try {
+      const mem = new Uint8Array(ex.memory.buffer);
+      mem.set(bytes, ptr);
+      const code = ex.wasm_ctx_buffer_data(this._ctxHandle, target >>> 0, ptr, len, usage >>> 0);
+      _checkErr(code, this._instance);
+    } finally {
+      ex.wasm_free(ptr);
+    }
+  }
+
   bufferSubData(target, offset, data) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   copyBufferSubData(readTarget, writeTarget, readOffset, writeOffset, size) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   getBufferParameter(target, pname) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   isBuffer(buffer) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
-  drawArrays(mode, first, count) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  drawElements(mode, count, type, offset) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  drawArrays(mode, first, count) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_draw_arrays !== 'function') {
+      throw new Error('wasm_ctx_draw_arrays not found');
+    }
+    const code = ex.wasm_ctx_draw_arrays(this._ctxHandle, mode >>> 0, first >>> 0, count >>> 0);
+    _checkErr(code, this._instance);
+  }
+
+  drawElements(mode, count, type, offset) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_draw_elements !== 'function') {
+      throw new Error('wasm_ctx_draw_elements not found');
+    }
+    const code = ex.wasm_ctx_draw_elements(this._ctxHandle, mode >>> 0, count >>> 0, type >>> 0, offset >>> 0);
+    _checkErr(code, this._instance);
+  }
   drawArraysInstanced(mode, first, count, instanceCount) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   drawElementsInstanced(mode, count, type, offset, instanceCount) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   drawRangeElements(mode, start, end, count, type, offset) { this._assertNotDestroyed(); throw new Error('not implemented'); }
@@ -311,18 +648,124 @@ export class WasmWebGL2RenderingContext {
   getExtension(name) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   getSupportedExtensions() { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
-  getUniformLocation(program, name) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  uniform1f(loc, x) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  uniform2f(loc, x, y) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  uniform3f(loc, x, y, z) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  uniform4f(loc, x, y, z, w) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  uniform1i(loc, x) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  uniformMatrix4fv(loc, transpose, value) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  getUniformLocation(program, name) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_uniform_location !== 'function') {
+      throw new Error('wasm_ctx_get_uniform_location not found');
+    }
+    const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
+    const nameStr = String(name);
+    const bytes = new TextEncoder().encode(nameStr);
+    const len = bytes.length;
+    const ptr = ex.wasm_alloc(len);
+    if (ptr === 0) throw new Error('Failed to allocate memory for getUniformLocation');
+
+    try {
+      const mem = new Uint8Array(ex.memory.buffer);
+      mem.set(bytes, ptr);
+      const loc = ex.wasm_ctx_get_uniform_location(this._ctxHandle, programHandle, ptr, len);
+      return loc === -1 ? null : loc;
+    } finally {
+      ex.wasm_free(ptr);
+    }
+  }
+
+  uniform1f(loc, x) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_uniform1f !== 'function') {
+      throw new Error('wasm_ctx_uniform1f not found');
+    }
+    const locHandle = loc === null ? -1 : (typeof loc === 'number' ? loc : (loc._handle >>> 0));
+    const code = ex.wasm_ctx_uniform1f(this._ctxHandle, locHandle, +x);
+    _checkErr(code, this._instance);
+  }
+
+  uniform2f(loc, x, y) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_uniform2f !== 'function') {
+      throw new Error('wasm_ctx_uniform2f not found');
+    }
+    const locHandle = loc === null ? -1 : (typeof loc === 'number' ? loc : (loc._handle >>> 0));
+    const code = ex.wasm_ctx_uniform2f(this._ctxHandle, locHandle, +x, +y);
+    _checkErr(code, this._instance);
+  }
+
+  uniform3f(loc, x, y, z) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_uniform3f !== 'function') {
+      throw new Error('wasm_ctx_uniform3f not found');
+    }
+    const locHandle = loc === null ? -1 : (typeof loc === 'number' ? loc : (loc._handle >>> 0));
+    const code = ex.wasm_ctx_uniform3f(this._ctxHandle, locHandle, +x, +y, +z);
+    _checkErr(code, this._instance);
+  }
+
+  uniform4f(loc, x, y, z, w) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_uniform4f !== 'function') {
+      throw new Error('wasm_ctx_uniform4f not found');
+    }
+    const locHandle = loc === null ? -1 : (typeof loc === 'number' ? loc : (loc._handle >>> 0));
+    const code = ex.wasm_ctx_uniform4f(this._ctxHandle, locHandle, +x, +y, +z, +w);
+    _checkErr(code, this._instance);
+  }
+
+  uniform1i(loc, x) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_uniform1i !== 'function') {
+      throw new Error('wasm_ctx_uniform1i not found');
+    }
+    const locHandle = loc === null ? -1 : (typeof loc === 'number' ? loc : (loc._handle >>> 0));
+    const code = ex.wasm_ctx_uniform1i(this._ctxHandle, locHandle, x | 0);
+    _checkErr(code, this._instance);
+  }
+
+  uniformMatrix4fv(loc, transpose, value) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_uniform_matrix_4fv !== 'function') {
+      throw new Error('wasm_ctx_uniform_matrix_4fv not found');
+    }
+    const locHandle = loc === null ? -1 : (typeof loc === 'number' ? loc : (loc._handle >>> 0));
+    
+    let bytes;
+    if (value instanceof Float32Array) {
+      bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    } else {
+      bytes = new Uint8Array(new Float32Array(value).buffer);
+    }
+
+    const len = bytes.length;
+    const ptr = ex.wasm_alloc(len);
+    if (ptr === 0) throw new Error('Failed to allocate memory for uniformMatrix4fv');
+
+    try {
+      const mem = new Uint8Array(ex.memory.buffer);
+      mem.set(bytes, ptr);
+      const code = ex.wasm_ctx_uniform_matrix_4fv(this._ctxHandle, locHandle, transpose ? 1 : 0, ptr, len);
+      _checkErr(code, this._instance);
+    } finally {
+      ex.wasm_free(ptr);
+    }
+  }
   getActiveUniform(program, index) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   getActiveAttrib(program, index) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
   getParameter(pname) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  getError() { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  getError() {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_error !== 'function') {
+      throw new Error('wasm_ctx_get_error not found');
+    }
+    return ex.wasm_ctx_get_error(this._ctxHandle);
+  }
   finish() { this._assertNotDestroyed(); throw new Error('not implemented'); }
   flush() { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
@@ -332,10 +775,34 @@ export class WasmWebGL2RenderingContext {
   isShader(s) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   isEnabled(cap) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
-  viewport(x, y, width, height) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  viewport(x, y, width, height) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_viewport !== 'function') {
+      throw new Error('wasm_ctx_viewport not found');
+    }
+    const code = ex.wasm_ctx_viewport(this._ctxHandle, x >>> 0, y >>> 0, width >>> 0, height >>> 0);
+    _checkErr(code, this._instance);
+  }
   scissor(x, y, width, height) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  clear(mask) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  clearColor(r, g, b, a) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  clear(mask) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_clear !== 'function') {
+      throw new Error('wasm_ctx_clear not found');
+    }
+    const code = ex.wasm_ctx_clear(this._ctxHandle, mask >>> 0);
+    _checkErr(code, this._instance);
+  }
+  clearColor(r, g, b, a) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_clear_color !== 'function') {
+      throw new Error('wasm_ctx_clear_color not found');
+    }
+    const code = ex.wasm_ctx_clear_color(this._ctxHandle, +r, +g, +b, +a);
+    _checkErr(code, this._instance);
+  }
   clearDepth(depth) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   depthFunc(func) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   depthMask(flag) { this._assertNotDestroyed(); throw new Error('not implemented'); }
