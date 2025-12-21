@@ -82,6 +82,23 @@ pub fn translate_expression_component(
             let left_ty = typifier.get(*left, &module.types);
             let right_ty = typifier.get(*right, &module.types);
             
+            // Handle Matrix * Vector
+            if let (naga::TypeInner::Matrix { columns, rows, .. }, naga::TypeInner::Vector { .. }) = (left_ty, right_ty) {
+                if *op == BinaryOperator::Multiply {
+                    // result[component_idx] = sum_j(matrix[j][component_idx] * vector[j])
+                    wasm_func.instruction(&Instruction::F32Const(0.0));
+                    for j in 0..(*columns as u32) {
+                        // matrix[j][component_idx]
+                        translate_expression_component(*left, j * (*rows as u32) + component_idx, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point, scratch_base)?;
+                        // vector[j]
+                        translate_expression_component(*right, j, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point, scratch_base)?;
+                        wasm_func.instruction(&Instruction::F32Mul);
+                        wasm_func.instruction(&Instruction::F32Add);
+                    }
+                    return Ok(());
+                }
+            }
+
             let left_count = super::types::component_count(left_ty);
             let right_count = super::types::component_count(right_ty);
             
@@ -137,8 +154,8 @@ pub fn translate_expression_component(
                 if let Some(naga::Binding::Location { location, .. }) = arg.binding {
                     // Use location-based offset
                     if stage == naga::ShaderStage::Vertex {
-                        // VS: attribute location L is at offset L * 16
-                        offset = location * 16;
+                        // VS: attribute location L is at offset L * 64 (to match uniform alignment)
+                        offset = location * 64;
                     } else {
                         // FS: varying location L is at offset (L + 1) * 16 (skipping gl_Position)
                         offset = (location + 1) * 16;
@@ -178,12 +195,11 @@ pub fn translate_expression_component(
                 let inner = &module.types[*ty].inner;
                 match inner {
                     naga::TypeInner::Image { .. } | naga::TypeInner::Sampler { .. } => {
-                        wasm_func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                        wasm_func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
                             offset: 0,
                             align: 2,
                             memory_index: 0,
                         }));
-                        wasm_func.instruction(&Instruction::F32ConvertI32S);
                     }
                     _ => {
                         wasm_func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
@@ -272,10 +288,10 @@ pub fn translate_expression_component(
             // 5. Calculate texel coordinates
             // u = coordinate.x, v = coordinate.y
             translate_expression_component(*coordinate, 0, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point, scratch_base)?;
-            // Clamp u to [0, 1]
+            // Clamp u to [0, 0.9999] to avoid out of bounds at 1.0
             wasm_func.instruction(&Instruction::F32Const(0.0));
             wasm_func.instruction(&Instruction::F32Max);
-            wasm_func.instruction(&Instruction::F32Const(1.0));
+            wasm_func.instruction(&Instruction::F32Const(0.9999));
             wasm_func.instruction(&Instruction::F32Min);
             wasm_func.instruction(&Instruction::LocalGet(scratch_base + 1)); // width
             wasm_func.instruction(&Instruction::F32ConvertI32S);
@@ -284,10 +300,10 @@ pub fn translate_expression_component(
             wasm_func.instruction(&Instruction::LocalSet(scratch_base + 4)); // scratch_base + 4 is texel_x
             
             translate_expression_component(*coordinate, 1, func, module, wasm_func, global_offsets, local_offsets, call_result_locals, stage, typifier, naga_function_map, argument_local_offsets, is_entry_point, scratch_base)?;
-            // Clamp v to [0, 1]
+            // Clamp v to [0, 0.9999]
             wasm_func.instruction(&Instruction::F32Const(0.0));
             wasm_func.instruction(&Instruction::F32Max);
-            wasm_func.instruction(&Instruction::F32Const(1.0));
+            wasm_func.instruction(&Instruction::F32Const(0.9999));
             wasm_func.instruction(&Instruction::F32Min);
             wasm_func.instruction(&Instruction::LocalGet(scratch_base + 2)); // height
             wasm_func.instruction(&Instruction::F32ConvertI32S);

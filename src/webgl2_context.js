@@ -65,8 +65,14 @@ export class WasmWebGL2RenderingContext {
     }
     const shaderInstance = type === this.VERTEX_SHADER ? this._currentProgram._vsInstance : this._currentProgram._fsInstance;
     if (shaderInstance && shaderInstance.exports.main) {
-      // @ts-ignore
-      shaderInstance.exports.main(type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
+      try {
+        // @ts-ignore
+        shaderInstance.exports.main(type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
+      } catch (e) {
+        console.error(`Shader execution error in ${type === this.VERTEX_SHADER ? 'VS' : 'FS'}:`, e);
+        console.error(`  attrPtr: ${attrPtr}, uniformPtr: ${uniformPtr}, varyingPtr: ${varyingPtr}, privatePtr: ${privatePtr}, texturePtr: ${texturePtr}`);
+        throw e;
+      }
     }
   }
 

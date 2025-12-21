@@ -59,11 +59,22 @@ The platform follows a "Rust-first" architecture where the GPU state and shader 
 **Current Phase: Phase 1 - Core Emulator & Compiler** ✅
 
 - [x] Rust-owned WebGL2 Context & Resource Registry
-- [x] Naga-to-WASM backend with DWARF support
-- [x] Software Rasterizer for shader emulation
-- [x] JS/TS ergonomic bindings
-- [x] Extensive WebGL2 API test coverage (>100 tests)
+- [ ] Naga-to-WASM backend with DWARF support - partially done
+- [ ] Software Rasterizer for shader emulation - partially done
+- [x] JS/TS ergonomic bindings - substantially working
+- [ ] Extensive WebGL2 API test coverage - partially done (>100 tests)
 - [ ] Browser DevTools integration validation (in progress)
+
+## Quick demo
+
+```bash
+node test/visual_demo.js
+```
+
+![The cube](./output.png)
+
+Uses a simple texture shader to render a cube into an `output.png` file.
+
 
 ## 📚 Documentation
 

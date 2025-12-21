@@ -97,7 +97,7 @@ impl<'a> Compiler<'a> {
     fn compile(&mut self, module: &Module) -> Result<(), BackendError> {
         // Import memory from host
         self.imports.import("env", "memory", MemoryType {
-            minimum: 1,
+            minimum: 10, // 640KB
             maximum: None,
             memory64: false,
             shared: false,
@@ -153,17 +153,13 @@ impl<'a> Compiler<'a> {
             }
             let size = super::types::type_size(&module.types[var.ty].inner).unwrap_or(4);
             
-            crate::js_print(&format!("DEBUG: Global '{}' space={:?} binding={:?}", var.name.as_deref().unwrap_or("?"), var.space, var.binding));
-
             let (offset, base_ptr) = match var.space {
                 naga::AddressSpace::Uniform | naga::AddressSpace::Handle => {
                     if let Some(name) = &var.name {
                         if let Some(&loc) = self.uniform_locations.get(name) {
-                            let offset = loc * 16;
-                            crate::js_print(&format!("DEBUG: Uniform/Handle '{}' assigned offset {}", name, offset));
+                            let offset = loc * 64;
                             (offset, 1)
                         } else {
-                            crate::js_print(&format!("DEBUG: Uniform/Handle '{}' NOT FOUND in locations", name));
                             (0, 1)
                         }
                     } else {
@@ -183,12 +179,10 @@ impl<'a> Compiler<'a> {
                     };
 
                     if is_output {
-                        crate::js_print(&format!("DEBUG: Global '{}' is FS output, assigned offset 0 in private", var.name.as_deref().unwrap_or("?")));
                         (0, 3)
                     } else if let Some(name) = &var.name {
                         if let Some(&loc) = self.varying_locations.get(name) {
-                            let offset = loc * 16;
-                            crate::js_print(&format!("DEBUG: Global '{}' is varying, assigned offset {} in varying", name, offset));
+                            let offset = (loc + 1) * 16;
                             (offset, 2)
                         } else {
                             let o = private_offset;

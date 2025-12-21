@@ -48,6 +48,22 @@ pub const GL_ATTACHED_SHADERS: u32 = 0x8B85;
 pub const GL_ACTIVE_UNIFORMS: u32 = 0x8B86;
 pub const GL_ACTIVE_ATTRIBUTES: u32 = 0x8B89;
 
+struct Vertex {
+    pos: [f32; 4],
+    varyings: Vec<u8>,
+}
+
+fn barycentric(p: (f32, f32), a: (f32, f32), b: (f32, f32), c: (f32, f32)) -> (f32, f32, f32) {
+    let area = (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
+    if area.abs() < 1e-6 {
+        return (-1.0, -1.0, -1.0);
+    }
+    let w0 = ((b.0 - p.0) * (c.1 - p.1) - (b.1 - p.1) * (c.0 - p.0)) / area;
+    let w1 = ((c.0 - p.0) * (a.1 - p.1) - (c.1 - p.1) * (a.0 - p.0)) / area;
+    let w2 = 1.0 - w0 - w1;
+    (w0, w1, w2)
+}
+
 pub const GL_VIEWPORT: u32 = 0x0BA2;
 pub const GL_COLOR_CLEAR_VALUE: u32 = 0x0C22;
 pub const GL_BUFFER_SIZE: u32 = 0x8764;
@@ -1503,7 +1519,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
         let mut uniform_locations = HashMap::new();
         let mut next_uniform_loc = 0;
         let mut varying_locations = HashMap::new();
-        let mut next_varying_loc = 1; // 0 is reserved for gl_Position
+        let mut next_varying_loc = 0; // gl_Position is handled separately at offset 0
 
         if let Some(vs) = &p.vs_module {
             for ep in &vs.entry_points {
@@ -1798,8 +1814,8 @@ pub fn ctx_uniform1f(ctx: u32, location: i32, x: f32) -> u32 {
         return ERR_OK;
     }
 
-    if (location as usize * 16 + 4) <= ctx_obj.uniform_data.len() {
-        let offset = location as usize * 16;
+    if (location as usize * 64 + 4) <= ctx_obj.uniform_data.len() {
+        let offset = location as usize * 64;
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
         ERR_OK
     } else {
@@ -1821,8 +1837,8 @@ pub fn ctx_uniform2f(ctx: u32, location: i32, x: f32, y: f32) -> u32 {
         return ERR_OK;
     }
 
-    if (location as usize * 16 + 8) <= ctx_obj.uniform_data.len() {
-        let offset = location as usize * 16;
+    if (location as usize * 64 + 8) <= ctx_obj.uniform_data.len() {
+        let offset = location as usize * 64;
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
         ctx_obj.uniform_data[offset + 4..offset + 8].copy_from_slice(&y.to_le_bytes());
         ERR_OK
@@ -1845,8 +1861,8 @@ pub fn ctx_uniform3f(ctx: u32, location: i32, x: f32, y: f32, z: f32) -> u32 {
         return ERR_OK;
     }
 
-    if (location as usize * 16 + 12) <= ctx_obj.uniform_data.len() {
-        let offset = location as usize * 16;
+    if (location as usize * 64 + 12) <= ctx_obj.uniform_data.len() {
+        let offset = location as usize * 64;
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
         ctx_obj.uniform_data[offset + 4..offset + 8].copy_from_slice(&y.to_le_bytes());
         ctx_obj.uniform_data[offset + 8..offset + 12].copy_from_slice(&z.to_le_bytes());
@@ -1870,8 +1886,8 @@ pub fn ctx_uniform4f(ctx: u32, location: i32, x: f32, y: f32, z: f32, w: f32) ->
         return ERR_OK;
     }
 
-    if (location as usize * 16 + 16) <= ctx_obj.uniform_data.len() {
-        let offset = location as usize * 16;
+    if (location as usize * 64 + 16) <= ctx_obj.uniform_data.len() {
+        let offset = location as usize * 64;
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
         ctx_obj.uniform_data[offset + 4..offset + 8].copy_from_slice(&y.to_le_bytes());
         ctx_obj.uniform_data[offset + 8..offset + 12].copy_from_slice(&z.to_le_bytes());
@@ -1896,8 +1912,8 @@ pub fn ctx_uniform1i(ctx: u32, location: i32, x: i32) -> u32 {
         return ERR_OK;
     }
 
-    if (location as usize * 16 + 4) <= ctx_obj.uniform_data.len() {
-        let offset = location as usize * 16;
+    if (location as usize * 64 + 4) <= ctx_obj.uniform_data.len() {
+        let offset = location as usize * 64;
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
         ERR_OK
     } else {
@@ -1930,8 +1946,8 @@ pub fn ctx_uniform_matrix_4fv(
         return ERR_INVALID_ARGS;
     }
 
-    if (location as usize * 16 + len as usize * 4) <= ctx_obj.uniform_data.len() {
-        let offset = location as usize * 16;
+    if (location as usize * 64 + len as usize * 4) <= ctx_obj.uniform_data.len() {
+        let offset = location as usize * 64;
         let src_slice =
             unsafe { std::slice::from_raw_parts(ptr as *const u8, (len * 4) as usize) };
         ctx_obj.uniform_data[offset..offset + (len * 4) as usize].copy_from_slice(src_slice);
@@ -2067,7 +2083,7 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
         None => return ERR_INVALID_HANDLE,
     };
 
-    let program_id = match ctx_obj.current_program {
+    let _program_id = match ctx_obj.current_program {
         Some(p) => p,
         None => {
             set_last_error("no program bound");
@@ -2075,123 +2091,163 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
         }
     };
 
-    // Fetch attributes for each vertex to verify the pipeline
-    let mut vertex_data = vec![0.0f32; 16 * 4]; // 16 attributes, 4 components each
     let (vx, vy, vw, vh) = ctx_obj.viewport;
+    let mut vertices = Vec::with_capacity(count as usize);
 
+    // 1. Run VS for all vertices
+    let mut attr_data = vec![0.0f32; 16 * 4];
     for i in 0..count {
-        let mut pos = {
-            ctx_obj.fetch_vertex_attributes((first + i) as u32, &mut vertex_data);
-            crate::js_print(&format!("DEBUG: Vertex data for vertex {}: {:?}", i, &vertex_data[0..8]));
-            let mut p = [vertex_data[0], vertex_data[1], vertex_data[2], vertex_data[3]];
-
-            // Execute VS via callback if available
-            {
-                // Copy attributes to memory (at 0x2000)
-                let attr_ptr = 0x2000;
-                let attr_bytes: &[u8] = unsafe {
-                    std::slice::from_raw_parts(vertex_data.as_ptr() as *const u8, vertex_data.len() * 4)
-                };
-                
-                // We assume the host memory is the same as our memory
-                // In WASM, we can just write to our own memory and the host sees it
-                unsafe {
-                    std::ptr::copy_nonoverlapping(attr_bytes.as_ptr(), attr_ptr as *mut u8, attr_bytes.len());
-                    
-                    // Copy uniforms to memory (at 0x1000)
-                    let uniform_ptr = 0x1000;
-                    std::ptr::copy_nonoverlapping(ctx_obj.uniform_data.as_ptr() as *const u8, uniform_ptr as *mut u8, ctx_obj.uniform_data.len());
-                    
-                    // Prepare texture metadata (at 0x5000)
-                    let texture_ptr = 0x5000;
-                    ctx_obj.prepare_texture_metadata(texture_ptr);
-                }
-
-                // Run VS
-                let uniform_ptr = 0x1000;
-                let varying_ptr = 0x3000;
-                let private_ptr = 0x4000;
-                let texture_ptr = 0x5000;
-                
-                // Call JS to run the shader
-                crate::js_execute_shader(0x8B31 /* VERTEX_SHADER */, attr_ptr as i32, uniform_ptr as i32, varying_ptr as i32, private_ptr as i32, texture_ptr as i32);
-
-                // Read gl_Position from varying_ptr (first 4 floats)
-                let mut pos_bytes = [0u8; 16];
-                unsafe {
-                    std::ptr::copy_nonoverlapping(varying_ptr as *const u8, pos_bytes.as_mut_ptr(), 16);
-                }
-                p = unsafe { std::mem::transmute(pos_bytes) };
-            }
-            p
-        };
-
-        // NDC to screen coordinates
-        let screen_x = vx as f32 + (pos[0] + 1.0) * 0.5 * vw as f32;
-        let screen_y = vy as f32 + (pos[1] + 1.0) * 0.5 * vh as f32;
-
-        // Run FS
+        ctx_obj.fetch_vertex_attributes((first + i) as u32, &mut attr_data);
+        
+        let attr_ptr = 0x2000;
         let uniform_ptr = 0x1000;
         let varying_ptr = 0x3000;
         let private_ptr = 0x4000;
         let texture_ptr = 0x5000;
-        crate::js_execute_shader(0x8B30 /* FRAGMENT_SHADER */, 0, uniform_ptr as i32, varying_ptr as i32, private_ptr as i32, texture_ptr as i32);
 
-        // Read color from private_ptr (offset 0)
-        let mut color_bytes = [0u8; 16];
-        unsafe {
-            std::ptr::copy_nonoverlapping(private_ptr as *const u8, color_bytes.as_mut_ptr(), 16);
+        // Ensure attr_data is large enough for 64-byte alignment per location
+        let mut aligned_attr_data = vec![0.0f32; 1024]; // Enough for 16 locations * 16 floats
+        for (loc, chunk) in attr_data.chunks(4).enumerate() {
+            let offset = loc * 16;
+            if offset + 4 <= aligned_attr_data.len() {
+                aligned_attr_data[offset..offset+4].copy_from_slice(chunk);
+            }
         }
-        let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
-        let color_u8 = [
-            (c[0].clamp(0.0, 1.0) * 255.0) as u8,
-            (c[1].clamp(0.0, 1.0) * 255.0) as u8,
-            (c[2].clamp(0.0, 1.0) * 255.0) as u8,
-            (c[3].clamp(0.0, 1.0) * 255.0) as u8,
-        ];
 
-        if mode == 0x0000 { // GL_POINTS
+        unsafe {
+            std::ptr::copy_nonoverlapping(aligned_attr_data.as_ptr() as *const u8, attr_ptr as *mut u8, aligned_attr_data.len() * 4);
+            std::ptr::copy_nonoverlapping(ctx_obj.uniform_data.as_ptr() as *const u8, uniform_ptr as *mut u8, ctx_obj.uniform_data.len());
+            ctx_obj.prepare_texture_metadata(texture_ptr);
+        }
+
+        crate::js_execute_shader(0x8B31 /* VERTEX_SHADER */, attr_ptr as i32, uniform_ptr as i32, varying_ptr as i32, private_ptr as i32, texture_ptr as i32);
+
+        let mut pos_bytes = [0u8; 16];
+        let mut varying_bytes = vec![0u8; 256]; // Capture first 256 bytes of varyings
+        unsafe {
+            std::ptr::copy_nonoverlapping(varying_ptr as *const u8, pos_bytes.as_mut_ptr(), 16);
+            std::ptr::copy_nonoverlapping(varying_ptr as *const u8, varying_bytes.as_mut_ptr(), 256);
+        }
+        let pos: [f32; 4] = unsafe { std::mem::transmute(pos_bytes) };
+        
+        vertices.push(Vertex { pos, varyings: varying_bytes });
+    }
+
+    // 2. Rasterize
+    if mode == 0x0000 { // GL_POINTS
+        for v in &vertices {
+            let screen_x = vx as f32 + (v.pos[0] / v.pos[3] + 1.0) * 0.5 * vw as f32;
+            let screen_y = vy as f32 + (v.pos[1] / v.pos[3] + 1.0) * 0.5 * vh as f32;
+            
+            // Run FS
+            let uniform_ptr = 0x1000;
+            let varying_ptr = 0x3000;
+            let private_ptr = 0x4000;
+            let texture_ptr = 0x5000;
+            
+            unsafe {
+                std::ptr::copy_nonoverlapping(v.varyings.as_ptr(), varying_ptr as *mut u8, v.varyings.len());
+            }
+            
+            crate::js_execute_shader(0x8B30 /* FRAGMENT_SHADER */, 0, uniform_ptr as i32, varying_ptr as i32, private_ptr as i32, texture_ptr as i32);
+
+            let mut color_bytes = [0u8; 16];
+            unsafe {
+                std::ptr::copy_nonoverlapping(private_ptr as *const u8, color_bytes.as_mut_ptr(), 16);
+            }
+            let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
+            let color_u8 = [
+                (c[0].clamp(0.0, 1.0) * 255.0) as u8,
+                (c[1].clamp(0.0, 1.0) * 255.0) as u8,
+                (c[2].clamp(0.0, 1.0) * 255.0) as u8,
+                (c[3].clamp(0.0, 1.0) * 255.0) as u8,
+            ];
             ctx_obj.rasterizer.draw_point(&mut ctx_obj.default_framebuffer, screen_x, screen_y, color_u8);
-        } else if mode == 0x0004 { // GL_TRIANGLES
-            // We need to collect 3 vertices
-            if (i + 1) % 3 == 0 {
-                let p2 = (screen_x, screen_y);
-                
-                let mut get_pos = |idx: u32, ctx_obj: &mut Context| -> (f32, f32) {
-                    let mut v_data = vec![0.0f32; 16 * 4];
-                    ctx_obj.fetch_vertex_attributes(idx, &mut v_data);
-                    let mut p = [v_data[0], v_data[1], v_data[2], v_data[3]];
-                    
-                    {
-                        let attr_ptr = 0x2000;
-                        let attr_bytes: &[u8] = unsafe {
-                            std::slice::from_raw_parts(v_data.as_ptr() as *const u8, v_data.len() * 4)
-                        };
-                        unsafe {
-                            std::ptr::copy_nonoverlapping(attr_bytes.as_ptr(), attr_ptr as *mut u8, attr_bytes.len());
-                            let uniform_ptr = 0x1000;
-                            std::ptr::copy_nonoverlapping(ctx_obj.uniform_data.as_ptr() as *const u8, uniform_ptr as *mut u8, ctx_obj.uniform_data.len());
+        }
+    } else if mode == 0x0004 { // GL_TRIANGLES
+        for i in (0..vertices.len()).step_by(3) {
+            if i + 2 >= vertices.len() { break; }
+            let v0 = &vertices[i];
+            let v1 = &vertices[i+1];
+            let v2 = &vertices[i+2];
+
+            // Screen coordinates (with perspective divide)
+            let p0 = (vx as f32 + (v0.pos[0] / v0.pos[3] + 1.0) * 0.5 * vw as f32, vy as f32 + (v0.pos[1] / v0.pos[3] + 1.0) * 0.5 * vh as f32);
+            let p1 = (vx as f32 + (v1.pos[0] / v1.pos[3] + 1.0) * 0.5 * vw as f32, vy as f32 + (v1.pos[1] / v1.pos[3] + 1.0) * 0.5 * vh as f32);
+            let p2 = (vx as f32 + (v2.pos[0] / v2.pos[3] + 1.0) * 0.5 * vw as f32, vy as f32 + (v2.pos[1] / v2.pos[3] + 1.0) * 0.5 * vh as f32);
+
+            // Bounding box
+            let min_x = p0.0.min(p1.0).min(p2.0).max(0.0).floor() as i32;
+            let max_x = p0.0.max(p1.0).max(p2.0).min(vw as f32 - 1.0).ceil() as i32;
+            let min_y = p0.1.min(p1.1).min(p2.1).max(0.0).floor() as i32;
+            let max_y = p0.1.max(p1.1).max(p2.1).min(vh as f32 - 1.0).ceil() as i32;
+
+            if max_x >= min_x && max_y >= min_y {
+                let w0_inv = 1.0 / v0.pos[3];
+                let w1_inv = 1.0 / v1.pos[3];
+                let w2_inv = 1.0 / v2.pos[3];
+
+                let v0_f32: &[f32] = unsafe { std::slice::from_raw_parts(v0.varyings.as_ptr() as *const f32, 64) };
+                let v1_f32: &[f32] = unsafe { std::slice::from_raw_parts(v1.varyings.as_ptr() as *const f32, 64) };
+                let v2_f32: &[f32] = unsafe { std::slice::from_raw_parts(v2.varyings.as_ptr() as *const f32, 64) };
+
+                for y in min_y..=max_y {
+                    for x in min_x..=max_x {
+                        let (u, v, w) = barycentric((x as f32 + 0.5, y as f32 + 0.5), p0, p1, p2);
+                        if u >= 0.0 && v >= 0.0 && w >= 0.0 {
+                            // Interpolate depth (NDC z/w mapped to [0, 1])
+                            let z0 = v0.pos[2] / v0.pos[3];
+                            let z1 = v1.pos[2] / v1.pos[3];
+                            let z2 = v2.pos[2] / v2.pos[3];
+                            let depth_ndc = u * z0 + v * z1 + w * z2;
+                            let depth = (depth_ndc + 1.0) * 0.5;
+
+                            let fb_idx = (y as u32 * ctx_obj.default_framebuffer.width + x as u32) as usize;
                             
-                            let texture_ptr = 0x5000;
-                            ctx_obj.prepare_texture_metadata(texture_ptr);
+                            if depth >= 0.0 && depth <= 1.0 && depth < ctx_obj.default_framebuffer.depth[fb_idx] {
+                                ctx_obj.default_framebuffer.depth[fb_idx] = depth;
+
+                                // Perspective correct interpolation
+                                let w_interp_inv = u * w0_inv + v * w1_inv + w * w2_inv;
+                                let w_interp = 1.0 / w_interp_inv;
+
+                                let mut interp_f32 = [0.0f32; 64];
+                                for k in 0..64 {
+                                    interp_f32[k] = (u * v0_f32[k] * w0_inv + v * v1_f32[k] * w1_inv + w * v2_f32[k] * w2_inv) * w_interp;
+                                }
+
+                                // Run FS
+                                let uniform_ptr = 0x1000;
+                                let varying_ptr = 0x3000;
+                                let private_ptr = 0x4000;
+                                let texture_ptr = 0x5000;
+                                
+                                unsafe {
+                                    std::ptr::copy_nonoverlapping(interp_f32.as_ptr() as *const u8, varying_ptr as *mut u8, 256);
+                                }
+                                
+                                crate::js_execute_shader(0x8B30 /* FRAGMENT_SHADER */, 0, uniform_ptr as i32, varying_ptr as i32, private_ptr as i32, texture_ptr as i32);
+
+                                let mut color_bytes = [0u8; 16];
+                                unsafe {
+                                    std::ptr::copy_nonoverlapping(private_ptr as *const u8, color_bytes.as_mut_ptr(), 16);
+                                }
+                                let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
+                                let color_u8 = [
+                                    (c[0].clamp(0.0, 1.0) * 255.0) as u8,
+                                    (c[1].clamp(0.0, 1.0) * 255.0) as u8,
+                                    (c[2].clamp(0.0, 1.0) * 255.0) as u8,
+                                    (c[3].clamp(0.0, 1.0) * 255.0) as u8,
+                                ];
+                                
+                                let color_idx = fb_idx * 4;
+                                if color_idx + 3 < ctx_obj.default_framebuffer.color.len() {
+                                    ctx_obj.default_framebuffer.color[color_idx..color_idx+4].copy_from_slice(&color_u8);
+                                }
+                            }
                         }
-                        let uniform_ptr = 0x1000;
-                        let varying_ptr = 0x3000;
-                        let private_ptr = 0x4000;
-                        let texture_ptr = 0x5000;
-                        crate::js_execute_shader(0x8B31, attr_ptr as i32, uniform_ptr as i32, varying_ptr as i32, private_ptr as i32, texture_ptr as i32);
-                        let mut pos_bytes = [0u8; 16];
-                        unsafe {
-                            std::ptr::copy_nonoverlapping(varying_ptr as *const u8, pos_bytes.as_mut_ptr(), 16);
-                        }
-                        p = unsafe { std::mem::transmute(pos_bytes) };
                     }
-                    (vx as f32 + (p[0] + 1.0) * 0.5 * vw as f32, vy as f32 + (p[1] + 1.0) * 0.5 * vh as f32)
-                };
-                let p0 = get_pos((first + i - 2) as u32, ctx_obj);
-                let p1 = get_pos((first + i - 1) as u32, ctx_obj);
-                
-                ctx_obj.rasterizer.draw_triangle(&mut ctx_obj.default_framebuffer, p0, p1, p2, color_u8);
+                }
             }
         }
     }
