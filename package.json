@@ -1,6 +1,6 @@
 {
   "name": "webgl2",
-  "version": "1.0.23",
+  "version": "1.0.24",
   "description": "WebGL2 tools to derisk large GPU projects on the web beyond toys and demos.",
   "type": "module",
   "main": "index.js",
@@ -18,7 +18,7 @@
   "keywords": [],
   "author": "",
   "license": "MIT",
-  "homepage": "https://webgl2/was.hm"
+  "homepage": "https://webgl2.was.hm"
   ,
   "files": [
     "index.js",

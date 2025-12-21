@@ -25,7 +25,9 @@ npm run build
 npm test
 ```
 
-[🧊Demo](https://webgl2/was.hm)
+[🧊Demo WebGL/WASHM](https://webgl2.was.hm)
+
+![🧊Demo WebGL/WASHM -rotating cube around 35-40FPS](./webgl2-demo2.gif)
 
 ## ✨ Key Features
 
