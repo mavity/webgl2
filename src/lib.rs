@@ -311,6 +311,18 @@ pub extern "C" fn wasm_ctx_get_program_info_log(ctx: u32, program: u32, ptr: u32
 	webgl2_context::ctx_get_program_info_log(ctx, program, ptr, len)
 }
 
+/// Get the length of the generated WASM for a program's shader.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_get_program_wasm_len(ctx: u32, program: u32, shader_type: u32) -> u32 {
+	webgl2_context::ctx_get_program_wasm_len(ctx, program, shader_type)
+}
+
+/// Get the generated WASM for a program's shader.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_get_program_wasm(ctx: u32, program: u32, shader_type: u32, ptr: u32, len: u32) -> u32 {
+	webgl2_context::ctx_get_program_wasm(ctx, program, shader_type, ptr, len)
+}
+
 /// Get attribute location.
 #[no_mangle]
 pub extern "C" fn wasm_ctx_get_attrib_location(ctx: u32, program: u32, ptr: u32, len: u32) -> i32 {

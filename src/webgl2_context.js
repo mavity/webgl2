@@ -415,6 +415,28 @@ export class WasmWebGL2RenderingContext {
     }
   }
 
+  getProgramWasm(program, shaderType) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_program_wasm_len !== 'function') {
+      throw new Error('wasm_ctx_get_program_wasm_len not found');
+    }
+    const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
+    const len = ex.wasm_ctx_get_program_wasm_len(this._ctxHandle, programHandle, shaderType);
+    if (len === 0) return null;
+
+    const ptr = ex.wasm_alloc(len);
+    if (ptr === 0) throw new Error('Failed to allocate memory for getProgramWasm');
+
+    try {
+      const actualLen = ex.wasm_ctx_get_program_wasm(this._ctxHandle, programHandle, shaderType, ptr, len);
+      const mem = new Uint8Array(ex.memory.buffer);
+      return new Uint8Array(mem.buffer, ptr, actualLen).slice();
+    } finally {
+      ex.wasm_free(ptr);
+    }
+  }
+
   getAttribLocation(program, name) {
     this._assertNotDestroyed();
     const ex = this._instance.exports;

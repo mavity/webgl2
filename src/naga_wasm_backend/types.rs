@@ -51,6 +51,9 @@ pub fn type_size(type_inner: &TypeInner) -> Result<u32, BackendError> {
             naga::ArraySize::Dynamic => Err(BackendError::TypeConversion(
                 "Dynamic arrays not yet supported".to_string(),
             )),
+            naga::ArraySize::Pending(_) => Err(BackendError::TypeConversion(
+                "Pending array sizes (overrides) not yet supported".to_string(),
+            )),
         },
         TypeInner::Struct { span, .. } => Ok(*span),
         _ => Err(BackendError::TypeConversion(format!(

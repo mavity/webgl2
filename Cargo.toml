@@ -16,7 +16,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Core shader infrastructure
-naga = { version = "22.1", features = ["glsl-in", "wgsl-out", "spv-out"] }
+naga = { path = "external/wgpu/naga", features = ["glsl-in", "wgsl-out", "spv-out"] }
 
 # WASM generation
 wasm-encoder = "0.220"

@@ -11,6 +11,18 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::alloc::{alloc, dealloc, Layout};
+use std::sync::Arc;
+
+use naga::front::glsl::{Frontend, Options};
+use naga::valid::{Validator, ValidationFlags, Capabilities};
+use naga::{ShaderStage, AddressSpace, Binding, TypeInner};
+
+use crate::naga_wasm_backend::{WasmBackend, WasmBackendConfig};
+
+extern "C" {
+    fn wasm_cb_draw_arrays(ctx: u32, program: u32, mode: u32, first: i32, count: i32) -> u32;
+    fn wasm_cb_draw_elements(ctx: u32, program: u32, mode: u32, count: i32, type_: u32, offset: u32) -> u32;
+}
 
 // Errno constants (must match JS constants if exposed)
 pub const ERR_OK: u32 = 0;
@@ -77,6 +89,8 @@ struct Shader {
     source: String,
     compiled: bool,
     info_log: String,
+    module: Option<Arc<naga::Module>>,
+    info: Option<Arc<naga::valid::ModuleInfo>>,
 }
 
 /// A WebGL2 program resource
@@ -87,6 +101,12 @@ struct Program {
     info_log: String,
     attributes: HashMap<String, i32>,
     uniforms: HashMap<String, i32>,
+    vs_module: Option<Arc<naga::Module>>,
+    fs_module: Option<Arc<naga::Module>>,
+    vs_info: Option<Arc<naga::valid::ModuleInfo>>,
+    fs_info: Option<Arc<naga::valid::ModuleInfo>>,
+    vs_wasm: Option<Vec<u8>>,
+    fs_wasm: Option<Vec<u8>>,
 }
 
 /// A WebGL2 vertex attribute
@@ -870,6 +890,8 @@ pub fn ctx_create_shader(ctx: u32, type_: u32) -> u32 {
         source: String::new(),
         compiled: false,
         info_log: String::new(),
+        module: None,
+        info: None,
     });
     shader_id
 }
@@ -928,9 +950,43 @@ pub fn ctx_compile_shader(ctx: u32, shader: u32) -> u32 {
     };
     
     if let Some(s) = ctx_obj.shaders.get_mut(&shader) {
-        s.compiled = true;
-        s.info_log = "Shader compiled successfully (mock)".to_string();
-        ERR_OK
+        let stage = match s.type_ {
+            0x8B31 => naga::ShaderStage::Vertex,
+            0x8B30 => naga::ShaderStage::Fragment,
+            _ => {
+                s.compiled = false;
+                s.info_log = "Invalid shader type".to_string();
+                return ERR_INVALID_ARGS;
+            }
+        };
+
+        let mut frontend = Frontend::default();
+        let options = Options::from(stage);
+
+        match frontend.parse(&options, &s.source) {
+            Ok(module) => {
+                let mut validator = Validator::new(ValidationFlags::all(), Capabilities::all());
+                match validator.validate(&module) {
+                    Ok(info) => {
+                        s.compiled = true;
+                        s.info_log = "Shader compiled successfully".to_string();
+                        s.module = Some(Arc::new(module));
+                        s.info = Some(Arc::new(info));
+                        ERR_OK
+                    }
+                    Err(e) => {
+                        s.compiled = false;
+                        s.info_log = format!("Validation error: {:?}", e);
+                        ERR_OK
+                    }
+                }
+            }
+            Err(e) => {
+                s.compiled = false;
+                s.info_log = format!("Compilation error: {:?}", e);
+                ERR_OK
+            }
+        }
     } else {
         set_last_error("shader not found");
         ERR_INVALID_HANDLE
@@ -997,6 +1053,12 @@ pub fn ctx_create_program(ctx: u32) -> u32 {
         info_log: String::new(),
         attributes: HashMap::new(),
         uniforms: HashMap::new(),
+        vs_module: None,
+        fs_module: None,
+        vs_info: None,
+        fs_info: None,
+        vs_wasm: None,
+        fs_wasm: None,
     });
     program_id
 }
@@ -1060,8 +1122,134 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
     };
     
     if let Some(p) = ctx_obj.programs.get_mut(&program) {
+        let mut vs_module = None;
+        let mut fs_module = None;
+        let mut vs_info = None;
+        let mut fs_info = None;
+        let mut vs_source = String::new();
+        let mut fs_source = String::new();
+
+        for &s_id in &p.attached_shaders {
+            if let Some(s) = ctx_obj.shaders.get(&s_id) {
+                if !s.compiled {
+                    p.linked = false;
+                    p.info_log = format!("Shader {} is not compiled", s_id);
+                    return ERR_OK;
+                }
+                match s.type_ {
+                    0x8B31 => {
+                        vs_module = s.module.clone();
+                        vs_info = s.info.clone();
+                        vs_source = s.source.clone();
+                    }
+                    0x8B30 => {
+                        fs_module = s.module.clone();
+                        fs_info = s.info.clone();
+                        fs_source = s.source.clone();
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if vs_module.is_none() || fs_module.is_none() {
+            p.linked = false;
+            p.info_log = "Program must have both vertex and fragment shaders".to_string();
+            return ERR_OK;
+        }
+
+        p.vs_module = vs_module;
+        p.fs_module = fs_module;
+        p.vs_info = vs_info;
+        p.fs_info = fs_info;
+
+        // Compile to WASM
+        let backend = WasmBackend::new(WasmBackendConfig::default());
+        
+        if let (Some(vs), Some(vsi)) = (&p.vs_module, &p.vs_info) {
+            match backend.compile(vs, vsi, &vs_source) {
+                Ok(wasm) => p.vs_wasm = Some(wasm.wasm_bytes),
+                Err(e) => {
+                    p.linked = false;
+                    p.info_log = format!("VS Backend error: {:?}", e);
+                    return ERR_OK;
+                }
+            }
+        }
+
+        if let (Some(fs), Some(fsi)) = (&p.fs_module, &p.fs_info) {
+            match backend.compile(fs, fsi, &fs_source) {
+                Ok(wasm) => p.fs_wasm = Some(wasm.wasm_bytes),
+                Err(e) => {
+                    p.linked = false;
+                    p.info_log = format!("FS Backend error: {:?}", e);
+                    return ERR_OK;
+                }
+            }
+        }
+
         p.linked = true;
-        p.info_log = "Program linked successfully (mock)".to_string();
+        
+        // Extract attributes and uniforms from Naga modules
+        p.attributes.clear();
+        p.uniforms.clear();
+
+        let mut debug_info = String::from("Program linked successfully.");
+
+        if let Some(vs) = &p.vs_module {
+            for ep in &vs.entry_points {
+                if ep.stage == ShaderStage::Vertex {
+                    for arg in &ep.function.arguments {
+                        if let Some(name) = &arg.name {
+                            if let Some(Binding::Location { location, .. }) = &arg.binding {
+                                p.attributes.insert(name.clone(), *location as i32);
+                            }
+                        }
+                    }
+                }
+            }
+            for (_, var) in vs.global_variables.iter() {
+                if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
+                    let ty = &vs.types[var.ty];
+                    if let TypeInner::Struct { members, .. } = &ty.inner {
+                        for member in members {
+                            if let Some(m_name) = &member.name {
+                                let loc = p.uniforms.len() as i32;
+                                p.uniforms.entry(m_name.clone()).or_insert(loc);
+                                debug_info.push_str(&format!(" Found uniform member: {}", m_name));
+                            }
+                        }
+                    } else if let Some(name) = &var.name {
+                        let loc = p.uniforms.len() as i32;
+                        p.uniforms.entry(name.clone()).or_insert(loc);
+                        debug_info.push_str(&format!(" Found uniform: {}", name));
+                    }
+                }
+            }
+        }
+        
+        if let Some(fs) = &p.fs_module {
+            for (_, var) in fs.global_variables.iter() {
+                if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
+                    let ty = &fs.types[var.ty];
+                    if let TypeInner::Struct { members, .. } = &ty.inner {
+                        for member in members {
+                            if let Some(m_name) = &member.name {
+                                let loc = p.uniforms.len() as i32;
+                                p.uniforms.entry(m_name.clone()).or_insert(loc);
+                                debug_info.push_str(&format!(" Found uniform member: {}", m_name));
+                            }
+                        }
+                    } else if let Some(name) = &var.name {
+                        let loc = p.uniforms.len() as i32;
+                        p.uniforms.entry(name.clone()).or_insert(loc);
+                        debug_info.push_str(&format!(" Found uniform: {}", name));
+                    }
+                }
+            }
+        }
+
+        p.info_log = debug_info;
         ERR_OK
     } else {
         set_last_error("program not found");
@@ -1106,6 +1294,68 @@ pub fn ctx_get_program_info_log(ctx: u32, program: u32, dest_ptr: u32, dest_len:
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), dest_ptr as *mut u8, len);
         }
         len as u32
+    } else {
+        0
+    }
+}
+
+/// Get the length of the generated WASM for a program's shader.
+pub fn ctx_get_program_wasm_len(ctx: u32, program: u32, shader_type: u32) -> u32 {
+    clear_last_error();
+    let reg = get_registry().borrow();
+    let ctx_obj = match reg.contexts.get(&ctx) {
+        Some(c) => c,
+        None => return 0,
+    };
+
+    if let Some(p) = ctx_obj.programs.get(&program) {
+        let wasm = match shader_type {
+            0x8B31 => &p.vs_wasm,
+            0x8B30 => &p.fs_wasm,
+            _ => return 0,
+        };
+
+        if let Some(bytes) = wasm {
+            bytes.len() as u32
+        } else {
+            0
+        }
+    } else {
+        0
+    }
+}
+
+/// Get the generated WASM for a program's shader.
+pub fn ctx_get_program_wasm(
+    ctx: u32,
+    program: u32,
+    shader_type: u32,
+    dest_ptr: u32,
+    dest_len: u32,
+) -> u32 {
+    clear_last_error();
+    let reg = get_registry().borrow();
+    let ctx_obj = match reg.contexts.get(&ctx) {
+        Some(c) => c,
+        None => return 0,
+    };
+
+    if let Some(p) = ctx_obj.programs.get(&program) {
+        let wasm = match shader_type {
+            0x8B31 => &p.vs_wasm,
+            0x8B30 => &p.fs_wasm,
+            _ => return 0,
+        };
+
+        if let Some(bytes) = wasm {
+            let len = std::cmp::min(bytes.len(), dest_len as usize);
+            unsafe {
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), dest_ptr as *mut u8, len);
+            }
+            len as u32
+        } else {
+            0
+        }
     } else {
         0
     }
@@ -1179,14 +1429,7 @@ pub fn ctx_get_uniform_location(ctx: u32, program: u32, name_ptr: u32, name_len:
         if let Some(&loc) = p.uniforms.get(name.as_ref()) {
             loc
         } else {
-            // In a real implementation, we'd look this up in the linked program.
-            // For now, let's just return a mock location if it's not found.
-            // We'll use a simple hash of the name as a mock location.
-            let mut h = 0i32;
-            for b in name.as_bytes() {
-                h = h.wrapping_mul(31).wrapping_add(*b as i32);
-            }
-            h.abs()
+            -1
         }
     } else {
         -1
@@ -1345,24 +1588,44 @@ pub fn ctx_vertex_attrib_pointer(ctx: u32, index: u32, size: i32, type_: u32, no
 pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();
-    let _ctx_obj = match reg.contexts.get_mut(&ctx) {
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
         Some(c) => c,
         None => return ERR_INVALID_HANDLE,
     };
-    // In a real implementation, this would perform the draw call.
-    ERR_OK
+    
+    let program_id = match ctx_obj.current_program {
+        Some(p) => p,
+        None => {
+            set_last_error("no program bound");
+            return ERR_INVALID_ARGS;
+        }
+    };
+
+    unsafe {
+        wasm_cb_draw_arrays(ctx, program_id, mode, first, count)
+    }
 }
 
 /// Draw elements.
 pub fn ctx_draw_elements(ctx: u32, mode: u32, count: i32, type_: u32, offset: u32) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();
-    let _ctx_obj = match reg.contexts.get_mut(&ctx) {
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
         Some(c) => c,
         None => return ERR_INVALID_HANDLE,
     };
-    // In a real implementation, this would perform the draw call.
-    ERR_OK
+    
+    let program_id = match ctx_obj.current_program {
+        Some(p) => p,
+        None => {
+            set_last_error("no program bound");
+            return ERR_INVALID_ARGS;
+        }
+    };
+
+    unsafe {
+        wasm_cb_draw_elements(ctx, program_id, mode, count, type_, offset)
+    }
 }
 
 // ============================================================================
