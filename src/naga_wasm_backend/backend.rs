@@ -51,7 +51,6 @@ struct Compiler<'a> {
     function_count: u32,
     naga_function_map: HashMap<naga::Handle<naga::Function>, u32>,
     global_offsets: HashMap<naga::Handle<naga::GlobalVariable>, (u32, u32)>,
-    argument_local_offsets: HashMap<u32, u32>,
 
     // Debug info (if enabled)
     debug_generator: Option<super::debug::DwarfGenerator>,
@@ -89,7 +88,6 @@ impl<'a> Compiler<'a> {
             function_count: 0,
             naga_function_map: HashMap::new(),
             global_offsets: HashMap::new(),
-            argument_local_offsets: HashMap::new(),
             debug_generator,
         }
     }

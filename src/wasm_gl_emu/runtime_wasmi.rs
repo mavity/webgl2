@@ -4,9 +4,6 @@
 pub struct ShaderRuntime {
 }
 
-pub struct RuntimeState {
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
     #[error("WASM initialization error: {0}")]

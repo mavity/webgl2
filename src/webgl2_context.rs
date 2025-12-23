@@ -18,7 +18,6 @@ use naga::valid::{Validator, ValidationFlags, Capabilities};
 use naga::{ShaderStage, AddressSpace, Binding};
 
 use crate::naga_wasm_backend::{WasmBackend, WasmBackendConfig};
-use crate::wasm_gl_emu::{ShaderRuntime};
 
 // Errno constants (must match JS constants if exposed)
 pub const ERR_OK: u32 = 0;
@@ -123,8 +122,6 @@ struct Program {
     fs_info: Option<Arc<naga::valid::ModuleInfo>>,
     vs_wasm: Option<Vec<u8>>,
     fs_wasm: Option<Vec<u8>>,
-    vs_runtime: Option<ShaderRuntime>,
-    fs_runtime: Option<ShaderRuntime>,
 }
 
 /// A WebGL2 vertex attribute
@@ -1413,8 +1410,6 @@ pub fn ctx_create_program(ctx: u32) -> u32 {
         fs_info: None,
         vs_wasm: None,
         fs_wasm: None,
-        vs_runtime: None,
-        fs_runtime: None,
     });
     program_id
 }

@@ -4,14 +4,16 @@ use std::collections::HashMap;
 
 /// DWARF generator for shader debugging
 pub struct DwarfGenerator {
-    source: String,
+    /// The original GLSL source code used for generating debug symbols.
+    /// This field is preserved to allow mapping WASM instructions back to the high-level shader source lines during debugging sessions.
+    _source: String,
 }
 
 impl DwarfGenerator {
     /// Create a new DWARF generator for the given GLSL source
     pub fn new(source: &str) -> Self {
         Self {
-            source: source.to_string(),
+            _source: source.to_string(),
         }
     }
 
