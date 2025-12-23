@@ -155,3 +155,43 @@ pub enum BackendError {
     #[error("Internal compiler error: {0}")]
     InternalError(String),
 }
+
+/// Context for translating a single Naga IR function into a WebAssembly function.
+///
+/// This struct packages together all state and lookup tables required during
+/// instruction selection and emission, so that helper routines do not need a
+/// large number of separate parameters.
+///
+pub struct TranslationContext<'a> {
+    /// The Naga IR function currently being translated.
+    pub func: &'a naga::Function,
+    /// The full Naga module that contains the function and its dependencies.
+    pub module: &'a naga::Module,
+    /// The target WebAssembly function under construction.
+    pub wasm_func: &'a mut wasm_encoder::Function,
+    /// Mapping from Naga global variables to their (index, size) in the WASM
+    /// linear memory or global space, used when emitting loads and stores.
+    pub global_offsets: &'a HashMap<naga::Handle<naga::GlobalVariable>, (u32, u32)>,
+    /// Mapping from Naga local variables to their corresponding WASM local
+    /// indices, used when reading and writing locals.
+    pub local_offsets: &'a HashMap<naga::Handle<naga::LocalVariable>, u32>,
+    /// Mapping from Naga expressions that produce values to the WASM local
+    /// index where the result is stored, allowing reuse of computed values.
+    pub call_result_locals: &'a HashMap<naga::Handle<naga::Expression>, u32>,
+    /// Shader stage of the current entry point or function being translated.
+    pub stage: naga::ShaderStage,
+    /// Typifier used to query the inferred types of Naga expressions.
+    pub typifier: &'a naga::front::Typifier,
+    /// Mapping from Naga function handles to their corresponding WASM function
+    /// indices, used for emitting call instructions.
+    pub naga_function_map: &'a HashMap<naga::Handle<naga::Function>, u32>,
+    /// Mapping from argument indices to the WASM local indices that hold the
+    /// translated argument values for the current function.
+    pub argument_local_offsets: &'a HashMap<u32, u32>,
+    /// Indicates whether the current function is a shader entry point, which
+    /// can affect how inputs, outputs, and builtins are lowered.
+    pub is_entry_point: bool,
+    /// Base WASM local index reserved for scratch temporaries used during
+    /// expression evaluation and complex instruction lowering.
+    pub scratch_base: u32,
+}

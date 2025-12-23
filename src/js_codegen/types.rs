@@ -22,16 +22,18 @@ impl TypeScriptType {
             _ => Self::Object,
         }
     }
+}
 
-    /// Convert to TypeScript type string
-    pub fn to_string(&self) -> String {
+impl std::fmt::Display for TypeScriptType {
+
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Number => "number".to_string(),
-            Self::Boolean => "boolean".to_string(),
-            Self::String => "string".to_string(),
-            Self::Array(inner) => format!("{}[]", inner.to_string()),
-            Self::Object => "object".to_string(),
-            Self::Void => "void".to_string(),
+            Self::Number => write!(f, "number"),
+            Self::Boolean => write!(f, "boolean"),
+            Self::String => write!(f, "string"),
+            Self::Array(inner) => write!(f, "{}[]", inner),
+            Self::Object => write!(f, "object"),
+            Self::Void => write!(f, "void"),
         }
     }
 }

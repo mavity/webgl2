@@ -74,7 +74,7 @@ const FIRST_HANDLE: u32 = 1;
 
 // Last error buffer (thread-local would be better, but we're single-threaded WASM)
 thread_local! {
-    static LAST_ERROR: RefCell<String> = RefCell::new(String::new());
+    static LAST_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 /// A WebGL2 texture resource
@@ -137,8 +137,8 @@ struct VertexAttribute {
     default_value: [f32; 4],
 }
 
-impl VertexAttribute {
-    fn new() -> Self {
+impl Default for VertexAttribute {
+    fn default() -> Self {
         VertexAttribute {
             enabled: false,
             size: 4,
@@ -193,8 +193,8 @@ pub struct Context {
     pub verbosity: u32, // 0: None, 1: Error, 2: Info, 3: Debug
 }
 
-impl Context {
-    fn new() -> Self {
+impl Default for Context {
+    fn default() -> Self {
         Context {
             textures: HashMap::new(),
             framebuffers: HashMap::new(),
@@ -214,11 +214,11 @@ impl Context {
             bound_element_array_buffer: None,
             current_program: None,
 
-            vertex_attributes: vec![VertexAttribute::new(); 16],
+            vertex_attributes: vec![VertexAttribute::default(); 16],
             uniform_data: vec![0; 4096], // 4KB for uniforms
 
             default_framebuffer: crate::wasm_gl_emu::Framebuffer::new(640, 480),
-            rasterizer: crate::wasm_gl_emu::Rasterizer::new(),
+            rasterizer: crate::wasm_gl_emu::Rasterizer::default(),
 
             clear_color: [0.0, 0.0, 0.0, 0.0],
             viewport: (0, 0, 640, 480),
@@ -233,7 +233,9 @@ impl Context {
             verbosity: 2, // Default to Info
         }
     }
+}
 
+impl Context {
     fn log(&self, level: u32, s: &str) {
         if level <= self.verbosity {
             crate::js_log(level, s);
@@ -451,7 +453,7 @@ fn clear_last_error() {
 pub fn create_context() -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();
-    let ctx = Context::new();
+    let ctx = Context::default();
     let handle = reg.allocate_context_handle();
     reg.contexts.insert(handle, ctx);
     handle
@@ -627,6 +629,7 @@ pub fn ctx_bind_texture(ctx: u32, _target: u32, tex: u32) -> u32 {
 /// Upload pixel data to a texture.
 /// ptr and len point to RGBA u8 pixel data in WASM linear memory.
 /// Returns errno.
+#[allow(clippy::too_many_arguments)]
 pub fn ctx_tex_image_2d(
     ctx: u32,
     _target: u32,
@@ -949,7 +952,7 @@ pub fn ctx_active_texture(ctx: u32, texture: u32) -> u32 {
         }
     };
     // texture is GL_TEXTURE0 + i
-    if texture < 0x84C0 || texture > 0x84DF {
+    if !(0x84C0..=0x84DF).contains(&texture) {
         set_last_error("invalid texture unit");
         return ERR_INVALID_ARGS;
     }
@@ -1612,11 +1615,10 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                         if name != "gl_Position"
                             && name != "gl_Position_1"
                             && !p.attributes.contains_key(name)
+                            && !varying_locations.contains_key(name)
                         {
-                            if !varying_locations.contains_key(name) {
-                                varying_locations.insert(name.clone(), next_varying_loc);
-                                next_varying_loc += 1;
-                            }
+                            varying_locations.insert(name.clone(), next_varying_loc);
+                            next_varying_loc += 1;
                         }
                     }
                 }
@@ -1635,11 +1637,13 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                     }
                 } else if var.space == AddressSpace::Private {
                     if let Some(name) = &var.name {
-                        if name != "color" && name != "gl_FragColor" && name != "gl_FragColor_1" {
-                            if !varying_locations.contains_key(name) {
-                                varying_locations.insert(name.clone(), next_varying_loc);
-                                next_varying_loc += 1;
-                            }
+                        if name != "color"
+                            && name != "gl_FragColor"
+                            && name != "gl_FragColor_1"
+                            && !varying_locations.contains_key(name)
+                        {
+                            varying_locations.insert(name.clone(), next_varying_loc);
+                            next_varying_loc += 1;
                         }
                     }
                 }
@@ -1705,7 +1709,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
 
         p.linked = true;
         p.info_log = "Program linked successfully.".to_string();
-        return ERR_OK;
+        ERR_OK
     } else {
         set_last_error("program not found");
         ERR_INVALID_HANDLE
@@ -2199,11 +2203,11 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
     for i in 0..count {
         ctx_obj.fetch_vertex_attributes((first + i) as u32, &mut attr_data);
 
-        let attr_ptr = 0x2000;
-        let uniform_ptr = 0x1000;
-        let varying_ptr = 0x3000;
-        let private_ptr = 0x4000;
-        let texture_ptr = 0x5000;
+        let attr_ptr: u32 = 0x2000;
+        let uniform_ptr: u32 = 0x1000;
+        let varying_ptr: u32 = 0x3000;
+        let private_ptr: u32 = 0x4000;
+        let texture_ptr: u32 = 0x5000;
 
         // Ensure attr_data is large enough for 64-byte alignment per location
         let mut aligned_attr_data = vec![0.0f32; 1024]; // Enough for 16 locations * 16 floats
@@ -2221,7 +2225,7 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
                 aligned_attr_data.len() * 4,
             );
             std::ptr::copy_nonoverlapping(
-                ctx_obj.uniform_data.as_ptr() as *const u8,
+                ctx_obj.uniform_data.as_ptr(),
                 uniform_ptr as *mut u8,
                 ctx_obj.uniform_data.len(),
             );
@@ -2230,11 +2234,11 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
 
         crate::js_execute_shader(
             0x8B31, /* VERTEX_SHADER */
-            attr_ptr as i32,
-            uniform_ptr as i32,
-            varying_ptr as i32,
-            private_ptr as i32,
-            texture_ptr as i32,
+            attr_ptr,
+            uniform_ptr,
+            varying_ptr,
+            private_ptr,
+            texture_ptr,
         );
 
         let mut pos_bytes = [0u8; 16];
@@ -2263,10 +2267,10 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
             let screen_y = vy as f32 + (v.pos[1] / v.pos[3] + 1.0) * 0.5 * vh as f32;
 
             // Run FS
-            let uniform_ptr = 0x1000;
-            let varying_ptr = 0x3000;
-            let private_ptr = 0x4000;
-            let texture_ptr = 0x5000;
+            let uniform_ptr: u32 = 0x1000;
+            let varying_ptr: u32 = 0x3000;
+            let private_ptr: u32 = 0x4000;
+            let texture_ptr: u32 = 0x5000;
 
             unsafe {
                 std::ptr::copy_nonoverlapping(
@@ -2279,10 +2283,10 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
             crate::js_execute_shader(
                 0x8B30, /* FRAGMENT_SHADER */
                 0,
-                uniform_ptr as i32,
-                varying_ptr as i32,
-                private_ptr as i32,
-                texture_ptr as i32,
+                uniform_ptr,
+                varying_ptr,
+                private_ptr,
+                texture_ptr,
             );
 
             let mut color_bytes = [0u8; 16];
@@ -2363,8 +2367,7 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
                             let fb_idx =
                                 (y as u32 * ctx_obj.default_framebuffer.width + x as u32) as usize;
 
-                            if depth >= 0.0
-                                && depth <= 1.0
+                            if (0.0..=1.0).contains(&depth)
                                 && depth < ctx_obj.default_framebuffer.depth[fb_idx]
                             {
                                 ctx_obj.default_framebuffer.depth[fb_idx] = depth;
@@ -2382,10 +2385,10 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
                                 }
 
                                 // Run FS
-                                let uniform_ptr = 0x1000;
-                                let varying_ptr = 0x3000;
-                                let private_ptr = 0x4000;
-                                let texture_ptr = 0x5000;
+                                let uniform_ptr: u32 = 0x1000;
+                                let varying_ptr: u32 = 0x3000;
+                                let private_ptr: u32 = 0x4000;
+                                let texture_ptr: u32 = 0x5000;
 
                                 unsafe {
                                     std::ptr::copy_nonoverlapping(
@@ -2398,10 +2401,10 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
                                 crate::js_execute_shader(
                                     0x8B30, /* FRAGMENT_SHADER */
                                     0,
-                                    uniform_ptr as i32,
-                                    varying_ptr as i32,
-                                    private_ptr as i32,
-                                    texture_ptr as i32,
+                                    uniform_ptr,
+                                    varying_ptr,
+                                    private_ptr,
+                                    texture_ptr,
                                 );
 
                                 let mut color_bytes = [0u8; 16];
@@ -2475,6 +2478,7 @@ pub fn ctx_draw_elements(ctx: u32, _mode: u32, _count: i32, _type_: u32, _offset
 /// Read pixels from the currently bound framebuffer's color attachment.
 /// Writes RGBA u8 data to dest_ptr in WASM linear memory.
 /// Returns errno.
+#[allow(clippy::too_many_arguments)]
 pub fn ctx_read_pixels(
     ctx: u32,
     x: i32,
@@ -2545,8 +2549,8 @@ pub fn ctx_read_pixels(
     let mut dst_off = 0;
     for row in 0..height {
         for col in 0..width {
-            let sx = x as i32 + col as i32;
-            let sy = y as i32 + row as i32;
+            let sx = x + col as i32;
+            let sy = y + row as i32;
 
             if sx >= 0 && sx < src_width as i32 && sy >= 0 && sy < src_height as i32 {
                 let src_idx = ((sy as u32 * src_width + sx as u32) * 4) as usize;
@@ -2591,8 +2595,8 @@ mod tests {
         // write into the allocation (safely)
         unsafe {
             let slice = std::slice::from_raw_parts_mut(ptr as *mut u8, 128);
-            for i in 0..128 {
-                slice[i] = (i & 0xff) as u8;
+            for (i, item) in slice.iter_mut().enumerate() {
+                *item = (i & 0xff) as u8;
             }
         }
 

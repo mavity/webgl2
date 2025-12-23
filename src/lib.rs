@@ -51,20 +51,20 @@ pub fn js_log(level: u32, s: &str) {
 
 pub fn js_execute_shader(
     type_: u32,
-    attr_ptr: i32,
-    uniform_ptr: i32,
-    varying_ptr: i32,
-    private_ptr: i32,
-    texture_ptr: i32,
+    attr_ptr: u32,
+    uniform_ptr: u32,
+    varying_ptr: u32,
+    private_ptr: u32,
+    texture_ptr: u32,
 ) {
     unsafe {
         wasm_execute_shader(
             type_,
-            attr_ptr,
-            uniform_ptr,
-            varying_ptr,
-            private_ptr,
-            texture_ptr,
+            attr_ptr as i32,
+            uniform_ptr as i32,
+            varying_ptr as i32,
+            private_ptr as i32,
+            texture_ptr as i32,
         );
     }
 }

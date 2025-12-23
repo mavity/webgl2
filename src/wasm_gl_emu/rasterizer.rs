@@ -1,13 +1,10 @@
 //! Triangle rasterizer
 
 /// Software triangle rasterizer
+#[derive(Default)]
 pub struct Rasterizer {}
 
 impl Rasterizer {
-    pub fn new() -> Self {
-        Self {}
-    }
-
     /// Draw a single point to the framebuffer
     pub fn draw_point(&self, fb: &mut super::Framebuffer, x: f32, y: f32, color: [u8; 4]) {
         let ix = x as i32;

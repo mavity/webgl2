@@ -9,5 +9,6 @@ use wasm_bindgen_test::*;
 #[wasm_bindgen_test]
 fn simple_add() {
     // very small, deterministic test useful to verify the test harness
-    assert_eq!(1 + 1, 2);
+    let result = 1 + 1;
+    assert_eq!(result, 2);
 }

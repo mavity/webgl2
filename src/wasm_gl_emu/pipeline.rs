@@ -8,12 +8,7 @@ pub struct VertexOutput {
 }
 
 /// Rendering pipeline
+#[derive(Default)]
 pub struct Pipeline {
     // Phase 0: Placeholder
-}
-
-impl Pipeline {
-    pub fn new() -> Self {
-        Self {}
-    }
 }

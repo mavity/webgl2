@@ -52,10 +52,11 @@ pub fn component_count(type_inner: &TypeInner) -> u32 {
         TypeInner::Matrix { columns, rows, .. } => {
             vector_component_count(*columns) * vector_component_count(*rows)
         }
-        TypeInner::Array { size, .. } => match size {
-            naga::ArraySize::Constant(count) => count.get(),
-            _ => 1,
-        },
+        TypeInner::Array {
+            size: naga::ArraySize::Constant(count),
+            ..
+        } => count.get(),
+        TypeInner::Array { .. } => 1,
         _ => 1,
     }
 }

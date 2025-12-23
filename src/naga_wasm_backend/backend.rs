@@ -247,7 +247,7 @@ impl<'a> Compiler<'a> {
         let mut argument_local_offsets = HashMap::new();
         let mut current_param_idx = 0;
 
-        if let Some(_) = entry_point {
+        if entry_point.is_some() {
             // Entry point signature: (type, attr_ptr, uniform_ptr, varying_ptr, private_ptr, texture_ptr) -> ()
             params = vec![
                 ValType::I32,
@@ -324,7 +324,7 @@ impl<'a> Compiler<'a> {
         // Create function body
         let mut wasm_func = Function::new(locals_types);
 
-        if let Some(_) = entry_point {
+        if entry_point.is_some() {
             // Set globals from arguments
             // 0: attr, 1: uniform, 2: varying, 3: private, 4: textures
             // Arguments are (type, attr, uniform, varying, private, texture)
@@ -338,22 +338,23 @@ impl<'a> Compiler<'a> {
         let is_entry_point = entry_point.is_some();
 
         // Translate statements
+        let mut ctx = super::TranslationContext {
+            func,
+            module,
+            wasm_func: &mut wasm_func,
+            global_offsets: &self.global_offsets,
+            local_offsets: &local_offsets,
+            call_result_locals: &call_result_locals,
+            stage,
+            typifier: &typifier,
+            naga_function_map: &self.naga_function_map,
+            argument_local_offsets: &argument_local_offsets,
+            is_entry_point,
+            scratch_base,
+        };
+
         for stmt in &func.body {
-            super::control_flow::translate_statement(
-                stmt,
-                func,
-                module,
-                &mut wasm_func,
-                &self.global_offsets,
-                &local_offsets,
-                &call_result_locals,
-                stage,
-                &typifier,
-                &self.naga_function_map,
-                &argument_local_offsets,
-                is_entry_point,
-                scratch_base,
-            )?;
+            super::control_flow::translate_statement(stmt, &mut ctx)?;
         }
 
         wasm_func.instruction(&Instruction::End);
