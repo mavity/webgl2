@@ -13,8 +13,8 @@ mod rasterizer;
 mod state;
 mod texture;
 
-pub use runtime_wasmi::ShaderRuntime;
 pub use runtime_wasmi::RuntimeError;
+pub use runtime_wasmi::ShaderRuntime;
 
 pub use framebuffer::Framebuffer;
 pub use pipeline::{Pipeline, VertexOutput};

@@ -1,11 +1,11 @@
 //! Core WASM code generation logic
 
 use super::{BackendError, MemoryLayout, WasmBackend, WasmModule};
-use naga::{valid::ModuleInfo, Module, front::Typifier};
+use naga::{front::Typifier, valid::ModuleInfo, Module};
 use std::collections::HashMap;
 use wasm_encoder::{
-    CodeSection, CustomSection, ExportKind, ExportSection, Function, FunctionSection, Instruction,
-    ImportSection, MemoryType, TypeSection, ValType,
+    CodeSection, CustomSection, ExportKind, ExportSection, Function, FunctionSection,
+    ImportSection, Instruction, MemoryType, TypeSection, ValType,
 };
 
 /// Compile a Naga module to WASM bytecode
@@ -23,7 +23,14 @@ pub(super) fn compile_module(
         module.entry_points.len()
     );
 
-    let mut compiler = Compiler::new(backend, info, source, stage, uniform_locations, varying_locations);
+    let mut compiler = Compiler::new(
+        backend,
+        info,
+        source,
+        stage,
+        uniform_locations,
+        varying_locations,
+    );
     compiler.compile(module)?;
 
     Ok(compiler.finish())
@@ -94,13 +101,17 @@ impl<'a> Compiler<'a> {
 
     fn compile(&mut self, module: &Module) -> Result<(), BackendError> {
         // Import memory from host
-        self.imports.import("env", "memory", MemoryType {
-            minimum: 10, // 640KB
-            maximum: None,
-            memory64: false,
-            shared: false,
-            page_size_log2: None,
-        });
+        self.imports.import(
+            "env",
+            "memory",
+            MemoryType {
+                minimum: 10, // 640KB
+                maximum: None,
+                memory64: false,
+                shared: false,
+                page_size_log2: None,
+            },
+        );
 
         // Define 5 globals for base pointers
         // 0: attr, 1: uniform, 2: varying, 3: private, 4: textures
@@ -150,7 +161,7 @@ impl<'a> Compiler<'a> {
                 continue;
             }
             let size = super::types::type_size(&module.types[var.ty].inner).unwrap_or(4);
-            
+
             let (offset, base_ptr) = match var.space {
                 naga::AddressSpace::Uniform | naga::AddressSpace::Handle => {
                     if let Some(name) = &var.name {
@@ -168,7 +179,10 @@ impl<'a> Compiler<'a> {
                     // Check if it's an output in FS
                     let is_output = if self.stage == naga::ShaderStage::Fragment {
                         if let Some(name) = &var.name {
-                            name == "color" || name == "gl_FragColor" || name == "fragColor" || name == "gl_FragColor_1"
+                            name == "color"
+                                || name == "gl_FragColor"
+                                || name == "fragColor"
+                                || name == "gl_FragColor_1"
                         } else {
                             false
                         }
@@ -235,7 +249,14 @@ impl<'a> Compiler<'a> {
 
         if let Some(_) = entry_point {
             // Entry point signature: (type, attr_ptr, uniform_ptr, varying_ptr, private_ptr, texture_ptr) -> ()
-            params = vec![ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32, ValType::I32];
+            params = vec![
+                ValType::I32,
+                ValType::I32,
+                ValType::I32,
+                ValType::I32,
+                ValType::I32,
+                ValType::I32,
+            ];
             current_param_idx = 6;
         } else {
             // Internal function signature based on Naga
@@ -256,14 +277,15 @@ impl<'a> Compiler<'a> {
         self.functions.function(type_idx);
 
         let mut typifier = Typifier::new();
-        let resolve_ctx = naga::proc::ResolveContext::with_locals(
-            module,
-            &func.local_variables,
-            &func.arguments,
-        );
+        let resolve_ctx =
+            naga::proc::ResolveContext::with_locals(module, &func.local_variables, &func.arguments);
         for (handle, _expr) in func.expressions.iter() {
             // crate::js_print(&format!("DEBUG: Expr {:?}: {:?}", handle, expr));
-            typifier.grow(handle, &func.expressions, &resolve_ctx).map_err(|e| BackendError::UnsupportedFeature(format!("Typifier error: {:?}", e)))?;
+            typifier
+                .grow(handle, &func.expressions, &resolve_ctx)
+                .map_err(|e| {
+                    BackendError::UnsupportedFeature(format!("Typifier error: {:?}", e))
+                })?;
         }
 
         // Calculate local variable offsets

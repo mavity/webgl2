@@ -1,8 +1,7 @@
 // use wasmi::*;
 // use crate::naga_wasm_backend::WasmModule;
 
-pub struct ShaderRuntime {
-}
+pub struct ShaderRuntime {}
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {

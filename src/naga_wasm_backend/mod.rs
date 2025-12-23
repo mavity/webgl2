@@ -122,7 +122,15 @@ impl WasmBackend {
         uniform_locations: &HashMap<String, u32>,
         varying_locations: &HashMap<String, u32>,
     ) -> Result<WasmModule, BackendError> {
-        backend::compile_module(self, module, info, source, stage, uniform_locations, varying_locations)
+        backend::compile_module(
+            self,
+            module,
+            info,
+            source,
+            stage,
+            uniform_locations,
+            varying_locations,
+        )
     }
 }
 

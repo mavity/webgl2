@@ -8,14 +8,14 @@
 //! - errno-based error reporting + last_error string buffer
 //! - Memory allocation (wasm_alloc / wasm_free)
 
+use std::alloc::{alloc, dealloc, Layout};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::alloc::{alloc, dealloc, Layout};
 use std::sync::Arc;
 
 use naga::front::glsl::{Frontend, Options};
-use naga::valid::{Validator, ValidationFlags, Capabilities};
-use naga::{ShaderStage, AddressSpace, Binding};
+use naga::valid::{Capabilities, ValidationFlags, Validator};
+use naga::{AddressSpace, Binding, ShaderStage};
 
 use crate::naga_wasm_backend::{WasmBackend, WasmBackendConfig};
 
@@ -432,9 +432,7 @@ pub fn last_error_ptr() -> *const u8 {
 
 /// Get length of last error string
 pub fn last_error_len() -> u32 {
-    LAST_ERROR.with(|e| {
-        e.borrow().len() as u32
-    })
+    LAST_ERROR.with(|e| e.borrow().len() as u32)
 }
 
 /// Clear last error
@@ -553,11 +551,14 @@ pub fn ctx_create_texture(ctx: u32) -> u32 {
         }
     };
     let tex_id = ctx.allocate_texture_handle();
-    ctx.textures.insert(tex_id, Texture {
-        width: 0,
-        height: 0,
-        data: Vec::new(),
-    });
+    ctx.textures.insert(
+        tex_id,
+        Texture {
+            width: 0,
+            height: 0,
+            data: Vec::new(),
+        },
+    );
     tex_id
 }
 
@@ -640,7 +641,7 @@ pub fn ctx_tex_image_2d(
     len: u32,
 ) -> u32 {
     clear_last_error();
-    
+
     let mut reg = get_registry().borrow_mut();
     let ctx_obj = match reg.contexts.get_mut(&ctx) {
         Some(c) => c,
@@ -670,9 +671,7 @@ pub fn ctx_tex_image_2d(
     }
 
     // Copy pixel data from WASM linear memory
-    let src_slice = unsafe {
-        std::slice::from_raw_parts(ptr as *const u8, len as usize)
-    };
+    let src_slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
     let pixel_data = src_slice.to_vec();
 
     // Store texture data
@@ -704,9 +703,12 @@ pub fn ctx_create_framebuffer(ctx: u32) -> u32 {
         }
     };
     let fb_id = ctx_obj.allocate_framebuffer_handle();
-    ctx_obj.framebuffers.insert(fb_id, FramebufferObj {
-        color_attachment: None,
-    });
+    ctx_obj.framebuffers.insert(
+        fb_id,
+        FramebufferObj {
+            color_attachment: None,
+        },
+    );
     fb_id
 }
 
@@ -846,7 +848,7 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
             return ERR_INVALID_HANDLE;
         }
     };
-    
+
     if (mask & GL_COLOR_BUFFER_BIT) != 0 {
         let r = (ctx_obj.clear_color[0] * 255.0) as u8;
         let g = (ctx_obj.clear_color[1] * 255.0) as u8;
@@ -860,9 +862,9 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
                         for i in (0..tex.data.len()).step_by(4) {
                             if i + 3 < tex.data.len() {
                                 tex.data[i] = r;
-                                tex.data[i+1] = g;
-                                tex.data[i+2] = b;
-                                tex.data[i+3] = a;
+                                tex.data[i + 1] = g;
+                                tex.data[i + 2] = b;
+                                tex.data[i + 3] = a;
                             }
                         }
                     }
@@ -873,15 +875,16 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
             for i in (0..ctx_obj.default_framebuffer.color.len()).step_by(4) {
                 if i + 3 < ctx_obj.default_framebuffer.color.len() {
                     ctx_obj.default_framebuffer.color[i] = r;
-                    ctx_obj.default_framebuffer.color[i+1] = g;
-                    ctx_obj.default_framebuffer.color[i+2] = b;
-                    ctx_obj.default_framebuffer.color[i+3] = a;
+                    ctx_obj.default_framebuffer.color[i + 1] = g;
+                    ctx_obj.default_framebuffer.color[i + 2] = b;
+                    ctx_obj.default_framebuffer.color[i + 3] = a;
                 }
             }
         }
     }
 
-    if (mask & 0x00000100) != 0 { // GL_DEPTH_BUFFER_BIT
+    if (mask & 0x00000100) != 0 {
+        // GL_DEPTH_BUFFER_BIT
         if ctx_obj.bound_framebuffer.is_none() {
             for d in ctx_obj.default_framebuffer.depth.iter_mut() {
                 *d = 1.0; // Default clear depth
@@ -1006,7 +1009,7 @@ pub fn ctx_get_error(ctx: u32) -> u32 {
         Some(c) => c,
         None => {
             // If context is invalid, we can't really return a GL error for it.
-            // But WebGL says getError returns NO_ERROR if no context? 
+            // But WebGL says getError returns NO_ERROR if no context?
             // Actually, it's a method on the context.
             return GL_NO_ERROR;
         }
@@ -1027,7 +1030,9 @@ pub fn ctx_get_parameter_v(ctx: u32, pname: u32, dest_ptr: u32, dest_len: u32) -
 
     match pname {
         GL_VIEWPORT => {
-            if dest_len < 16 { return ERR_INVALID_ARGS; }
+            if dest_len < 16 {
+                return ERR_INVALID_ARGS;
+            }
             let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 4) };
             dest[0] = ctx_obj.viewport.0;
             dest[1] = ctx_obj.viewport.1;
@@ -1036,7 +1041,9 @@ pub fn ctx_get_parameter_v(ctx: u32, pname: u32, dest_ptr: u32, dest_len: u32) -
             ERR_OK
         }
         GL_COLOR_CLEAR_VALUE => {
-            if dest_len < 16 { return ERR_INVALID_ARGS; }
+            if dest_len < 16 {
+                return ERR_INVALID_ARGS;
+            }
             let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut f32, 4) };
             dest[0] = ctx_obj.clear_color[0];
             dest[1] = ctx_obj.clear_color[1];
@@ -1113,10 +1120,13 @@ pub fn ctx_create_buffer(ctx: u32) -> u32 {
         }
     };
     let buf_id = ctx_obj.allocate_buffer_handle();
-    ctx_obj.buffers.insert(buf_id, Buffer {
-        data: Vec::new(),
-        usage: 0,
-    });
+    ctx_obj.buffers.insert(
+        buf_id,
+        Buffer {
+            data: Vec::new(),
+            usage: 0,
+        },
+    );
     buf_id
 }
 
@@ -1163,7 +1173,9 @@ pub fn ctx_bind_buffer(ctx: u32, target: u32, buf: u32) -> u32 {
 
     match target {
         GL_ARRAY_BUFFER => ctx_obj.bound_array_buffer = if buf == 0 { None } else { Some(buf) },
-        GL_ELEMENT_ARRAY_BUFFER => ctx_obj.bound_element_array_buffer = if buf == 0 { None } else { Some(buf) },
+        GL_ELEMENT_ARRAY_BUFFER => {
+            ctx_obj.bound_element_array_buffer = if buf == 0 { None } else { Some(buf) }
+        }
         _ => {
             set_last_error("invalid buffer target");
             return ERR_INVALID_ARGS;
@@ -1201,9 +1213,7 @@ pub fn ctx_buffer_data(ctx: u32, target: u32, ptr: u32, len: u32, usage: u32) ->
         }
     };
 
-    let src_slice = unsafe {
-        std::slice::from_raw_parts(ptr as *const u8, len as usize)
-    };
+    let src_slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
 
     if let Some(buf) = ctx_obj.buffers.get_mut(&buf_handle) {
         buf.data = src_slice.to_vec();
@@ -1231,14 +1241,17 @@ pub fn ctx_create_shader(ctx: u32, type_: u32) -> u32 {
         }
     };
     let shader_id = ctx_obj.allocate_shader_handle();
-    ctx_obj.shaders.insert(shader_id, Shader {
-        type_,
-        source: String::new(),
-        compiled: false,
-        info_log: String::new(),
-        module: None,
-        info: None,
-    });
+    ctx_obj.shaders.insert(
+        shader_id,
+        Shader {
+            type_,
+            source: String::new(),
+            compiled: false,
+            info_log: String::new(),
+            module: None,
+            info: None,
+        },
+    );
     shader_id
 }
 
@@ -1269,9 +1282,8 @@ pub fn ctx_shader_source(ctx: u32, shader: u32, source_ptr: u32, source_len: u32
         }
     };
 
-    let source_slice = unsafe {
-        std::slice::from_raw_parts(source_ptr as *const u8, source_len as usize)
-    };
+    let source_slice =
+        unsafe { std::slice::from_raw_parts(source_ptr as *const u8, source_len as usize) };
     let source = String::from_utf8_lossy(source_slice).into_owned();
 
     if let Some(s) = ctx_obj.shaders.get_mut(&shader) {
@@ -1294,7 +1306,7 @@ pub fn ctx_compile_shader(ctx: u32, shader: u32) -> u32 {
             return ERR_INVALID_HANDLE;
         }
     };
-    
+
     if let Some(s) = ctx_obj.shaders.get_mut(&shader) {
         let stage = match s.type_ {
             0x8B31 => naga::ShaderStage::Vertex,
@@ -1313,7 +1325,10 @@ pub fn ctx_compile_shader(ctx: u32, shader: u32) -> u32 {
         match frontend.parse(&options, &s.source) {
             Ok(module) => {
                 Context::log_static(verbosity, 3, "Shader parsed successfully");
-                let mut validator = Validator::new(ValidationFlags::all() & !ValidationFlags::BINDINGS, Capabilities::all());
+                let mut validator = Validator::new(
+                    ValidationFlags::all() & !ValidationFlags::BINDINGS,
+                    Capabilities::all(),
+                );
                 match validator.validate(&module) {
                     Ok(info) => {
                         Context::log_static(verbosity, 3, "Shader validated successfully");
@@ -1324,7 +1339,11 @@ pub fn ctx_compile_shader(ctx: u32, shader: u32) -> u32 {
                         ERR_OK
                     }
                     Err(e) => {
-                        Context::log_static(verbosity, 1, &format!("Shader validation error: {:?}", e));
+                        Context::log_static(
+                            verbosity,
+                            1,
+                            &format!("Shader validation error: {:?}", e),
+                        );
                         s.compiled = false;
                         s.info_log = format!("Validation error: {:?}", e);
                         ERR_OK
@@ -1332,7 +1351,11 @@ pub fn ctx_compile_shader(ctx: u32, shader: u32) -> u32 {
                 }
             }
             Err(e) => {
-                Context::log_static(verbosity, 1, &format!("Shader parse error: {:?} for source:\n{}", e, s.source));
+                Context::log_static(
+                    verbosity,
+                    1,
+                    &format!("Shader parse error: {:?} for source:\n{}", e, s.source),
+                );
                 s.compiled = false;
                 s.info_log = format!("Compilation error: {:?}", e);
                 ERR_OK
@@ -1356,7 +1379,13 @@ pub fn ctx_get_shader_parameter(ctx: u32, shader: u32, pname: u32) -> i32 {
     if let Some(s) = ctx_obj.shaders.get(&shader) {
         match pname {
             GL_SHADER_TYPE => s.type_ as i32,
-            GL_COMPILE_STATUS => if s.compiled { 1 } else { 0 },
+            GL_COMPILE_STATUS => {
+                if s.compiled {
+                    1
+                } else {
+                    0
+                }
+            }
             GL_DELETE_STATUS => 0, // Not implemented
             _ => 0,
         }
@@ -1398,19 +1427,22 @@ pub fn ctx_create_program(ctx: u32) -> u32 {
         }
     };
     let program_id = ctx_obj.allocate_program_handle();
-    ctx_obj.programs.insert(program_id, Program {
-        attached_shaders: Vec::new(),
-        linked: false,
-        info_log: String::new(),
-        attributes: HashMap::new(),
-        uniforms: HashMap::new(),
-        vs_module: None,
-        fs_module: None,
-        vs_info: None,
-        fs_info: None,
-        vs_wasm: None,
-        fs_wasm: None,
-    });
+    ctx_obj.programs.insert(
+        program_id,
+        Program {
+            attached_shaders: Vec::new(),
+            linked: false,
+            info_log: String::new(),
+            attributes: HashMap::new(),
+            uniforms: HashMap::new(),
+            vs_module: None,
+            fs_module: None,
+            vs_info: None,
+            fs_info: None,
+            vs_wasm: None,
+            fs_wasm: None,
+        },
+    );
     program_id
 }
 
@@ -1443,7 +1475,13 @@ pub fn ctx_attach_shader(ctx: u32, program: u32, shader: u32) -> u32 {
             return ERR_INVALID_HANDLE;
         }
     };
-    ctx_obj.log(3, &format!("ctx_attach_shader ctx={} program={} shader={}", ctx, program, shader));
+    ctx_obj.log(
+        3,
+        &format!(
+            "ctx_attach_shader ctx={} program={} shader={}",
+            ctx, program, shader
+        ),
+    );
 
     if !ctx_obj.shaders.contains_key(&shader) {
         set_last_error("shader not found");
@@ -1473,8 +1511,12 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
         }
     };
     let verbosity = ctx_obj.verbosity;
-    Context::log_static(verbosity, 3, &format!("ctx_link_program ctx={} program={}", ctx, program));
-    
+    Context::log_static(
+        verbosity,
+        3,
+        &format!("ctx_link_program ctx={} program={}", ctx, program),
+    );
+
     if let Some(p) = ctx_obj.programs.get_mut(&program) {
         let mut vs_module = None;
         let mut fs_module = None;
@@ -1508,12 +1550,24 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                     _ => {}
                 }
             } else {
-                Context::log_static(verbosity, 3, &format!("Shader {} NOT FOUND in context", s_id));
+                Context::log_static(
+                    verbosity,
+                    3,
+                    &format!("Shader {} NOT FOUND in context", s_id),
+                );
             }
         }
 
         if vs_module.is_none() || fs_module.is_none() {
-            Context::log_static(verbosity, 3, &format!("Missing shaders: VS={} FS={}", vs_module.is_none(), fs_module.is_none()));
+            Context::log_static(
+                verbosity,
+                3,
+                &format!(
+                    "Missing shaders: VS={} FS={}",
+                    vs_module.is_none(),
+                    fs_module.is_none()
+                ),
+            );
             p.linked = false;
             p.info_log = "Program must have both vertex and fragment shaders".to_string();
             return ERR_OK;
@@ -1555,7 +1609,10 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                     }
                 } else if var.space == AddressSpace::Private {
                     if let Some(name) = &var.name {
-                        if name != "gl_Position" && name != "gl_Position_1" && !p.attributes.contains_key(name) {
+                        if name != "gl_Position"
+                            && name != "gl_Position_1"
+                            && !p.attributes.contains_key(name)
+                        {
                             if !varying_locations.contains_key(name) {
                                 varying_locations.insert(name.clone(), next_varying_loc);
                                 next_varying_loc += 1;
@@ -1565,7 +1622,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                 }
             }
         }
-        
+
         if let Some(fs) = &p.fs_module {
             for (_, var) in fs.global_variables.iter() {
                 if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
@@ -1591,12 +1648,23 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
 
         // Compile to WASM
         let backend = WasmBackend::new(WasmBackendConfig::default());
-        
+
         if let (Some(vs), Some(vsi)) = (&p.vs_module, &p.vs_info) {
             Context::log_static(verbosity, 3, "Compiling VS to WASM");
-            match backend.compile(vs, vsi, &vs_source, naga::ShaderStage::Vertex, &uniform_locations, &varying_locations) {
+            match backend.compile(
+                vs,
+                vsi,
+                &vs_source,
+                naga::ShaderStage::Vertex,
+                &uniform_locations,
+                &varying_locations,
+            ) {
                 Ok(wasm) => {
-                    Context::log_static(verbosity, 3, &format!("VS WASM compiled, size={}", wasm.wasm_bytes.len()));
+                    Context::log_static(
+                        verbosity,
+                        3,
+                        &format!("VS WASM compiled, size={}", wasm.wasm_bytes.len()),
+                    );
                     p.vs_wasm = Some(wasm.wasm_bytes);
                 }
                 Err(e) => {
@@ -1610,9 +1678,20 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
 
         if let (Some(fs), Some(fsi)) = (&p.fs_module, &p.fs_info) {
             Context::log_static(verbosity, 3, "Compiling FS to WASM");
-            match backend.compile(fs, fsi, &fs_source, naga::ShaderStage::Fragment, &uniform_locations, &varying_locations) {
+            match backend.compile(
+                fs,
+                fsi,
+                &fs_source,
+                naga::ShaderStage::Fragment,
+                &uniform_locations,
+                &varying_locations,
+            ) {
                 Ok(wasm) => {
-                    Context::log_static(verbosity, 3, &format!("FS WASM compiled, size={}", wasm.wasm_bytes.len()));
+                    Context::log_static(
+                        verbosity,
+                        3,
+                        &format!("FS WASM compiled, size={}", wasm.wasm_bytes.len()),
+                    );
                     p.fs_wasm = Some(wasm.wasm_bytes);
                 }
                 Err(e) => {
@@ -1644,7 +1723,13 @@ pub fn ctx_get_program_parameter(ctx: u32, program: u32, pname: u32) -> i32 {
 
     if let Some(p) = ctx_obj.programs.get(&program) {
         match pname {
-            GL_LINK_STATUS => if p.linked { 1 } else { 0 },
+            GL_LINK_STATUS => {
+                if p.linked {
+                    1
+                } else {
+                    0
+                }
+            }
             GL_ATTACHED_SHADERS => p.attached_shaders.len() as i32,
             GL_DELETE_STATUS => 0,
             _ => 0,
@@ -1746,9 +1831,8 @@ pub fn ctx_get_attrib_location(ctx: u32, program: u32, name_ptr: u32, name_len: 
         None => return -1,
     };
 
-    let name_slice = unsafe {
-        std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize)
-    };
+    let name_slice =
+        unsafe { std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize) };
     let name = String::from_utf8_lossy(name_slice);
 
     if let Some(p) = ctx_obj.programs.get(&program) {
@@ -1765,7 +1849,13 @@ pub fn ctx_get_attrib_location(ctx: u32, program: u32, name_ptr: u32, name_len: 
 }
 
 /// Bind attribute location.
-pub fn ctx_bind_attrib_location(ctx: u32, program: u32, index: u32, name_ptr: u32, name_len: u32) -> u32 {
+pub fn ctx_bind_attrib_location(
+    ctx: u32,
+    program: u32,
+    index: u32,
+    name_ptr: u32,
+    name_len: u32,
+) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();
     let ctx_obj = match reg.contexts.get_mut(&ctx) {
@@ -1773,9 +1863,8 @@ pub fn ctx_bind_attrib_location(ctx: u32, program: u32, index: u32, name_ptr: u3
         None => return ERR_INVALID_HANDLE,
     };
 
-    let name_slice = unsafe {
-        std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize)
-    };
+    let name_slice =
+        unsafe { std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize) };
     let name = String::from_utf8_lossy(name_slice).into_owned();
 
     if let Some(p) = ctx_obj.programs.get_mut(&program) {
@@ -1796,9 +1885,8 @@ pub fn ctx_get_uniform_location(ctx: u32, program: u32, name_ptr: u32, name_len:
         None => return -1,
     };
 
-    let name_slice = unsafe {
-        std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize)
-    };
+    let name_slice =
+        unsafe { std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize) };
     let name = String::from_utf8_lossy(name_slice);
 
     if let Some(p) = ctx_obj.programs.get(&program) {
@@ -1934,13 +2022,7 @@ pub fn ctx_uniform1i(ctx: u32, location: i32, x: i32) -> u32 {
 }
 
 /// Set uniform matrix 4fv.
-pub fn ctx_uniform_matrix_4fv(
-    ctx: u32,
-    location: i32,
-    transpose: bool,
-    ptr: u32,
-    len: u32,
-) -> u32 {
+pub fn ctx_uniform_matrix_4fv(ctx: u32, location: i32, transpose: bool, ptr: u32, len: u32) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();
     let ctx_obj = match reg.contexts.get_mut(&ctx) {
@@ -1959,8 +2041,7 @@ pub fn ctx_uniform_matrix_4fv(
 
     if (location as usize * 64 + len as usize * 4) <= ctx_obj.uniform_data.len() {
         let offset = location as usize * 64;
-        let src_slice =
-            unsafe { std::slice::from_raw_parts(ptr as *const u8, (len * 4) as usize) };
+        let src_slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, (len * 4) as usize) };
         ctx_obj.uniform_data[offset..offset + (len * 4) as usize].copy_from_slice(src_slice);
         ERR_OK
     } else {
@@ -2027,7 +2108,15 @@ pub fn ctx_disable_vertex_attrib_array(ctx: u32, index: u32) -> u32 {
 }
 
 /// Vertex attribute pointer.
-pub fn ctx_vertex_attrib_pointer(ctx: u32, index: u32, size: i32, type_: u32, normalized: bool, stride: i32, offset: u32) -> u32 {
+pub fn ctx_vertex_attrib_pointer(
+    ctx: u32,
+    index: u32,
+    size: i32,
+    type_: u32,
+    normalized: bool,
+    stride: i32,
+    offset: u32,
+) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();
     let ctx_obj = match reg.contexts.get_mut(&ctx) {
@@ -2088,7 +2177,7 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();
     let reg_ptr = &mut *reg;
-    
+
     let ctx_obj = match reg_ptr.contexts.get_mut(&ctx) {
         Some(c) => c,
         None => return ERR_INVALID_HANDLE,
@@ -2109,7 +2198,7 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
     let mut attr_data = vec![0.0f32; 16 * 4];
     for i in 0..count {
         ctx_obj.fetch_vertex_attributes((first + i) as u32, &mut attr_data);
-        
+
         let attr_ptr = 0x2000;
         let uniform_ptr = 0x1000;
         let varying_ptr = 0x3000;
@@ -2121,50 +2210,88 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
         for (loc, chunk) in attr_data.chunks(4).enumerate() {
             let offset = loc * 16;
             if offset + 4 <= aligned_attr_data.len() {
-                aligned_attr_data[offset..offset+4].copy_from_slice(chunk);
+                aligned_attr_data[offset..offset + 4].copy_from_slice(chunk);
             }
         }
 
         unsafe {
-            std::ptr::copy_nonoverlapping(aligned_attr_data.as_ptr() as *const u8, attr_ptr as *mut u8, aligned_attr_data.len() * 4);
-            std::ptr::copy_nonoverlapping(ctx_obj.uniform_data.as_ptr() as *const u8, uniform_ptr as *mut u8, ctx_obj.uniform_data.len());
+            std::ptr::copy_nonoverlapping(
+                aligned_attr_data.as_ptr() as *const u8,
+                attr_ptr as *mut u8,
+                aligned_attr_data.len() * 4,
+            );
+            std::ptr::copy_nonoverlapping(
+                ctx_obj.uniform_data.as_ptr() as *const u8,
+                uniform_ptr as *mut u8,
+                ctx_obj.uniform_data.len(),
+            );
             ctx_obj.prepare_texture_metadata(texture_ptr);
         }
 
-        crate::js_execute_shader(0x8B31 /* VERTEX_SHADER */, attr_ptr as i32, uniform_ptr as i32, varying_ptr as i32, private_ptr as i32, texture_ptr as i32);
+        crate::js_execute_shader(
+            0x8B31, /* VERTEX_SHADER */
+            attr_ptr as i32,
+            uniform_ptr as i32,
+            varying_ptr as i32,
+            private_ptr as i32,
+            texture_ptr as i32,
+        );
 
         let mut pos_bytes = [0u8; 16];
         let mut varying_bytes = vec![0u8; 256]; // Capture first 256 bytes of varyings
         unsafe {
             std::ptr::copy_nonoverlapping(varying_ptr as *const u8, pos_bytes.as_mut_ptr(), 16);
-            std::ptr::copy_nonoverlapping(varying_ptr as *const u8, varying_bytes.as_mut_ptr(), 256);
+            std::ptr::copy_nonoverlapping(
+                varying_ptr as *const u8,
+                varying_bytes.as_mut_ptr(),
+                256,
+            );
         }
         let pos: [f32; 4] = unsafe { std::mem::transmute(pos_bytes) };
-        
-        vertices.push(Vertex { pos, varyings: varying_bytes });
+
+        vertices.push(Vertex {
+            pos,
+            varyings: varying_bytes,
+        });
     }
 
     // 2. Rasterize
-    if mode == 0x0000 { // GL_POINTS
+    if mode == 0x0000 {
+        // GL_POINTS
         for v in &vertices {
             let screen_x = vx as f32 + (v.pos[0] / v.pos[3] + 1.0) * 0.5 * vw as f32;
             let screen_y = vy as f32 + (v.pos[1] / v.pos[3] + 1.0) * 0.5 * vh as f32;
-            
+
             // Run FS
             let uniform_ptr = 0x1000;
             let varying_ptr = 0x3000;
             let private_ptr = 0x4000;
             let texture_ptr = 0x5000;
-            
+
             unsafe {
-                std::ptr::copy_nonoverlapping(v.varyings.as_ptr(), varying_ptr as *mut u8, v.varyings.len());
+                std::ptr::copy_nonoverlapping(
+                    v.varyings.as_ptr(),
+                    varying_ptr as *mut u8,
+                    v.varyings.len(),
+                );
             }
-            
-            crate::js_execute_shader(0x8B30 /* FRAGMENT_SHADER */, 0, uniform_ptr as i32, varying_ptr as i32, private_ptr as i32, texture_ptr as i32);
+
+            crate::js_execute_shader(
+                0x8B30, /* FRAGMENT_SHADER */
+                0,
+                uniform_ptr as i32,
+                varying_ptr as i32,
+                private_ptr as i32,
+                texture_ptr as i32,
+            );
 
             let mut color_bytes = [0u8; 16];
             unsafe {
-                std::ptr::copy_nonoverlapping(private_ptr as *const u8, color_bytes.as_mut_ptr(), 16);
+                std::ptr::copy_nonoverlapping(
+                    private_ptr as *const u8,
+                    color_bytes.as_mut_ptr(),
+                    16,
+                );
             }
             let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
             let color_u8 = [
@@ -2173,19 +2300,36 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
                 (c[2].clamp(0.0, 1.0) * 255.0) as u8,
                 (c[3].clamp(0.0, 1.0) * 255.0) as u8,
             ];
-            ctx_obj.rasterizer.draw_point(&mut ctx_obj.default_framebuffer, screen_x, screen_y, color_u8);
+            ctx_obj.rasterizer.draw_point(
+                &mut ctx_obj.default_framebuffer,
+                screen_x,
+                screen_y,
+                color_u8,
+            );
         }
-    } else if mode == 0x0004 { // GL_TRIANGLES
+    } else if mode == 0x0004 {
+        // GL_TRIANGLES
         for i in (0..vertices.len()).step_by(3) {
-            if i + 2 >= vertices.len() { break; }
+            if i + 2 >= vertices.len() {
+                break;
+            }
             let v0 = &vertices[i];
-            let v1 = &vertices[i+1];
-            let v2 = &vertices[i+2];
+            let v1 = &vertices[i + 1];
+            let v2 = &vertices[i + 2];
 
             // Screen coordinates (with perspective divide)
-            let p0 = (vx as f32 + (v0.pos[0] / v0.pos[3] + 1.0) * 0.5 * vw as f32, vy as f32 + (v0.pos[1] / v0.pos[3] + 1.0) * 0.5 * vh as f32);
-            let p1 = (vx as f32 + (v1.pos[0] / v1.pos[3] + 1.0) * 0.5 * vw as f32, vy as f32 + (v1.pos[1] / v1.pos[3] + 1.0) * 0.5 * vh as f32);
-            let p2 = (vx as f32 + (v2.pos[0] / v2.pos[3] + 1.0) * 0.5 * vw as f32, vy as f32 + (v2.pos[1] / v2.pos[3] + 1.0) * 0.5 * vh as f32);
+            let p0 = (
+                vx as f32 + (v0.pos[0] / v0.pos[3] + 1.0) * 0.5 * vw as f32,
+                vy as f32 + (v0.pos[1] / v0.pos[3] + 1.0) * 0.5 * vh as f32,
+            );
+            let p1 = (
+                vx as f32 + (v1.pos[0] / v1.pos[3] + 1.0) * 0.5 * vw as f32,
+                vy as f32 + (v1.pos[1] / v1.pos[3] + 1.0) * 0.5 * vh as f32,
+            );
+            let p2 = (
+                vx as f32 + (v2.pos[0] / v2.pos[3] + 1.0) * 0.5 * vw as f32,
+                vy as f32 + (v2.pos[1] / v2.pos[3] + 1.0) * 0.5 * vh as f32,
+            );
 
             // Bounding box
             let min_x = p0.0.min(p1.0).min(p2.0).max(0.0).floor() as i32;
@@ -2198,9 +2342,12 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
                 let w1_inv = 1.0 / v1.pos[3];
                 let w2_inv = 1.0 / v2.pos[3];
 
-                let v0_f32: &[f32] = unsafe { std::slice::from_raw_parts(v0.varyings.as_ptr() as *const f32, 64) };
-                let v1_f32: &[f32] = unsafe { std::slice::from_raw_parts(v1.varyings.as_ptr() as *const f32, 64) };
-                let v2_f32: &[f32] = unsafe { std::slice::from_raw_parts(v2.varyings.as_ptr() as *const f32, 64) };
+                let v0_f32: &[f32] =
+                    unsafe { std::slice::from_raw_parts(v0.varyings.as_ptr() as *const f32, 64) };
+                let v1_f32: &[f32] =
+                    unsafe { std::slice::from_raw_parts(v1.varyings.as_ptr() as *const f32, 64) };
+                let v2_f32: &[f32] =
+                    unsafe { std::slice::from_raw_parts(v2.varyings.as_ptr() as *const f32, 64) };
 
                 for y in min_y..=max_y {
                     for x in min_x..=max_x {
@@ -2213,9 +2360,13 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
                             let depth_ndc = u * z0 + v * z1 + w * z2;
                             let depth = (depth_ndc + 1.0) * 0.5;
 
-                            let fb_idx = (y as u32 * ctx_obj.default_framebuffer.width + x as u32) as usize;
-                            
-                            if depth >= 0.0 && depth <= 1.0 && depth < ctx_obj.default_framebuffer.depth[fb_idx] {
+                            let fb_idx =
+                                (y as u32 * ctx_obj.default_framebuffer.width + x as u32) as usize;
+
+                            if depth >= 0.0
+                                && depth <= 1.0
+                                && depth < ctx_obj.default_framebuffer.depth[fb_idx]
+                            {
                                 ctx_obj.default_framebuffer.depth[fb_idx] = depth;
 
                                 // Perspective correct interpolation
@@ -2224,7 +2375,10 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
 
                                 let mut interp_f32 = [0.0f32; 64];
                                 for k in 0..64 {
-                                    interp_f32[k] = (u * v0_f32[k] * w0_inv + v * v1_f32[k] * w1_inv + w * v2_f32[k] * w2_inv) * w_interp;
+                                    interp_f32[k] = (u * v0_f32[k] * w0_inv
+                                        + v * v1_f32[k] * w1_inv
+                                        + w * v2_f32[k] * w2_inv)
+                                        * w_interp;
                                 }
 
                                 // Run FS
@@ -2232,16 +2386,31 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
                                 let varying_ptr = 0x3000;
                                 let private_ptr = 0x4000;
                                 let texture_ptr = 0x5000;
-                                
+
                                 unsafe {
-                                    std::ptr::copy_nonoverlapping(interp_f32.as_ptr() as *const u8, varying_ptr as *mut u8, 256);
+                                    std::ptr::copy_nonoverlapping(
+                                        interp_f32.as_ptr() as *const u8,
+                                        varying_ptr as *mut u8,
+                                        256,
+                                    );
                                 }
-                                
-                                crate::js_execute_shader(0x8B30 /* FRAGMENT_SHADER */, 0, uniform_ptr as i32, varying_ptr as i32, private_ptr as i32, texture_ptr as i32);
+
+                                crate::js_execute_shader(
+                                    0x8B30, /* FRAGMENT_SHADER */
+                                    0,
+                                    uniform_ptr as i32,
+                                    varying_ptr as i32,
+                                    private_ptr as i32,
+                                    texture_ptr as i32,
+                                );
 
                                 let mut color_bytes = [0u8; 16];
                                 unsafe {
-                                    std::ptr::copy_nonoverlapping(private_ptr as *const u8, color_bytes.as_mut_ptr(), 16);
+                                    std::ptr::copy_nonoverlapping(
+                                        private_ptr as *const u8,
+                                        color_bytes.as_mut_ptr(),
+                                        16,
+                                    );
                                 }
                                 let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
                                 let color_u8 = [
@@ -2250,10 +2419,11 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
                                     (c[2].clamp(0.0, 1.0) * 255.0) as u8,
                                     (c[3].clamp(0.0, 1.0) * 255.0) as u8,
                                 ];
-                                
+
                                 let color_idx = fb_idx * 4;
                                 if color_idx + 3 < ctx_obj.default_framebuffer.color.len() {
-                                    ctx_obj.default_framebuffer.color[color_idx..color_idx+4].copy_from_slice(&color_u8);
+                                    ctx_obj.default_framebuffer.color[color_idx..color_idx + 4]
+                                        .copy_from_slice(&color_u8);
                                 }
                             }
                         }
@@ -2285,7 +2455,7 @@ pub fn ctx_draw_elements(ctx: u32, _mode: u32, _count: i32, _type_: u32, _offset
         Some(c) => c,
         None => return ERR_INVALID_HANDLE,
     };
-    
+
     let _program_id = match ctx_obj.current_program {
         Some(p) => p,
         None => {
@@ -2352,7 +2522,11 @@ pub fn ctx_read_pixels(
         };
         (&tex.data, tex.width, tex.height)
     } else {
-        (&ctx_obj.default_framebuffer.color, ctx_obj.default_framebuffer.width, ctx_obj.default_framebuffer.height)
+        (
+            &ctx_obj.default_framebuffer.color,
+            ctx_obj.default_framebuffer.width,
+            ctx_obj.default_framebuffer.height,
+        )
     };
 
     // Verify output buffer size
@@ -2365,9 +2539,8 @@ pub fn ctx_read_pixels(
     }
 
     // Read pixels and write to destination
-    let dest_slice = unsafe {
-        std::slice::from_raw_parts_mut(dest_ptr as *mut u8, dest_len as usize)
-    };
+    let dest_slice =
+        unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut u8, dest_len as usize) };
 
     let mut dst_off = 0;
     for row in 0..height {

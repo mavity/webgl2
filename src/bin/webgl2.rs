@@ -4,8 +4,9 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use webgl2::{
-    glsl_introspection, js_codegen, naga_wasm_backend::WasmBackendConfig,
-    naga_wasm_backend::WasmBackend, wasm_gl_emu::ShaderRuntime, naga_wasm_backend::WasmModule,
+    glsl_introspection, js_codegen, naga_wasm_backend::WasmBackend,
+    naga_wasm_backend::WasmBackendConfig, naga_wasm_backend::WasmModule,
+    wasm_gl_emu::ShaderRuntime,
 };
 
 #[derive(Parser)]

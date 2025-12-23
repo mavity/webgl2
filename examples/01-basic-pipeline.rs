@@ -1,5 +1,5 @@
 //! Example: Complete compilation pipeline
-//! 
+//!
 //! This example demonstrates the full flow from GLSL source to WASM execution
 
 use webgl2::naga_wasm_backend::{WasmBackend, WasmBackendConfig};
@@ -31,7 +31,7 @@ fn main() -> anyhow::Result<()> {
     let module = naga::front::glsl::Frontend::default()
         .parse(&options, glsl_source)
         .map_err(|e| anyhow::anyhow!("GLSL parse error: {:?}", e))?;
-    
+
     println!("✓ Parsed successfully");
     println!("  Entry points: {}", module.entry_points.len());
     println!();
@@ -70,7 +70,7 @@ fn main() -> anyhow::Result<()> {
     // Step 6: Execute shader
     println!("Step 6: Executing vertex shader...");
     let vertex_data = vec![0.0, 1.0, 0.0]; // Single vertex at (0, 1, 0)
-    
+
     let entry_point = module.entry_points[0].name.clone();
     let result = runtime.run_vertex_shader(&entry_point, &vertex_data)?;
 
