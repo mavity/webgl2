@@ -27,6 +27,8 @@ pub const ERR_INVALID_ARGS: u32 = 3;
 pub const ERR_NOT_IMPLEMENTED: u32 = 4;
 pub const ERR_GL: u32 = 5;
 pub const ERR_INTERNAL: u32 = 6;
+pub const ERR_INVALID_OPERATION: u32 = 7;
+pub const ERR_INVALID_ENUM: u32 = 8;
 
 // GL Error constants
 pub const GL_NO_ERROR: u32 = 0;
@@ -133,6 +135,22 @@ struct Program {
     fs_wasm: Option<Vec<u8>>,
 }
 
+/// A WebGL2 vertex array object
+#[derive(Clone)]
+struct VertexArray {
+    attributes: Vec<VertexAttribute>,
+    element_array_buffer: Option<u32>,
+}
+
+impl Default for VertexArray {
+    fn default() -> Self {
+        VertexArray {
+            attributes: vec![VertexAttribute::default(); 16],
+            element_array_buffer: None,
+        }
+    }
+}
+
 /// A WebGL2 vertex attribute
 #[derive(Clone)]
 struct VertexAttribute {
@@ -168,20 +186,21 @@ pub struct Context {
     buffers: HashMap<u32, Buffer>,
     shaders: HashMap<u32, Shader>,
     programs: HashMap<u32, Program>,
+    vertex_arrays: HashMap<u32, VertexArray>,
 
     next_texture_handle: u32,
     next_framebuffer_handle: u32,
     next_buffer_handle: u32,
     next_shader_handle: u32,
     next_program_handle: u32,
+    next_vertex_array_handle: u32,
 
     bound_texture: Option<u32>,
     bound_framebuffer: Option<u32>,
     bound_array_buffer: Option<u32>,
-    bound_element_array_buffer: Option<u32>,
+    bound_vertex_array: u32,
     current_program: Option<u32>,
 
-    vertex_attributes: Vec<VertexAttribute>,
     uniform_data: Vec<u8>,
 
     // Software rendering state
@@ -204,26 +223,30 @@ pub struct Context {
 
 impl Default for Context {
     fn default() -> Self {
+        let mut vertex_arrays = HashMap::new();
+        vertex_arrays.insert(0, VertexArray::default());
+
         Context {
             textures: HashMap::new(),
             framebuffers: HashMap::new(),
             buffers: HashMap::new(),
             shaders: HashMap::new(),
             programs: HashMap::new(),
+            vertex_arrays,
 
             next_texture_handle: FIRST_HANDLE,
             next_framebuffer_handle: FIRST_HANDLE,
             next_buffer_handle: FIRST_HANDLE,
             next_shader_handle: FIRST_HANDLE,
             next_program_handle: FIRST_HANDLE,
+            next_vertex_array_handle: FIRST_HANDLE,
 
             bound_texture: None,
             bound_framebuffer: None,
             bound_array_buffer: None,
-            bound_element_array_buffer: None,
+            bound_vertex_array: 0,
             current_program: None,
 
-            vertex_attributes: vec![VertexAttribute::default(); 16],
             uniform_data: vec![0; 4096], // 4KB for uniforms
 
             default_framebuffer: crate::wasm_gl_emu::Framebuffer::new(640, 480),
@@ -302,8 +325,22 @@ impl Context {
         h
     }
 
+    fn allocate_vertex_array_handle(&mut self) -> u32 {
+        let h = self.next_vertex_array_handle;
+        self.next_vertex_array_handle = self.next_vertex_array_handle.saturating_add(1);
+        if self.next_vertex_array_handle == 0 {
+            self.next_vertex_array_handle = FIRST_HANDLE;
+        }
+        h
+    }
+
     fn fetch_vertex_attributes(&self, vertex_id: u32, dest: &mut [f32]) {
-        for (i, attr) in self.vertex_attributes.iter().enumerate() {
+        let vao = match self.vertex_arrays.get(&self.bound_vertex_array) {
+            Some(v) => v,
+            None => return, // Should not happen as default VAO is always there
+        };
+
+        for (i, attr) in vao.attributes.iter().enumerate() {
             let base_idx = i * 4;
             if !attr.enabled {
                 dest[base_idx..base_idx + 4].copy_from_slice(&attr.default_value);
@@ -1137,7 +1174,13 @@ pub fn ctx_get_buffer_parameter(ctx: u32, target: u32, pname: u32) -> i32 {
 
     let buffer_handle = match target {
         GL_ARRAY_BUFFER => ctx_obj.bound_array_buffer,
-        GL_ELEMENT_ARRAY_BUFFER => ctx_obj.bound_element_array_buffer,
+        GL_ELEMENT_ARRAY_BUFFER => {
+            if let Some(vao) = ctx_obj.vertex_arrays.get(&ctx_obj.bound_vertex_array) {
+                vao.element_array_buffer
+            } else {
+                None
+            }
+        }
         _ => {
             set_last_error("invalid buffer target");
             return -1;
@@ -1213,8 +1256,17 @@ pub fn ctx_delete_buffer(ctx: u32, buf: u32) -> u32 {
     if ctx_obj.bound_array_buffer == Some(buf) {
         ctx_obj.bound_array_buffer = None;
     }
-    if ctx_obj.bound_element_array_buffer == Some(buf) {
-        ctx_obj.bound_element_array_buffer = None;
+    
+    // Unbind from all VAOs
+    for vao in ctx_obj.vertex_arrays.values_mut() {
+        if vao.element_array_buffer == Some(buf) {
+            vao.element_array_buffer = None;
+        }
+        for attr in &mut vao.attributes {
+            if attr.buffer == Some(buf) {
+                attr.buffer = None;
+            }
+        }
     }
     ERR_OK
 }
@@ -1239,7 +1291,13 @@ pub fn ctx_bind_buffer(ctx: u32, target: u32, buf: u32) -> u32 {
     match target {
         GL_ARRAY_BUFFER => ctx_obj.bound_array_buffer = if buf == 0 { None } else { Some(buf) },
         GL_ELEMENT_ARRAY_BUFFER => {
-            ctx_obj.bound_element_array_buffer = if buf == 0 { None } else { Some(buf) }
+            if let Some(vao) = ctx_obj.vertex_arrays.get_mut(&ctx_obj.bound_vertex_array) {
+                vao.element_array_buffer = if buf == 0 { None } else { Some(buf) };
+            } else {
+                // Should not happen if bound_vertex_array is valid
+                set_last_error("current vertex array not found");
+                return ERR_INVALID_OPERATION;
+            }
         }
         _ => {
             set_last_error("invalid buffer target");
@@ -1263,7 +1321,13 @@ pub fn ctx_buffer_data(ctx: u32, target: u32, ptr: u32, len: u32, usage: u32) ->
 
     let buf_handle = match target {
         GL_ARRAY_BUFFER => ctx_obj.bound_array_buffer,
-        GL_ELEMENT_ARRAY_BUFFER => ctx_obj.bound_element_array_buffer,
+        GL_ELEMENT_ARRAY_BUFFER => {
+            if let Some(vao) = ctx_obj.vertex_arrays.get(&ctx_obj.bound_vertex_array) {
+                vao.element_array_buffer
+            } else {
+                None
+            }
+        }
         _ => {
             set_last_error("invalid buffer target");
             return ERR_INVALID_ARGS;
@@ -1304,7 +1368,13 @@ pub fn ctx_buffer_sub_data(ctx: u32, target: u32, offset: u32, ptr: u32, len: u3
 
     let buf_handle = match target {
         GL_ARRAY_BUFFER => ctx_obj.bound_array_buffer,
-        GL_ELEMENT_ARRAY_BUFFER => ctx_obj.bound_element_array_buffer,
+        GL_ELEMENT_ARRAY_BUFFER => {
+            if let Some(vao) = ctx_obj.vertex_arrays.get(&ctx_obj.bound_vertex_array) {
+                vao.element_array_buffer
+            } else {
+                None
+            }
+        }
         _ => {
             set_last_error("invalid buffer target");
             return ERR_INVALID_ARGS;
@@ -2190,12 +2260,17 @@ pub fn ctx_enable_vertex_attrib_array(ctx: u32, index: u32) -> u32 {
         None => return ERR_INVALID_HANDLE,
     };
 
-    if (index as usize) < ctx_obj.vertex_attributes.len() {
-        ctx_obj.vertex_attributes[index as usize].enabled = true;
-        ERR_OK
+    if let Some(vao) = ctx_obj.vertex_arrays.get_mut(&ctx_obj.bound_vertex_array) {
+        if (index as usize) < vao.attributes.len() {
+            vao.attributes[index as usize].enabled = true;
+            ERR_OK
+        } else {
+            set_last_error("index out of range");
+            ERR_INVALID_ARGS
+        }
     } else {
-        set_last_error("index out of range");
-        ERR_INVALID_ARGS
+        set_last_error("current vertex array not found");
+        ERR_INVALID_OPERATION
     }
 }
 
@@ -2208,12 +2283,17 @@ pub fn ctx_disable_vertex_attrib_array(ctx: u32, index: u32) -> u32 {
         None => return ERR_INVALID_HANDLE,
     };
 
-    if (index as usize) < ctx_obj.vertex_attributes.len() {
-        ctx_obj.vertex_attributes[index as usize].enabled = false;
-        ERR_OK
+    if let Some(vao) = ctx_obj.vertex_arrays.get_mut(&ctx_obj.bound_vertex_array) {
+        if (index as usize) < vao.attributes.len() {
+            vao.attributes[index as usize].enabled = false;
+            ERR_OK
+        } else {
+            set_last_error("index out of range");
+            ERR_INVALID_ARGS
+        }
     } else {
-        set_last_error("index out of range");
-        ERR_INVALID_ARGS
+        set_last_error("current vertex array not found");
+        ERR_INVALID_OPERATION
     }
 }
 
@@ -2234,18 +2314,25 @@ pub fn ctx_vertex_attrib_pointer(
         None => return ERR_INVALID_HANDLE,
     };
 
-    if (index as usize) < ctx_obj.vertex_attributes.len() {
-        let attr = &mut ctx_obj.vertex_attributes[index as usize];
-        attr.size = size;
-        attr.type_ = type_;
-        attr.normalized = normalized;
-        attr.stride = stride;
-        attr.offset = offset;
-        attr.buffer = ctx_obj.bound_array_buffer;
-        ERR_OK
+    let bound_buffer = ctx_obj.bound_array_buffer;
+
+    if let Some(vao) = ctx_obj.vertex_arrays.get_mut(&ctx_obj.bound_vertex_array) {
+        if (index as usize) < vao.attributes.len() {
+            let attr = &mut vao.attributes[index as usize];
+            attr.size = size;
+            attr.type_ = type_;
+            attr.normalized = normalized;
+            attr.stride = stride;
+            attr.offset = offset;
+            attr.buffer = bound_buffer;
+            ERR_OK
+        } else {
+            set_last_error("index out of range");
+            ERR_INVALID_ARGS
+        }
     } else {
-        set_last_error("index out of range");
-        ERR_INVALID_ARGS
+        set_last_error("current vertex array not found");
+        ERR_INVALID_OPERATION
     }
 }
 
@@ -2273,12 +2360,17 @@ pub fn ctx_vertex_attrib4f(ctx: u32, index: u32, v0: f32, v1: f32, v2: f32, v3: 
         None => return ERR_INVALID_HANDLE,
     };
 
-    if (index as usize) < ctx_obj.vertex_attributes.len() {
-        ctx_obj.vertex_attributes[index as usize].default_value = [v0, v1, v2, v3];
-        ERR_OK
+    if let Some(vao) = ctx_obj.vertex_arrays.get_mut(&ctx_obj.bound_vertex_array) {
+        if (index as usize) < vao.attributes.len() {
+            vao.attributes[index as usize].default_value = [v0, v1, v2, v3];
+            ERR_OK
+        } else {
+            set_last_error("index out of range");
+            ERR_INVALID_ARGS
+        }
     } else {
-        set_last_error("index out of range");
-        ERR_INVALID_ARGS
+        set_last_error("current vertex array not found");
+        ERR_INVALID_OPERATION
     }
 }
 
@@ -2557,10 +2649,12 @@ pub fn ctx_set_verbosity(ctx: u32, level: u32) -> u32 {
 }
 
 /// Draw elements.
-pub fn ctx_draw_elements(ctx: u32, _mode: u32, _count: i32, _type_: u32, _offset: u32) -> u32 {
+pub fn ctx_draw_elements(ctx: u32, mode: u32, count: i32, type_: u32, offset: u32) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();
-    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+    let reg_ptr = &mut *reg;
+
+    let ctx_obj = match reg_ptr.contexts.get_mut(&ctx) {
         Some(c) => c,
         None => return ERR_INVALID_HANDLE,
     };
@@ -2573,7 +2667,287 @@ pub fn ctx_draw_elements(ctx: u32, _mode: u32, _count: i32, _type_: u32, _offset
         }
     };
 
-    // TODO: Implement internal software rasterization/execution
+    // Get EBO
+    let ebo_handle = if let Some(vao) = ctx_obj.vertex_arrays.get(&ctx_obj.bound_vertex_array) {
+        vao.element_array_buffer
+    } else {
+        None
+    };
+
+    let indices: Vec<u32> = if let Some(h) = ebo_handle {
+        if let Some(buf) = ctx_obj.buffers.get(&h) {
+            let data = &buf.data;
+            let mut idxs = Vec::with_capacity(count as usize);
+            for i in 0..count {
+                 let idx = match type_ {
+                    0x1401 => { // GL_UNSIGNED_BYTE
+                        let off = (offset as usize) + i as usize;
+                        if off < data.len() { data[off] as u32 } else { 0 }
+                    },
+                    0x1403 => { // GL_UNSIGNED_SHORT
+                        let off = (offset as usize) + (i as usize) * 2;
+                        if off + 2 <= data.len() {
+                            u16::from_ne_bytes([data[off], data[off+1]]) as u32
+                        } else { 0 }
+                    },
+                    0x1405 => { // GL_UNSIGNED_INT
+                        let off = (offset as usize) + (i as usize) * 4;
+                        if off + 4 <= data.len() {
+                            u32::from_ne_bytes([data[off], data[off+1], data[off+2], data[off+3]])
+                        } else { 0 }
+                    },
+                    _ => return ERR_INVALID_ENUM,
+                };
+                idxs.push(idx);
+            }
+            idxs
+        } else {
+            return ERR_INVALID_OPERATION;
+        }
+    } else {
+        return ERR_INVALID_OPERATION;
+    };
+
+    let (vx, vy, vw, vh) = ctx_obj.viewport;
+    let mut vertices = Vec::with_capacity(count as usize);
+
+    // 1. Run VS for all vertices
+    let mut attr_data = vec![0.0f32; 16 * 4];
+    for &index in &indices {
+        ctx_obj.fetch_vertex_attributes(index, &mut attr_data);
+
+        let attr_ptr: u32 = 0x2000;
+        let uniform_ptr: u32 = 0x1000;
+        let varying_ptr: u32 = 0x3000;
+        let private_ptr: u32 = 0x4000;
+        let texture_ptr: u32 = 0x5000;
+
+        // Ensure attr_data is large enough for 64-byte alignment per location
+        let mut aligned_attr_data = vec![0.0f32; 1024]; // Enough for 16 locations * 16 floats
+        for (loc, chunk) in attr_data.chunks(4).enumerate() {
+            let offset = loc * 16;
+            if offset + 4 <= aligned_attr_data.len() {
+                aligned_attr_data[offset..offset + 4].copy_from_slice(chunk);
+            }
+        }
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                aligned_attr_data.as_ptr() as *const u8,
+                attr_ptr as *mut u8,
+                aligned_attr_data.len() * 4,
+            );
+            std::ptr::copy_nonoverlapping(
+                ctx_obj.uniform_data.as_ptr(),
+                uniform_ptr as *mut u8,
+                ctx_obj.uniform_data.len(),
+            );
+            ctx_obj.prepare_texture_metadata(texture_ptr);
+        }
+
+        crate::js_execute_shader(
+            0x8B31, /* VERTEX_SHADER */
+            attr_ptr,
+            uniform_ptr,
+            varying_ptr,
+            private_ptr,
+            texture_ptr,
+        );
+
+        let mut pos_bytes = [0u8; 16];
+        let mut varying_bytes = vec![0u8; 256]; // Capture first 256 bytes of varyings
+        unsafe {
+            std::ptr::copy_nonoverlapping(varying_ptr as *const u8, pos_bytes.as_mut_ptr(), 16);
+            std::ptr::copy_nonoverlapping(
+                varying_ptr as *const u8,
+                varying_bytes.as_mut_ptr(),
+                256,
+            );
+        }
+        let pos: [f32; 4] = unsafe { std::mem::transmute(pos_bytes) };
+
+        vertices.push(Vertex {
+            pos,
+            varyings: varying_bytes,
+        });
+    }
+
+    // 2. Rasterize
+    if mode == 0x0000 {
+        // GL_POINTS
+        for v in &vertices {
+            let screen_x = vx as f32 + (v.pos[0] / v.pos[3] + 1.0) * 0.5 * vw as f32;
+            let screen_y = vy as f32 + (v.pos[1] / v.pos[3] + 1.0) * 0.5 * vh as f32;
+
+            // Run FS
+            let uniform_ptr: u32 = 0x1000;
+            let varying_ptr: u32 = 0x3000;
+            let private_ptr: u32 = 0x4000;
+            let texture_ptr: u32 = 0x5000;
+
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    v.varyings.as_ptr(),
+                    varying_ptr as *mut u8,
+                    v.varyings.len(),
+                );
+            }
+
+            crate::js_execute_shader(
+                0x8B30, /* FRAGMENT_SHADER */
+                0,
+                uniform_ptr,
+                varying_ptr,
+                private_ptr,
+                texture_ptr,
+            );
+
+            let mut color_bytes = [0u8; 16];
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    private_ptr as *const u8,
+                    color_bytes.as_mut_ptr(),
+                    16,
+                );
+            }
+            let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
+            let color_u8 = [
+                (c[0].clamp(0.0, 1.0) * 255.0) as u8,
+                (c[1].clamp(0.0, 1.0) * 255.0) as u8,
+                (c[2].clamp(0.0, 1.0) * 255.0) as u8,
+                (c[3].clamp(0.0, 1.0) * 255.0) as u8,
+            ];
+            ctx_obj.rasterizer.draw_point(
+                &mut ctx_obj.default_framebuffer,
+                screen_x,
+                screen_y,
+                color_u8,
+            );
+        }
+    } else if mode == 0x0004 {
+        // GL_TRIANGLES
+        for i in (0..vertices.len()).step_by(3) {
+            if i + 2 >= vertices.len() {
+                break;
+            }
+            let v0 = &vertices[i];
+            let v1 = &vertices[i + 1];
+            let v2 = &vertices[i + 2];
+
+            // Screen coordinates (with perspective divide)
+            let p0 = (
+                vx as f32 + (v0.pos[0] / v0.pos[3] + 1.0) * 0.5 * vw as f32,
+                vy as f32 + (v0.pos[1] / v0.pos[3] + 1.0) * 0.5 * vh as f32,
+            );
+            let p1 = (
+                vx as f32 + (v1.pos[0] / v1.pos[3] + 1.0) * 0.5 * vw as f32,
+                vy as f32 + (v1.pos[1] / v1.pos[3] + 1.0) * 0.5 * vh as f32,
+            );
+            let p2 = (
+                vx as f32 + (v2.pos[0] / v2.pos[3] + 1.0) * 0.5 * vw as f32,
+                vy as f32 + (v2.pos[1] / v2.pos[3] + 1.0) * 0.5 * vh as f32,
+            );
+
+            // Bounding box
+            let min_x = p0.0.min(p1.0).min(p2.0).max(0.0).floor() as i32;
+            let max_x = p0.0.max(p1.0).max(p2.0).min(vw as f32 - 1.0).ceil() as i32;
+            let min_y = p0.1.min(p1.1).min(p2.1).max(0.0).floor() as i32;
+            let max_y = p0.1.max(p1.1).max(p2.1).min(vh as f32 - 1.0).ceil() as i32;
+
+            if max_x >= min_x && max_y >= min_y {
+                let w0_inv = 1.0 / v0.pos[3];
+                let w1_inv = 1.0 / v1.pos[3];
+                let w2_inv = 1.0 / v2.pos[3];
+
+                let v0_f32: &[f32] =
+                    unsafe { std::slice::from_raw_parts(v0.varyings.as_ptr() as *const f32, 64) };
+                let v1_f32: &[f32] =
+                    unsafe { std::slice::from_raw_parts(v1.varyings.as_ptr() as *const f32, 64) };
+                let v2_f32: &[f32] =
+                    unsafe { std::slice::from_raw_parts(v2.varyings.as_ptr() as *const f32, 64) };
+
+                for y in min_y..=max_y {
+                    for x in min_x..=max_x {
+                        let (u, v, w) = barycentric((x as f32 + 0.5, y as f32 + 0.5), p0, p1, p2);
+                        if u >= 0.0 && v >= 0.0 && w >= 0.0 {
+                            // Interpolate depth (NDC z/w mapped to [0, 1])
+                            let z0 = v0.pos[2] / v0.pos[3];
+                            let z1 = v1.pos[2] / v1.pos[3];
+                            let z2 = v2.pos[2] / v2.pos[3];
+                            let depth_ndc = u * z0 + v * z1 + w * z2;
+                            let depth = (depth_ndc + 1.0) * 0.5;
+
+                            let fb_idx =
+                                (y as u32 * ctx_obj.default_framebuffer.width + x as u32) as usize;
+
+                            if (0.0..=1.0).contains(&depth)
+                                && depth < ctx_obj.default_framebuffer.depth[fb_idx]
+                            {
+                                ctx_obj.default_framebuffer.depth[fb_idx] = depth;
+
+                                // Perspective correct interpolation
+                                let w_interp_inv = u * w0_inv + v * w1_inv + w * w2_inv;
+                                let w_interp = 1.0 / w_interp_inv;
+
+                                let mut interp_f32 = [0.0f32; 64];
+                                for k in 0..64 {
+                                    interp_f32[k] = (u * v0_f32[k] * w0_inv
+                                        + v * v1_f32[k] * w1_inv
+                                        + w * v2_f32[k] * w2_inv)
+                                        * w_interp;
+                                }
+
+                                // Run FS
+                                let uniform_ptr: u32 = 0x1000;
+                                let varying_ptr: u32 = 0x3000;
+                                let private_ptr: u32 = 0x4000;
+                                let texture_ptr: u32 = 0x5000;
+
+                                unsafe {
+                                    std::ptr::copy_nonoverlapping(
+                                        interp_f32.as_ptr() as *const u8,
+                                        varying_ptr as *mut u8,
+                                        256,
+                                    );
+                                }
+
+                                crate::js_execute_shader(
+                                    0x8B30, /* FRAGMENT_SHADER */
+                                    0,
+                                    uniform_ptr,
+                                    varying_ptr,
+                                    private_ptr,
+                                    texture_ptr,
+                                );
+
+                                let mut color_bytes = [0u8; 16];
+                                unsafe {
+                                    std::ptr::copy_nonoverlapping(
+                                        private_ptr as *const u8,
+                                        color_bytes.as_mut_ptr(),
+                                        16,
+                                    );
+                                }
+                                let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
+                                let color_u8 = [
+                                    (c[0].clamp(0.0, 1.0) * 255.0) as u8,
+                                    (c[1].clamp(0.0, 1.0) * 255.0) as u8,
+                                    (c[2].clamp(0.0, 1.0) * 255.0) as u8,
+                                    (c[3].clamp(0.0, 1.0) * 255.0) as u8,
+                                ];
+
+                                let color_idx = fb_idx * 4;
+                                if color_idx + 3 < ctx_obj.default_framebuffer.color.len() {
+                                    ctx_obj.default_framebuffer.color[color_idx..color_idx + 4]
+                                        .copy_from_slice(&color_u8);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     ERR_OK
 }
 
@@ -2683,6 +3057,91 @@ pub fn ctx_read_pixels(
     }
 
     ERR_OK
+}
+
+// ============================================================================
+// Vertex Array Object Operations
+// ============================================================================
+
+/// Create a vertex array object.
+pub fn ctx_create_vertex_array(ctx: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return 0;
+        }
+    };
+    let vao_id = ctx_obj.allocate_vertex_array_handle();
+    ctx_obj.vertex_arrays.insert(vao_id, VertexArray::default());
+    vao_id
+}
+
+/// Delete a vertex array object.
+pub fn ctx_delete_vertex_array(ctx: u32, vao: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+    
+    if vao == 0 {
+        return ERR_OK; // Silent ignore for 0
+    }
+
+    if ctx_obj.vertex_arrays.remove(&vao).is_some() {
+        // If deleted VAO is bound, bind default VAO (0)
+        if ctx_obj.bound_vertex_array == vao {
+            ctx_obj.bound_vertex_array = 0;
+        }
+        ERR_OK
+    } else {
+        set_last_error("vertex array not found");
+        ERR_INVALID_HANDLE
+    }
+}
+
+/// Bind a vertex array object.
+pub fn ctx_bind_vertex_array(ctx: u32, vao: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+
+    if ctx_obj.vertex_arrays.contains_key(&vao) {
+        ctx_obj.bound_vertex_array = vao;
+        ERR_OK
+    } else {
+        set_last_error("vertex array not found");
+        ERR_INVALID_HANDLE
+    }
+}
+
+/// Is vertex array.
+pub fn ctx_is_vertex_array(ctx: u32, vao: u32) -> u32 {
+    clear_last_error();
+    let reg = get_registry().borrow();
+    let ctx_obj = match reg.contexts.get(&ctx) {
+        Some(c) => c,
+        None => return 0,
+    };
+    // 0 is not a user VAO object in WebGL terms usually, but here we track it.
+    // WebGL spec says isVertexArray returns false for deleted VAOs and 0.
+    if vao == 0 {
+        return 0;
+    }
+    if ctx_obj.vertex_arrays.contains_key(&vao) { 1 } else { 0 }
 }
 
 // -----------------------------

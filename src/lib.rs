@@ -631,3 +631,27 @@ pub extern "C" fn wasm_ctx_draw_elements(
 pub extern "C" fn wasm_ctx_set_verbosity(ctx: u32, level: u32) -> u32 {
     webgl2_context::ctx_set_verbosity(ctx, level)
 }
+
+// ============================================================================
+// Vertex Array Object Exports
+// ============================================================================
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_create_vertex_array(ctx: u32) -> u32 {
+    webgl2_context::ctx_create_vertex_array(ctx)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_delete_vertex_array(ctx: u32, vao: u32) -> u32 {
+    webgl2_context::ctx_delete_vertex_array(ctx, vao)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_bind_vertex_array(ctx: u32, vao: u32) -> u32 {
+    webgl2_context::ctx_bind_vertex_array(ctx, vao)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_is_vertex_array(ctx: u32, vao: u32) -> u32 {
+    webgl2_context::ctx_is_vertex_array(ctx, vao)
+}

@@ -797,10 +797,52 @@ export class WasmWebGL2RenderingContext {
   drawRangeElements(mode, start, end, count, type, offset) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   drawBuffers(buffers) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
-  createVertexArray() { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  bindVertexArray(vao) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  deleteVertexArray(vao) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  isVertexArray(vao) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  createVertexArray() {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_create_vertex_array !== 'function') {
+      throw new Error('wasm_ctx_create_vertex_array not found');
+    }
+    const handle = ex.wasm_ctx_create_vertex_array(this._ctxHandle);
+    if (handle === 0) return null;
+    return { _handle: handle, _type: 'WebGLVertexArrayObject' };
+  }
+
+  bindVertexArray(vao) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_bind_vertex_array !== 'function') {
+      throw new Error('wasm_ctx_bind_vertex_array not found');
+    }
+    const handle = vao && typeof vao === 'object' && typeof vao._handle === 'number' ? vao._handle : (vao ? (vao >>> 0) : 0);
+    const code = ex.wasm_ctx_bind_vertex_array(this._ctxHandle, handle);
+    _checkErr(code, this._instance);
+  }
+
+  deleteVertexArray(vao) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_delete_vertex_array !== 'function') {
+      throw new Error('wasm_ctx_delete_vertex_array not found');
+    }
+    const handle = vao && typeof vao === 'object' && typeof vao._handle === 'number' ? vao._handle : (vao >>> 0);
+    const code = ex.wasm_ctx_delete_vertex_array(this._ctxHandle, handle);
+    _checkErr(code, this._instance);
+    if (vao && typeof vao === 'object') {
+      try { vao._handle = 0; vao._deleted = true; } catch (e) { /* ignore */ }
+    }
+  }
+
+  isVertexArray(vao) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_is_vertex_array !== 'function') {
+      throw new Error('wasm_ctx_is_vertex_array not found');
+    }
+    const handle = vao && typeof vao === 'object' && typeof vao._handle === 'number' ? vao._handle : (vao >>> 0);
+    const res = ex.wasm_ctx_is_vertex_array(this._ctxHandle, handle);
+    return res !== 0;
+  }
 
   createTransformFeedback() { this._assertNotDestroyed(); throw new Error('not implemented'); }
   bindTransformFeedback(target, tf) { this._assertNotDestroyed(); throw new Error('not implemented'); }

@@ -2,7 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('isVertexArray throws not implemented', async () => {
+test('isVertexArray works', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.isVertexArray(1), /not implemented/); } finally { gl.destroy(); }
+  try {
+    const vao = gl.createVertexArray();
+    assert.equal(gl.isVertexArray(vao), true);
+    gl.deleteVertexArray(vao);
+    assert.equal(gl.isVertexArray(vao), false);
+    assert.equal(gl.isVertexArray(null), false);
+  } finally {
+    gl.destroy();
+  }
 });
