@@ -47,6 +47,11 @@ pub const GL_ATTACHED_SHADERS: u32 = 0x8B85;
 pub const GL_ACTIVE_UNIFORMS: u32 = 0x8B86;
 pub const GL_ACTIVE_ATTRIBUTES: u32 = 0x8B89;
 
+pub const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
+pub const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
+pub const GL_TEXTURE_WRAP_S: u32 = 0x2802;
+pub const GL_TEXTURE_WRAP_T: u32 = 0x2803;
+
 struct Vertex {
     pos: [f32; 4],
     varyings: Vec<u8>,
@@ -83,6 +88,10 @@ struct Texture {
     width: u32,
     height: u32,
     data: Vec<u8>, // RGBA u8
+    min_filter: u32,
+    mag_filter: u32,
+    wrap_s: u32,
+    wrap_t: u32,
 }
 
 /// A WebGL2 framebuffer resource (stores attachment texture ID)
@@ -559,6 +568,10 @@ pub fn ctx_create_texture(ctx: u32) -> u32 {
             width: 0,
             height: 0,
             data: Vec::new(),
+            min_filter: 0x2705, // GL_NEAREST_MIPMAP_LINEAR (default)
+            mag_filter: 0x2601, // GL_LINEAR (default)
+            wrap_s: 0x2901,     // GL_REPEAT (default)
+            wrap_t: 0x2901,     // GL_REPEAT (default)
         },
     );
     tex_id
@@ -588,6 +601,55 @@ pub fn ctx_delete_texture(ctx: u32, tex: u32) -> u32 {
     if ctx.bound_texture == Some(tex) {
         ctx.bound_texture = None;
     }
+    ERR_OK
+}
+
+/// Set texture parameters.
+/// Returns errno.
+pub fn ctx_tex_parameter_i(ctx: u32, target: u32, pname: u32, param: i32) -> u32 {
+    clear_last_error();
+    // Only TEXTURE_2D (0x0DE1) is supported for now
+    if target != 0x0DE1 {
+        set_last_error("invalid texture target");
+        return ERR_INVALID_ARGS;
+    }
+
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+
+    let tex_handle = match ctx_obj.bound_texture {
+        Some(h) => h,
+        None => {
+            set_last_error("no texture bound");
+            return ERR_INVALID_ARGS;
+        }
+    };
+
+    let tex = match ctx_obj.textures.get_mut(&tex_handle) {
+        Some(t) => t,
+        None => {
+            set_last_error("texture not found");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+
+    match pname {
+        GL_TEXTURE_MIN_FILTER => tex.min_filter = param as u32,
+        GL_TEXTURE_MAG_FILTER => tex.mag_filter = param as u32,
+        GL_TEXTURE_WRAP_S => tex.wrap_s = param as u32,
+        GL_TEXTURE_WRAP_T => tex.wrap_t = param as u32,
+        _ => {
+            set_last_error("invalid texture parameter");
+            return ERR_INVALID_ARGS;
+        }
+    }
+
     ERR_OK
 }
 
@@ -1221,6 +1283,50 @@ pub fn ctx_buffer_data(ctx: u32, target: u32, ptr: u32, len: u32, usage: u32) ->
     if let Some(buf) = ctx_obj.buffers.get_mut(&buf_handle) {
         buf.data = src_slice.to_vec();
         buf.usage = usage;
+        ERR_OK
+    } else {
+        set_last_error("buffer not found");
+        ERR_INVALID_HANDLE
+    }
+}
+
+/// Update a subset of the bound buffer's data.
+pub fn ctx_buffer_sub_data(ctx: u32, target: u32, offset: u32, ptr: u32, len: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+
+    let buf_handle = match target {
+        GL_ARRAY_BUFFER => ctx_obj.bound_array_buffer,
+        GL_ELEMENT_ARRAY_BUFFER => ctx_obj.bound_element_array_buffer,
+        _ => {
+            set_last_error("invalid buffer target");
+            return ERR_INVALID_ARGS;
+        }
+    };
+
+    let buf_handle = match buf_handle {
+        Some(h) => h,
+        None => {
+            set_last_error("no buffer bound to target");
+            return ERR_INVALID_ARGS;
+        }
+    };
+
+    let src_slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+
+    if let Some(buf) = ctx_obj.buffers.get_mut(&buf_handle) {
+        if (offset as usize + len as usize) > buf.data.len() {
+             set_last_error("buffer overflow");
+             return ERR_INVALID_ARGS;
+        }
+        buf.data[offset as usize..offset as usize + len as usize].copy_from_slice(src_slice);
         ERR_OK
     } else {
         set_last_error("buffer not found");

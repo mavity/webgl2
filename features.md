@@ -9,6 +9,7 @@ These features have implementations in both Rust and JavaScript, and appear to b
 *   **Textures**
     *   `createTexture`, `deleteTexture`, `bindTexture`
     *   `texImage2D` (Basic 2D texture upload)
+    *   `texParameteri` (Texture parameters)
 *   **Framebuffers**
     *   `createFramebuffer`, `deleteFramebuffer`, `bindFramebuffer`
     *   `framebufferTexture2D` (Attaching textures to framebuffers)
@@ -21,6 +22,7 @@ These features have implementations in both Rust and JavaScript, and appear to b
 *   **Buffers & Attributes**
     *   `createBuffer`, `bindBuffer`, `deleteBuffer`
     *   `bufferData` (Uploading data to buffers)
+    *   `bufferSubData` (Updating buffer data)
     *   `getBufferParameter`
     *   `getAttribLocation`, `bindAttribLocation`
     *   `enableVertexAttribArray`, `disableVertexAttribArray`
@@ -43,8 +45,8 @@ These functions exist in the API surface but explicitly throw a "not implemented
 
 *   **Vertex Array Objects (VAOs)**: `createVertexArray`, `bindVertexArray`, `deleteVertexArray`, `isVertexArray`.
 *   **Instanced Drawing**: `drawArraysInstanced`, `drawElementsInstanced`.
-*   **Advanced Texture Operations**: `texParameteri`, `generateMipmap`, `copyTexImage2D`, `copyTexSubImage2D`, `texImage3D`.
-*   **Advanced Buffer Operations**: `bufferSubData`, `copyBufferSubData`, `isBuffer`.
+*   **Advanced Texture Operations**: `generateMipmap`, `copyTexImage2D`, `copyTexSubImage2D`, `texImage3D`.
+*   **Advanced Buffer Operations**: `copyBufferSubData`, `isBuffer`.
 *   **Renderbuffers**: All functions (`createRenderbuffer`, `bindRenderbuffer`, etc.).
 *   **Transform Feedback**: All functions.
 *   **Queries & Sync**: All functions (`createQuery`, `fenceSync`, etc.).

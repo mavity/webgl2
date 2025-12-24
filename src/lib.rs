@@ -159,6 +159,13 @@ pub extern "C" fn wasm_ctx_bind_texture(ctx: u32, target: u32, tex: u32) -> u32 
     webgl2_context::ctx_bind_texture(ctx, target, tex)
 }
 
+/// Set texture parameters.
+/// Returns errno.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_tex_parameter_i(ctx: u32, target: u32, pname: u32, param: i32) -> u32 {
+    webgl2_context::ctx_tex_parameter_i(ctx, target, pname, param)
+}
+
 /// Upload pixel data to a texture.
 /// ptr/len point to RGBA u8 pixel data in WASM linear memory.
 /// Returns errno.
@@ -334,6 +341,18 @@ pub extern "C" fn wasm_ctx_buffer_data(
     usage: u32,
 ) -> u32 {
     webgl2_context::ctx_buffer_data(ctx, target, ptr, len, usage)
+}
+
+/// Update a subset of the bound buffer's data.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_buffer_sub_data(
+    ctx: u32,
+    target: u32,
+    offset: u32,
+    ptr: u32,
+    len: u32,
+) -> u32 {
+    webgl2_context::ctx_buffer_sub_data(ctx, target, offset, ptr, len)
 }
 
 // ---- Shader and Program Operations ----

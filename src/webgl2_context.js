@@ -44,6 +44,21 @@ export class WasmWebGL2RenderingContext {
   BUFFER_SIZE = 0x8764;
   NO_ERROR = 0;
 
+  TEXTURE_2D = 0x0DE1;
+  TEXTURE_WRAP_S = 0x2802;
+  TEXTURE_WRAP_T = 0x2803;
+  TEXTURE_MAG_FILTER = 0x2800;
+  TEXTURE_MIN_FILTER = 0x2801;
+  NEAREST = 0x2600;
+  LINEAR = 0x2601;
+  NEAREST_MIPMAP_NEAREST = 0x2700;
+  LINEAR_MIPMAP_NEAREST = 0x2701;
+  NEAREST_MIPMAP_LINEAR = 0x2702;
+  LINEAR_MIPMAP_LINEAR = 0x2703;
+  REPEAT = 0x2901;
+  CLAMP_TO_EDGE = 0x812F;
+  MIRRORED_REPEAT = 0x8370;
+
   /**
    * @param {WebAssembly.Instance} instance
    * @param {u32} ctxHandle
@@ -716,7 +731,32 @@ export class WasmWebGL2RenderingContext {
     }
   }
 
-  bufferSubData(target, offset, data) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  bufferSubData(target, offset, data) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_buffer_sub_data !== 'function') {
+      throw new Error('wasm_ctx_buffer_sub_data not found');
+    }
+
+    let bytes;
+    if (data instanceof Uint8Array) bytes = data;
+    else if (ArrayBuffer.isView(data)) bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    else if (data instanceof ArrayBuffer) bytes = new Uint8Array(data);
+    else bytes = new Uint8Array(data); // Fallback for arrays
+
+    const len = bytes.length;
+    const ptr = ex.wasm_alloc(len);
+    if (ptr === 0) throw new Error('Failed to allocate memory for bufferSubData');
+
+    try {
+      const mem = new Uint8Array(ex.memory.buffer);
+      mem.set(bytes, ptr);
+      const code = ex.wasm_ctx_buffer_sub_data(this._ctxHandle, target >>> 0, offset >>> 0, ptr, len);
+      _checkErr(code, this._instance);
+    } finally {
+      ex.wasm_free(ptr);
+    }
+  }
   copyBufferSubData(readTarget, writeTarget, readOffset, writeOffset, size) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   getBufferParameter(target, pname) {
     this._assertNotDestroyed();
@@ -798,7 +838,15 @@ export class WasmWebGL2RenderingContext {
     const code = ex.wasm_ctx_active_texture(this._ctxHandle, texture >>> 0);
     _checkErr(code, this._instance);
   }
-  texParameteri(target, pname, param) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  texParameteri(target, pname, param) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_tex_parameter_i !== 'function') {
+      throw new Error('wasm_ctx_tex_parameter_i not found');
+    }
+    const code = ex.wasm_ctx_tex_parameter_i(this._ctxHandle, target >>> 0, pname >>> 0, param | 0);
+    _checkErr(code, this._instance);
+  }
   generateMipmap(target) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   copyTexImage2D(target, level, internalformat, x, y, width, height, border) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   copyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height) { this._assertNotDestroyed(); throw new Error('not implemented'); }
