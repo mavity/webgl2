@@ -151,7 +151,10 @@ fn generate_lcov_report(mapping_data: &[u8], hit_data: &[u8]) -> String {
             false
         };
 
-        file_coverage.entry(file).or_default().push((line, col, hit));
+        file_coverage
+            .entry(file)
+            .or_default()
+            .push((line, col, hit));
 
         id += 1;
     }
@@ -159,7 +162,7 @@ fn generate_lcov_report(mapping_data: &[u8], hit_data: &[u8]) -> String {
     // Format LCOV
     for (file, entries) in file_coverage {
         report.push_str(&format!("SF:{}\n", file));
-        
+
         // Group by line for DA records
         let mut line_hits: HashMap<u32, u32> = HashMap::new();
         for (line, _col, hit) in &entries {
@@ -178,7 +181,12 @@ fn generate_lcov_report(mapping_data: &[u8], hit_data: &[u8]) -> String {
         // BRDA:<line>,<block>,<branch>,<hits>
         // We'll use column as a proxy for branch ID to disambiguate multiple branches on same line
         for (line, col, hit) in entries {
-            report.push_str(&format!("BRDA:{},0,{},{}\n", line, col, if hit { "1" } else { "-" }));
+            report.push_str(&format!(
+                "BRDA:{},0,{},{}\n",
+                line,
+                col,
+                if hit { "1" } else { "-" }
+            ));
         }
 
         report.push_str("end_of_record\n");

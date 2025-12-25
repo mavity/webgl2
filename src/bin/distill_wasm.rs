@@ -255,7 +255,7 @@ fn build_coverage_mapping(
                 let addr = (func_offset - code_section_start) as u64;
 
                 let (p, l, c) = lookup.lookup(addr, "unknown.rs", 1);
-                
+
                 if p != "unknown.rs" {
                     path = p;
                     line = l;
@@ -298,10 +298,14 @@ fn build_coverage_mapping(
         if i < function_bodies.len() {
             let body = &function_bodies[i];
             let mut reader = body.get_operators_reader()?;
-            
+
             // 1. Entry block
             let entry_offset = body.range().start;
-            let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup((entry_offset - code_section_start) as u64, &path, line);
+            let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup(
+                (entry_offset - code_section_start) as u64,
+                &path,
+                line,
+            );
             probe_to_loc.insert(probe_id, (p, l, c));
             probes.push(probe_id);
             probe_id += 1;
@@ -312,21 +316,33 @@ fn build_coverage_mapping(
                 let (op, offset) = reader.read_with_offset()?;
                 match op {
                     wasmparser::Operator::Block { .. } | wasmparser::Operator::Loop { .. } => {
-                        let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup((offset - code_section_start) as u64, &path, line);
+                        let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup(
+                            (offset - code_section_start) as u64,
+                            &path,
+                            line,
+                        );
                         probe_to_loc.insert(probe_id, (p, l, c));
                         probes.push(probe_id);
                         probe_id += 1;
                         stack.push_back(false);
                     }
                     wasmparser::Operator::If { .. } => {
-                        let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup((offset - code_section_start) as u64, &path, line);
+                        let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup(
+                            (offset - code_section_start) as u64,
+                            &path,
+                            line,
+                        );
                         probe_to_loc.insert(probe_id, (p, l, c));
                         probes.push(probe_id);
                         probe_id += 1;
                         stack.push_back(true); // is_if
                     }
                     wasmparser::Operator::Else => {
-                        let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup((offset - code_section_start) as u64, &path, line);
+                        let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup(
+                            (offset - code_section_start) as u64,
+                            &path,
+                            line,
+                        );
                         probe_to_loc.insert(probe_id, (p, l, c));
                         probes.push(probe_id);
                         probe_id += 1;
@@ -696,24 +712,10 @@ fn instrument_instr_seq(
     for (instr, _) in instrs {
         match instr {
             walrus::ir::Instr::Block(b) => {
-                instrument_instr_seq(
-                    func,
-                    b.seq,
-                    probes,
-                    hits_offset,
-                    memory_id,
-                    probes_injected,
-                );
+                instrument_instr_seq(func, b.seq, probes, hits_offset, memory_id, probes_injected);
             }
             walrus::ir::Instr::Loop(l) => {
-                instrument_instr_seq(
-                    func,
-                    l.seq,
-                    probes,
-                    hits_offset,
-                    memory_id,
-                    probes_injected,
-                );
+                instrument_instr_seq(func, l.seq, probes, hits_offset, memory_id, probes_injected);
             }
             walrus::ir::Instr::IfElse(i) => {
                 instrument_instr_seq(
