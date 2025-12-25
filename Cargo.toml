@@ -92,8 +92,3 @@ required-features = ["cli"]
 name = "distill_wasm"
 path = "src/bin/distill_wasm.rs"
 required-features = ["cli"]
-
-[[example]]
-name = "01-basic-pipeline"
-path = "examples/01-basic-pipeline.rs"
-required-features = ["cli"]
