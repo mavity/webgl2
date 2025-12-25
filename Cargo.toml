@@ -36,6 +36,7 @@ anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 wasmi = "0.31"
+clap = { version = "4.4", features = ["derive"], optional = true }
 
 # Code generation
 tera = "1.20"
@@ -46,8 +47,10 @@ serde_json = "1.0"
 
 # Random number generation (wasm requires "js" feature)
 getrandom = { version = "0.2", features = ["js"] }
+rustc-demangle = "0.1.26"
 
 # Browser bindings (optional, for web runtime)
+
 # moved to wasm32 target-specific dependencies to avoid pulling them during host builds
 
 [dev-dependencies]
@@ -57,7 +60,9 @@ insta = "1.40"
 # Enable web runtime (wasm-bindgen + web-sys)
 web = ["wasm-bindgen", "js-sys", "web-sys"]
 # Optional CLI feature (gates native CLI binary). Not enabled by default.
-cli = []
+cli = ["clap"]
+# Enable coverage instrumentation support
+coverage = []
 # Default: no optional features enabled by default to avoid pulling platform-specific
 # dependencies. This crate is WASM-first.
 default = []
@@ -78,7 +83,15 @@ name = "webgl2"
 path = "src/bin/webgl2.rs"
 required-features = ["cli"]
 
+[[bin]]
+name = "distill_wasm"
+path = "src/bin/distill_wasm.rs"
+required-features = ["cli"]
+
 [[example]]
 name = "01-basic-pipeline"
 path = "examples/01-basic-pipeline.rs"
 required-features = ["cli"]
+
+[profile.release]
+debug = true

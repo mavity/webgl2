@@ -21,7 +21,7 @@ test('drawArrays(TRIANGLES) draws to default framebuffer', async () => {
 
     // 3. Create and use a dummy program
     const vs = gl.createShader(gl.VERTEX_SHADER);
-    gl.shaderSource(vs, '#version 300 es\nvoid main() { gl_Position = vec4(0,0,0,1); }');
+    gl.shaderSource(vs, '#version 300 es\nlayout(location=0) in vec4 pos;\nvoid main() { gl_Position = pos; }');
     gl.compileShader(vs);
     const fs = gl.createShader(gl.FRAGMENT_SHADER);
     gl.shaderSource(fs, '#version 300 es\nprecision highp float;\nout vec4 color;\nvoid main() { color = vec4(1,1,1,1); }');

@@ -40,11 +40,13 @@ const isNode =
  * 3. Creates a Rust-owned context via wasm_create_context()
  * 4. Returns a WasmWebGL2RenderingContext JS wrapper
  *
- * @param {Object} opts - options (unused for now)
+ * @param {{
+ *  debug?: boolean,
+ * }} [opts] - options
  * @returns {Promise<WasmWebGL2RenderingContext>}
  * @throws {Error} if WASM loading or instantiation fails
  */
-async function webGL2(opts = {}) {
+async function webGL2({ debug } = {}) {
   // Load WASM binary
   const { ex, instance } = await (
     wasmInitPromise ||
@@ -52,7 +54,7 @@ async function webGL2(opts = {}) {
       // ensure success is cached but not failure
       let succeeded = false;
       try {
-        const wasm = await initWASM();
+        const wasm = await initWASM({ debug });
         succeeded = true;
         return wasm;
       } finally {
@@ -60,6 +62,16 @@ async function webGL2(opts = {}) {
           wasmInitPromise = undefined;
       }
     })());
+
+  // Initialize coverage if available
+  if (ex.wasm_init_coverage && ex.COV_MAP_PTR) {
+    const mapPtr = ex.COV_MAP_PTR.value;
+    // Read num_entries from the start of the map data
+    // mapPtr is aligned to 16 bytes, so we can use Uint32Array
+    const mem = new Uint32Array(ex.memory.buffer);
+    const numEntries = mem[mapPtr >>> 2];
+    ex.wasm_init_coverage(numEntries);
+  }
 
   // Create a context in WASM
   const ctxHandle = ex.wasm_create_context();
@@ -82,14 +94,15 @@ async function webGL2(opts = {}) {
  */
 var wasmInitPromise;
 
-async function initWASM() {
+async function initWASM({ debug } = {}) {
+  const wasmFile = debug ? 'webgl2.debug.wasm' : 'webgl2.wasm';
   let wasmBuffer;
   if (isNode) {
     // Use dynamic imports so this module can be loaded in the browser too.
     const path = await import('path');
     const fs = await import('fs');
     const { fileURLToPath } = await import('url');
-    const wasmPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'webgl2.wasm');
+    const wasmPath = path.join(path.dirname(fileURLToPath(import.meta.url)), wasmFile);
     if (!fs.existsSync(wasmPath)) {
       throw new Error(`WASM not found at ${wasmPath}. Run: npm run build:wasm`);
     }
@@ -97,9 +110,9 @@ async function initWASM() {
     wasmBuffer = fs.readFileSync(wasmPath);
   } else {
     // Browser: fetch the wasm relative to this module
-    const resp = await fetch(new URL('./webgl2.wasm', import.meta.url));
+    const resp = await fetch(new URL('./' + wasmFile, import.meta.url));
     if (!resp.ok) {
-      throw new Error(`Failed to fetch webgl2.wasm: ${resp.status}`);
+      throw new Error(`Failed to fetch ${wasmFile}: ${resp.status}`);
     }
     wasmBuffer = await resp.arrayBuffer();
   }
@@ -133,7 +146,7 @@ async function initWASM() {
   if (!(ex.memory instanceof WebAssembly.Memory)) {
     throw new Error('WASM module missing memory export');
   }
-  return wasmInitPromise = { ex, instance };
+  return wasmInitPromise = { ex, instance, module: wasmModule };
 }
 
 /**

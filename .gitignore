@@ -1,5 +1,6 @@
 /external/
 /target/
 /webgl2.wasm
+/webgl2.debug.wasm
 /runner2/Cargo.lock
 /out/

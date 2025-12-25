@@ -1256,7 +1256,7 @@ pub fn ctx_delete_buffer(ctx: u32, buf: u32) -> u32 {
     if ctx_obj.bound_array_buffer == Some(buf) {
         ctx_obj.bound_array_buffer = None;
     }
-    
+
     // Unbind from all VAOs
     for vao in ctx_obj.vertex_arrays.values_mut() {
         if vao.element_array_buffer == Some(buf) {
@@ -1393,8 +1393,8 @@ pub fn ctx_buffer_sub_data(ctx: u32, target: u32, offset: u32, ptr: u32, len: u3
 
     if let Some(buf) = ctx_obj.buffers.get_mut(&buf_handle) {
         if (offset as usize + len as usize) > buf.data.len() {
-             set_last_error("buffer overflow");
-             return ERR_INVALID_ARGS;
+            set_last_error("buffer overflow");
+            return ERR_INVALID_ARGS;
         }
         buf.data[offset as usize..offset as usize + len as usize].copy_from_slice(src_slice);
         ERR_OK
@@ -2679,23 +2679,39 @@ pub fn ctx_draw_elements(ctx: u32, mode: u32, count: i32, type_: u32, offset: u3
             let data = &buf.data;
             let mut idxs = Vec::with_capacity(count as usize);
             for i in 0..count {
-                 let idx = match type_ {
-                    0x1401 => { // GL_UNSIGNED_BYTE
+                let idx = match type_ {
+                    0x1401 => {
+                        // GL_UNSIGNED_BYTE
                         let off = (offset as usize) + i as usize;
-                        if off < data.len() { data[off] as u32 } else { 0 }
-                    },
-                    0x1403 => { // GL_UNSIGNED_SHORT
+                        if off < data.len() {
+                            data[off] as u32
+                        } else {
+                            0
+                        }
+                    }
+                    0x1403 => {
+                        // GL_UNSIGNED_SHORT
                         let off = (offset as usize) + (i as usize) * 2;
                         if off + 2 <= data.len() {
-                            u16::from_ne_bytes([data[off], data[off+1]]) as u32
-                        } else { 0 }
-                    },
-                    0x1405 => { // GL_UNSIGNED_INT
+                            u16::from_ne_bytes([data[off], data[off + 1]]) as u32
+                        } else {
+                            0
+                        }
+                    }
+                    0x1405 => {
+                        // GL_UNSIGNED_INT
                         let off = (offset as usize) + (i as usize) * 4;
                         if off + 4 <= data.len() {
-                            u32::from_ne_bytes([data[off], data[off+1], data[off+2], data[off+3]])
-                        } else { 0 }
-                    },
+                            u32::from_ne_bytes([
+                                data[off],
+                                data[off + 1],
+                                data[off + 2],
+                                data[off + 3],
+                            ])
+                        } else {
+                            0
+                        }
+                    }
                     _ => return ERR_INVALID_ENUM,
                 };
                 idxs.push(idx);
@@ -3090,7 +3106,7 @@ pub fn ctx_delete_vertex_array(ctx: u32, vao: u32) -> u32 {
             return ERR_INVALID_HANDLE;
         }
     };
-    
+
     if vao == 0 {
         return ERR_OK; // Silent ignore for 0
     }
@@ -3141,7 +3157,11 @@ pub fn ctx_is_vertex_array(ctx: u32, vao: u32) -> u32 {
     if vao == 0 {
         return 0;
     }
-    if ctx_obj.vertex_arrays.contains_key(&vao) { 1 } else { 0 }
+    if ctx_obj.vertex_arrays.contains_key(&vao) {
+        1
+    } else {
+        0
+    }
 }
 
 // -----------------------------

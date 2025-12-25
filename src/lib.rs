@@ -16,6 +16,10 @@ pub mod naga_wasm_backend;
 pub mod wasm_gl_emu;
 pub mod webgl2_context;
 
+#[cfg(feature = "coverage")]
+pub mod coverage;
+
+#[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
 extern "C" {
     fn print(ptr: *const u8, len: usize);
@@ -27,6 +31,20 @@ extern "C" {
         private_ptr: i32,
         texture_ptr: i32,
     );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn print(_ptr: *const u8, _len: usize) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn wasm_execute_shader(
+    _type_: u32,
+    _attr_ptr: i32,
+    _uniform_ptr: i32,
+    _varying_ptr: i32,
+    _private_ptr: i32,
+    _texture_ptr: i32,
+) {
 }
 
 pub fn js_print(s: &str) {
@@ -631,6 +649,11 @@ pub extern "C" fn wasm_ctx_draw_elements(
 pub extern "C" fn wasm_ctx_set_verbosity(ctx: u32, level: u32) -> u32 {
     webgl2_context::ctx_set_verbosity(ctx, level)
 }
+
+// ---- Coverage Support (when enabled) ----
+
+#[cfg(feature = "coverage")]
+pub use coverage::{get_lcov_report, wasm_init_coverage, COV_HITS_PTR, COV_MAP_LEN, COV_MAP_PTR};
 
 // ============================================================================
 // Vertex Array Object Exports

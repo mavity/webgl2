@@ -6,7 +6,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node ./index.js",
-    "build": "cargo build --target wasm32-unknown-unknown --release && node -e \"fs.copyFileSync('target/wasm32-unknown-unknown/release/webgl2.wasm', 'webgl2.wasm')\"",
+    "build": "cargo build --target wasm32-unknown-unknown --release && node -e \"fs.copyFileSync('target/wasm32-unknown-unknown/release/webgl2.wasm', 'webgl2.wasm')\" && cargo build --target wasm32-unknown-unknown --features coverage --release && node -e \"fs.copyFileSync('target/wasm32-unknown-unknown/release/webgl2.wasm', 'webgl2.debug.wasm')\" && cargo run --bin distill_wasm --features cli --target aarch64-pc-windows-msvc -- webgl2.debug.wasm --output webgl2.debug.wasm",
     "prepublishOnly": "npm run build",
     "test": "node --test test/*.test.js",
     "test:smoke": "npm run build && node ./test/smoke.js"
