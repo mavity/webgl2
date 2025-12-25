@@ -27,16 +27,30 @@ test('coverage module is available with coverage feature', async () => {
   console.log(`Found ${numEntries} coverage entries in custom section`);
   
   const mapping = new Map();
+  // Safety: ensure mappingSize sanity
+  if (mappingSize === 0 || mappingSize > mappingBuffer.byteLength) {
+    throw new Error(`Invalid mapping size: ${mappingSize}`);
+  }
+
   for (let i = 0; i < numEntries; i++) {
+    if (offset + 16 > mappingBuffer.byteLength) {
+      throw new Error('Unexpected EOF while parsing mapping entries');
+    }
+
     const id = mappingView.getUint32(offset, true); offset += 4;
     const line = mappingView.getUint32(offset, true); offset += 4;
+    const col = mappingView.getUint32(offset, true); offset += 4; // new column field
     const pathLen = mappingView.getUint32(offset, true); offset += 4;
-    
+
+    if (offset + pathLen > mappingBuffer.byteLength) {
+      throw new Error(`Invalid path length (${pathLen}) at entry ${i}`);
+    }
+
     const pathBytes = new Uint8Array(mappingBuffer, offset, pathLen);
     const path = new TextDecoder().decode(pathBytes);
     offset += pathLen;
-    
-    mapping.set(id, { path, line });
+
+    mapping.set(id, { path, line, col });
   }
 
   console.log("Coverage Mapping (first 20):");

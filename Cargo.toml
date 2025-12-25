@@ -78,6 +78,10 @@ web-sys = { version = "0.3", features = ["WebGl2RenderingContext", "HtmlCanvasEl
 # dev-dependency so it doesn't affect normal builds or production artifacts.
 wasm-bindgen-test = "0.3"
 
+[profile.coverage]
+inherits = "release"
+debug = true
+
 [[bin]]
 name = "webgl2"
 path = "src/bin/webgl2.rs"
@@ -92,6 +96,3 @@ required-features = ["cli"]
 name = "01-basic-pipeline"
 path = "examples/01-basic-pipeline.rs"
 required-features = ["cli"]
-
-[profile.release]
-debug = true

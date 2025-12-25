@@ -224,6 +224,7 @@ fn build_coverage_mapping(
         };
 
     let dwarf = gimli::Dwarf::load(&loader).ok();
+    let dwarf_lookup = dwarf.as_ref().map(|d| DwarfLookup::new(d));
 
     let mut probe_id = 0;
 
@@ -245,21 +246,20 @@ fn build_coverage_mapping(
         let mut path = "unknown.rs".to_string();
         let mut line = 1;
         let mut col = 0;
-        let mut found_dwarf = false;
         let mut should_skip_function = false;
 
-        if let Some(ref dwarf) = dwarf {
+        if let Some(ref lookup) = dwarf_lookup {
             if i < function_bodies.len() {
                 let body = &function_bodies[i];
                 let func_offset = body.range().start;
                 let addr = (func_offset - code_section_start) as u64;
 
-                let (p, l, c) = get_line_for_offset(Some(dwarf), addr, &path, line);
+                let (p, l, c) = lookup.lookup(addr, &path, line);
+                
                 if p != "unknown.rs" {
                     path = p;
                     line = l;
                     col = c;
-                    found_dwarf = true;
 
                     // Filter by path - BLOCKLIST
                     if path.contains("library/std")
@@ -277,15 +277,7 @@ fn build_coverage_mapping(
         }
 
         // ALLOWLIST CHECK
-        let is_whitelisted = if found_dwarf {
-            let p = path.replace('\\', "/");
-            (p.contains("src/") || p.contains("webgl2") || p.contains("lib.rs"))
-                && !p.contains("wgpu-fork")
-                && !p.contains("/registry/")
-                && !p.contains("/.cargo/")
-        } else {
-            demangled.contains("webgl2") && !demangled.contains("naga")
-        };
+        let is_whitelisted = true;
 
         if !is_whitelisted {
             continue;
@@ -295,8 +287,6 @@ fn build_coverage_mapping(
             continue;
         }
 
-        tracing::debug!("Instrumenting: {} ({})", demangled, path);
-
         // Now collect all blocks for this function
         let mut probes = Vec::new();
         if i < function_bodies.len() {
@@ -305,7 +295,11 @@ fn build_coverage_mapping(
             
             // 1. Entry block
             let entry_offset = body.range().start;
-            let (p, l, c) = get_line_for_offset(dwarf.as_ref(), (entry_offset - code_section_start) as u64, &path, line);
+            let (p, l, c) = if let Some(ref lookup) = dwarf_lookup {
+                lookup.lookup((entry_offset - code_section_start) as u64, &path, line)
+            } else {
+                (path.clone(), line, col)
+            };
             probe_to_loc.insert(probe_id, (p, l, c));
             probes.push(probe_id);
             probe_id += 1;
@@ -316,21 +310,33 @@ fn build_coverage_mapping(
                 let (op, offset) = reader.read_with_offset()?;
                 match op {
                     wasmparser::Operator::Block { .. } | wasmparser::Operator::Loop { .. } => {
-                        let (p, l, c) = get_line_for_offset(dwarf.as_ref(), (offset - code_section_start) as u64, &path, line);
+                        let (p, l, c) = if let Some(ref lookup) = dwarf_lookup {
+                            lookup.lookup((offset - code_section_start) as u64, &path, line)
+                        } else {
+                            (path.clone(), line, col)
+                        };
                         probe_to_loc.insert(probe_id, (p, l, c));
                         probes.push(probe_id);
                         probe_id += 1;
                         stack.push_back(false);
                     }
                     wasmparser::Operator::If { .. } => {
-                        let (p, l, c) = get_line_for_offset(dwarf.as_ref(), (offset - code_section_start) as u64, &path, line);
+                        let (p, l, c) = if let Some(ref lookup) = dwarf_lookup {
+                            lookup.lookup((offset - code_section_start) as u64, &path, line)
+                        } else {
+                            (path.clone(), line, col)
+                        };
                         probe_to_loc.insert(probe_id, (p, l, c));
                         probes.push(probe_id);
                         probe_id += 1;
                         stack.push_back(true); // is_if
                     }
                     wasmparser::Operator::Else => {
-                        let (p, l, c) = get_line_for_offset(dwarf.as_ref(), (offset - code_section_start) as u64, &path, line);
+                        let (p, l, c) = if let Some(ref lookup) = dwarf_lookup {
+                            lookup.lookup((offset - code_section_start) as u64, &path, line)
+                        } else {
+                            (path.clone(), line, col)
+                        };
                         probe_to_loc.insert(probe_id, (p, l, c));
                         probes.push(probe_id);
                         probe_id += 1;
@@ -364,51 +370,63 @@ fn build_coverage_mapping(
     Ok((func_to_probes, probe_to_loc))
 }
 
-fn get_line_for_offset(
-    dwarf: Option<&gimli::Dwarf<gimli::EndianSlice<RunTimeEndian>>>,
-    addr: u64,
-    default_path: &str,
-    default_line: u32,
-) -> (String, u32, u32) {
-    if let Some(dwarf) = dwarf {
+struct DwarfLookup {
+    rows: Vec<(u64, String, u32, u32)>,
+}
+
+impl DwarfLookup {
+    fn new(dwarf: &gimli::Dwarf<gimli::EndianSlice<'static, RunTimeEndian>>) -> Self {
+        let mut rows = Vec::new();
         let mut units = dwarf.units();
         while let Ok(Some(header)) = units.next() {
             if let Ok(unit) = dwarf.unit(header) {
                 if let Some(program) = unit.line_program.clone() {
-                    let mut rows = program.rows();
-                    let mut last_row: Option<gimli::LineNumberRow> = None;
-                    while let Ok(Some((_, row_ref))) = rows.next_row() {
-                        if row_ref.address() > addr {
-                            if let Some(row) = last_row {
-                                let file_idx = row.file_index();
-                                if let Some(file) = rows.header().file(file_idx) {
-                                    let path_name = file.path_name();
-                                    if let Ok(p) = dwarf.attr_string(&unit, path_name) {
-                                        let p_str = p.to_string_lossy();
-                                        if !p_str.is_empty() {
-                                            let mut line = default_line;
-                                            if let Some(l) = row.line() {
-                                                line = l.get() as u32;
-                                            }
-                                            let mut col = 0;
-                                            match row.column() {
-                                                gimli::ColumnType::LeftEdge => col = 0,
-                                                gimli::ColumnType::Column(c) => col = c.get() as u32,
-                                            }
-                                            return (p_str.into_owned(), line, col);
-                                        }
-                                    }
+                    let mut program_rows = program.rows();
+                    while let Ok(Some((_, row_ref))) = program_rows.next_row() {
+                        let row = *row_ref;
+                        let file_idx = row.file_index();
+                        if let Some(file) = program_rows.header().file(file_idx) {
+                            let path_name = file.path_name();
+                            if let Ok(p) = dwarf.attr_string(&unit, path_name) {
+                                let p_str = p.to_string_lossy();
+                                if !p_str.is_empty() {
+                                    let line = row.line().map(|l| l.get() as u32).unwrap_or(0);
+                                    let col = match row.column() {
+                                        gimli::ColumnType::LeftEdge => 0,
+                                        gimli::ColumnType::Column(c) => c.get() as u32,
+                                    };
+                                    rows.push((row.address(), p_str.into_owned(), line, col));
                                 }
                             }
-                            break;
                         }
-                        last_row = Some(row_ref.clone());
                     }
                 }
             }
         }
+        rows.sort_by_key(|r| r.0);
+        tracing::info!("DwarfLookup built with {} rows", rows.len());
+        Self { rows }
     }
-    (default_path.to_string(), default_line, 0)
+
+    fn lookup(&self, addr: u64, default_path: &str, default_line: u32) -> (String, u32, u32) {
+        match self.rows.binary_search_by_key(&addr, |r| r.0) {
+            Ok(idx) => {
+                let r = &self.rows[idx];
+                (r.1.clone(), r.2, r.3)
+            }
+            Err(idx) => {
+                if idx > 0 {
+                    let r = &self.rows[idx - 1];
+                    // Check if the address is "close enough" or if we should just take the previous row.
+                    // DWARF line info is usually "address -> line", so any address between row[i] and row[i+1]
+                    // belongs to row[i].
+                    (r.1.clone(), r.2, r.3)
+                } else {
+                    (default_path.to_string(), default_line, 0)
+                }
+            }
+        }
+    }
 }
 
 fn build_function_coverage_map_heuristic(module: &Module) -> HashMap<u32, (String, u32)> {
