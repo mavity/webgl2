@@ -6,7 +6,7 @@
 # and CI (install via `cargo install wasm-bindgen-cli`). To temporarily override,
 # set the CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER env var or change this file.
 
-[target.wasm32-unknown-unknown]
-runner = "wasm-bindgen-test-runner"
+# [target.wasm32-unknown-unknown]
+# runner = "wasm-bindgen-test-runner"
 [build]
-target = "wasm32-unknown-unknown"
+# target = "wasm32-unknown-unknown"
