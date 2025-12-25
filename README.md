@@ -86,7 +86,9 @@ Uses a simple texture shader to render a cube into an `output.png` file.
 - [`docs/1.1-ir-wasm.md`](docs/1.1-ir-wasm.md) - Naga IR → WASM architecture
 - [`docs/1.1.1-webgl2-prototype.md`](docs/1.1.1-webgl2-prototype.md) - Rust-owned Context design
 - [`docs/1.1.2-texture.md`](docs/1.1.2-texture.md) - Texture implementation details
-- [`docs/1.1.3-rust-wasm-test-coverage.md`](docs/1.1.3-rust-wasm-test-coverage.md) - Testing strategy and coverage
+- [`docs/1.1.3-distill.md`](docs/1.1.3-distill.md) - Testing coverage
+
+[**Coverage Report**](coverage.md)
 
 ## 🧪 Testing
 

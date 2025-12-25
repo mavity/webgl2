@@ -394,14 +394,56 @@ impl DwarfLookup {
                         if let Some(file) = program_rows.header().file(file_idx) {
                             let path_name = file.path_name();
                             if let Ok(p) = dwarf.attr_string(&unit, path_name) {
-                                let p_str = p.to_string_lossy();
+                                let mut p_str = p.to_string_lossy().into_owned();
+
+                                // Try to prepend directory
+                                let dir_idx = file.directory_index();
+                                if let Some(dir_val) = program_rows.header().directory(dir_idx) {
+                                    if let Ok(dir_attr) = dwarf.attr_string(&unit, dir_val) {
+                                            let d_str = dir_attr.to_string_lossy();
+                                            if !d_str.is_empty() {
+                                                let d_clean = d_str.replace('\\', "/");
+                                                let p_clean = p_str.replace('\\', "/");
+                                                // If filename is not absolute, prepend directory
+                                                if !p_clean.starts_with('/') && !p_clean.contains(':') {
+                                                    if d_clean.ends_with('/') {
+                                                        p_str = format!("{}{}", d_clean, p_clean);
+                                                    } else {
+                                                        p_str = format!("{}/{}", d_clean, p_clean);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
                                 if !p_str.is_empty() {
+                                    // Normalize slashes
+                                    let mut final_path = p_str.replace('\\', "/");
+
+                                    // Attempt to make relative to CWD (project root)
+                                    if let Ok(cwd) = std::env::current_dir() {
+                                        let cwd_str = cwd.to_string_lossy().replace('\\', "/");
+                                        if final_path.starts_with(&cwd_str) {
+                                            final_path = final_path[cwd_str.len()..].trim_start_matches('/').to_string();
+                                        }
+                                    }
+
+                                    // Filter out external files (absolute paths that are not in CWD)
+                                    if std::path::Path::new(&final_path).is_absolute() {
+                                        continue;
+                                    }
+
+                                    // Filter out library/ paths (rust std lib stuff often appears as relative library/...)
+                                    if final_path.starts_with("library/") {
+                                        continue;
+                                    }
+
                                     let line = row.line().map(|l| l.get() as u32).unwrap_or(0);
                                     let col = match row.column() {
                                         gimli::ColumnType::LeftEdge => 0,
                                         gimli::ColumnType::Column(c) => c.get() as u32,
                                     };
-                                    rows.push((row.address(), p_str.into_owned(), line, col));
+                                    rows.push((row.address(), final_path, line, col));
                                 }
                             }
                         }
