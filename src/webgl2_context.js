@@ -1163,7 +1163,8 @@ export class WasmWebGL2RenderingContext {
    * @returns {string}
    */
   getLcovReport() {
-    this._assertNotDestroyed();
+    // Coverage is global to the WASM module, so we can retrieve it even if context is destroyed.
+    // this._assertNotDestroyed();
     const ex = this._instance.exports;
     if (ex && typeof ex.wasm_get_lcov_report_ptr === 'function' && typeof ex.wasm_get_lcov_report_len === 'function') {
       const ptr = ex.wasm_get_lcov_report_ptr();

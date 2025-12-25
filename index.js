@@ -46,11 +46,10 @@ const isNode =
  * @returns {Promise<WasmWebGL2RenderingContext>}
  * @throws {Error} if WASM loading or instantiation fails
  */
-async function webGL2({ debug } = {}) {
+async function webGL2({ debug = process.env.WEBGL2_DEBUG === 'true' } = {}) {
   // Load WASM binary
-  const { ex, instance } = await (
-    wasmInitPromise ||
-    (async () => {
+  if (!wasmInitPromise) {
+    wasmInitPromise = (async () => {
       // ensure success is cached but not failure
       let succeeded = false;
       try {
@@ -61,7 +60,9 @@ async function webGL2({ debug } = {}) {
         if (!succeeded)
           wasmInitPromise = undefined;
       }
-    })());
+    })();
+  }
+  const { ex, instance } = await wasmInitPromise;
 
   // Initialize coverage if available
   if (ex.wasm_init_coverage && ex.COV_MAP_PTR) {
