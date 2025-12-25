@@ -1207,7 +1207,7 @@ pub fn ctx_get_buffer_parameter(ctx: u32, target: u32, pname: u32) -> i32 {
         GL_BUFFER_SIZE => buffer.data.len() as i32,
         _ => {
             set_last_error("invalid parameter name");
-            return -1;
+            -1
         }
     }
 }
