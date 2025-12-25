@@ -1,6 +1,6 @@
 {
   "name": "webgl2",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "WebGL2 tools to derisk large GPU projects on the web beyond toys and demos.",
   "type": "module",
   "main": "index.js",
@@ -28,6 +28,7 @@
     "index.js",
     "src/*.js",
     "webgl2.wasm",
+    "webgl2.debug.wasm",
     "README.md",
     "LICENSE"
   ]
