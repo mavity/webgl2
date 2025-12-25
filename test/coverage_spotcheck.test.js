@@ -4,46 +4,35 @@ import { webGL2 } from '../index.js';
 
 
 test('coverage: createTexture triggers coverage in texture-related code', async () => {
-  const gl = await webGL2({ debug: true});
+  const gl = await webGL2({ debug: true });
   
-  try {
-    // Check if coverage is available
-    const instance = gl._instance;
-    assert(instance, 'WASM instance not found on context');
+  // Check if coverage is available
+  const instance = gl._instance;
+  assert(instance, 'WASM instance not found on context');
 
-    assert(instance.exports.COV_HITS_PTR, 'COV_HITS_PTR export not found on instance');
+  assert(instance.exports.COV_HITS_PTR, 'COV_HITS_PTR export not found on instance');
     
-    // Execute the API that should trigger coverage
-    const texture = gl.createTexture();
+  // Execute the API that should trigger coverage
+  const texture = gl.createTexture();
     
-    // Get coverage report
-    const fs = await import('fs');
-    const path = await import('path');
-    const { fileURLToPath } = await import('url');
-    const wasmPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'webgl2.debug.wasm');
-    const wasmBytes = fs.readFileSync(wasmPath);
-    const module = new WebAssembly.Module(wasmBytes);
+  // Get coverage report
+  const fs = await import('fs');
+  const path = await import('path');
+  const { fileURLToPath } = await import('url');
+  const wasmPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'webgl2.debug.wasm');
+  const wasmBytes = fs.readFileSync(wasmPath);
+  const module = new WebAssembly.Module(wasmBytes);
 
-    const hits = getCoverageData(gl._instance, module);
+  const hits = getCoverageData(gl._instance, module);
     
-    assert(hits && hits.length > 0, 'Coverage hits should be recorded');
-    console.log(`✓ Recorded ${hits.length} coverage hits`);
+  assert(hits && hits.length > 0, 'Coverage hits should be recorded');
     
-    // Debug: print some hits
-    console.log('Sample hits:', hits.slice(0, 10).map(h => `${h.path.split(/[\\/]/).pop()}:${h.line}:${h.col}`));
+  // Debug: print some hits
+  // console.log('Sample hits:', hits.slice(0, 10).map(h => `${h.path.split(/[\\/]/).pop()}:${h.line}:${h.col}`));
 
-    // Check if we hit something in webgl2_context.rs
-    const textureHits = hits.filter(h => h.path.includes('webgl2_context.rs'));
-    assert(textureHits.length > 0, 'Should hit code in webgl2_context.rs');
-    console.log(`✓ Hit ${textureHits.length} locations in webgl2_context.rs`);
-    
-  } catch (err) {
-    if (err.message.includes('Coverage not instrumented')) {
-      console.warn('Skipping coverage test: ' + err.message);
-      return;
-    }
-    throw err;
-  }
+  // Check if we hit something in webgl2_context.rs
+  const textureHits = hits.filter(h => h.path.includes('webgl2_context.rs'));
+  assert(textureHits.length > 0, 'Should hit code in webgl2_context.rs');
 });
 
 function getCoverageData(instance, module) {

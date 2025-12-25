@@ -24,13 +24,12 @@ test('coverage module is available with coverage feature', async () => {
   const numEntries = mappingView.getUint32(offset, true); offset += 4;
   const mappingSize = mappingView.getUint32(offset, true); offset += 4;
   
-  console.log(`Found ${numEntries} coverage entries in custom section`);
+  // console.log(`Found ${numEntries} coverage entries in custom section`);
   
   const mapping = new Map();
   // Safety: ensure mappingSize sanity
-  if (mappingSize === 0 || mappingSize > mappingBuffer.byteLength) {
-    throw new Error(`Invalid mapping size: ${mappingSize}`);
-  }
+  assert(mappingSize, "Mapping size is zero");
+  assert(mappingSize <= mappingBuffer.byteLength, "Mapping size exceeds buffer length");
 
   for (let i = 0; i < numEntries; i++) {
     if (offset + 16 > mappingBuffer.byteLength) {
@@ -53,13 +52,13 @@ test('coverage module is available with coverage feature', async () => {
     mapping.set(id, { path, line, col });
   }
 
-  console.log("Coverage Mapping (first 20):");
-  for (let i = 0; i < numEntries; i++) {
-      const info = mapping.get(i);
-      if (i < 20 || info.path.includes("lib.rs") || info.line === 591) {
-          console.log(`Entry ${i}: ${info.path}:${info.line}`);
-      }
-  }
+  // console.log("Coverage Mapping (first 20):");
+  // for (let i = 0; i < numEntries; i++) {
+  //   const info = mapping.get(i);
+  //   if (i < 20 || info.path.includes("lib.rs") || info.line === 591) {
+  //     console.log(`Entry ${i}: ${info.path}:${info.line}`);
+  //   }
+  // }
 
   // 2. Instantiate and Run
   const imports = {
@@ -101,7 +100,7 @@ test('coverage module is available with coverage feature', async () => {
   // If we wanted to use it:
   // const mapPtr = memView.getUint32(exports.COV_MAP_PTR.value, true);
 
-  console.log(`Coverage Buffer: ptr=${covPtr}, len=${covLen}`);
+  // console.log(`Coverage Buffer: ptr=${covPtr}, len=${covLen}`);
   
   assert(covPtr !== 0, "COV_PTR is null");
   assert(covLen > 0, "COV_LEN is 0");
@@ -112,29 +111,20 @@ test('coverage module is available with coverage feature', async () => {
   // Let's run a function to trigger coverage
   
   // Try to find a function to run. `wasm_create_context` is a good candidate.
-  if (exports.wasm_create_context) {
-      console.log("Calling wasm_create_context...");
-      try {
-        exports.wasm_create_context(0, 0);
-        console.log("Called wasm_create_context successfully");
-      } catch (e) {
-          console.log("Error calling wasm_create_context:", e);
-          // Ignore errors, we just want to trigger coverage
-      }
-  } else {
-      console.log("wasm_create_context export NOT FOUND");
-  }
+  // console.log("Calling wasm_create_context...");
+  exports.wasm_create_context(0, 0);
+  // console.log("Called wasm_create_context successfully");
 
   const hitBuffer = new Uint8Array(memory.buffer, covPtr, covLen);
   let totalHits = 0;
   for (let i = 0; i < covLen; i++) {
-      if (hitBuffer[i] > 0) {
-          totalHits++;
-          const info = mapping.get(i);
-          // console.log(`Hit: ID=${i} ${info.path}:${info.line}`);
-      }
+    if (hitBuffer[i] > 0) {
+      totalHits++;
+      const info = mapping.get(i);
+      // console.log(`Hit: ID=${i} ${info.path}:${info.line}`);
+    }
   }
   
-  console.log(`Total coverage hits: ${totalHits}`);
+  // console.log(`Total coverage hits: ${totalHits}`);
   assert(totalHits > 0, "No coverage hits recorded after execution");
 });
