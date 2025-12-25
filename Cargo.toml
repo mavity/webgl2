@@ -1,6 +1,6 @@
 [package]
 name = "webgl2"
-version = "1.0.24"
+version = "1.1.0"
 edition = "2021"
 license-file = "LICENSE"
 authors = ["WebGL2 Platform Team"]
@@ -80,6 +80,7 @@ wasm-bindgen-test = "0.3"
 
 [profile.coverage]
 inherits = "release"
+opt-level = 1
 debug = true
 
 [[bin]]

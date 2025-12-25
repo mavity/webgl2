@@ -243,8 +243,8 @@ fn build_coverage_mapping(
             continue;
         }
 
-        let mut path = "unknown.rs".to_string();
-        let mut line = 1;
+        let mut path = String::new();
+        let mut line = 0;
         let mut col = 0;
         let mut should_skip_function = false;
 
@@ -254,7 +254,7 @@ fn build_coverage_mapping(
                 let func_offset = body.range().start;
                 let addr = (func_offset - code_section_start) as u64;
 
-                let (p, l, c) = lookup.lookup(addr, &path, line);
+                let (p, l, c) = lookup.lookup(addr, "unknown.rs", 1);
                 
                 if p != "unknown.rs" {
                     path = p;
@@ -268,8 +268,14 @@ fn build_coverage_mapping(
                     {
                         should_skip_function = true;
                     }
+                } else {
+                    should_skip_function = true;
                 }
+            } else {
+                should_skip_function = true;
             }
+        } else {
+            should_skip_function = true;
         }
 
         if should_skip_function {
@@ -295,11 +301,7 @@ fn build_coverage_mapping(
             
             // 1. Entry block
             let entry_offset = body.range().start;
-            let (p, l, c) = if let Some(ref lookup) = dwarf_lookup {
-                lookup.lookup((entry_offset - code_section_start) as u64, &path, line)
-            } else {
-                (path.clone(), line, col)
-            };
+            let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup((entry_offset - code_section_start) as u64, &path, line);
             probe_to_loc.insert(probe_id, (p, l, c));
             probes.push(probe_id);
             probe_id += 1;
@@ -310,33 +312,21 @@ fn build_coverage_mapping(
                 let (op, offset) = reader.read_with_offset()?;
                 match op {
                     wasmparser::Operator::Block { .. } | wasmparser::Operator::Loop { .. } => {
-                        let (p, l, c) = if let Some(ref lookup) = dwarf_lookup {
-                            lookup.lookup((offset - code_section_start) as u64, &path, line)
-                        } else {
-                            (path.clone(), line, col)
-                        };
+                        let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup((offset - code_section_start) as u64, &path, line);
                         probe_to_loc.insert(probe_id, (p, l, c));
                         probes.push(probe_id);
                         probe_id += 1;
                         stack.push_back(false);
                     }
                     wasmparser::Operator::If { .. } => {
-                        let (p, l, c) = if let Some(ref lookup) = dwarf_lookup {
-                            lookup.lookup((offset - code_section_start) as u64, &path, line)
-                        } else {
-                            (path.clone(), line, col)
-                        };
+                        let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup((offset - code_section_start) as u64, &path, line);
                         probe_to_loc.insert(probe_id, (p, l, c));
                         probes.push(probe_id);
                         probe_id += 1;
                         stack.push_back(true); // is_if
                     }
                     wasmparser::Operator::Else => {
-                        let (p, l, c) = if let Some(ref lookup) = dwarf_lookup {
-                            lookup.lookup((offset - code_section_start) as u64, &path, line)
-                        } else {
-                            (path.clone(), line, col)
-                        };
+                        let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup((offset - code_section_start) as u64, &path, line);
                         probe_to_loc.insert(probe_id, (p, l, c));
                         probes.push(probe_id);
                         probe_id += 1;
