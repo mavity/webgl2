@@ -30,7 +30,7 @@ test('coverage: createTexture triggers coverage in texture-related code', async 
     console.log(`✓ Recorded ${hits.length} coverage hits`);
     
     // Debug: print some hits
-    console.log('Sample hits:', hits.slice(0, 10).map(h => `${h.path}:${h.line}`));
+    console.log('Sample hits:', hits.slice(0, 10).map(h => `${h.path.split(/[\\/]/).pop()}:${h.line}:${h.col}`));
 
     // Check if we hit something in webgl2_context.rs
     const textureHits = hits.filter(h => h.path.includes('webgl2_context.rs'));
@@ -62,13 +62,14 @@ function getCoverageData(instance, module) {
   for (let i = 0; i < numEntries; i++) {
     const id = mappingView.getUint32(offset, true); offset += 4;
     const line = mappingView.getUint32(offset, true); offset += 4;
+    const col = mappingView.getUint32(offset, true); offset += 4; // New column field
     const pathLen = mappingView.getUint32(offset, true); offset += 4;
 
     const pathBytes = new Uint8Array(mappingBuffer, offset, pathLen);
     const path = new TextDecoder().decode(pathBytes);
     offset += pathLen;
 
-    mapping.set(id, { path, line });
+    mapping.set(id, { path, line, col });
   }
 
   // 2. Read Hits

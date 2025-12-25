@@ -28,16 +28,16 @@ pub extern "C" fn wasm_init_coverage(size: usize) {
     }
 }
 
+use std::sync::Mutex;
+
+// Use a static mutex to store the report
+static LCOV_REPORT: Mutex<Option<String>> = Mutex::new(None);
+
 /// Get LCOV report from coverage data.
 /// Returns a pointer to a UTF-8 encoded LCOV string.
 /// The string is stored in a static variable to avoid memory leaks.
 #[no_mangle]
-pub extern "C" fn get_lcov_report() -> *const u8 {
-    use std::sync::Mutex;
-
-    // Use a static mutex to store the report
-    static LCOV_REPORT: Mutex<Option<String>> = Mutex::new(None);
-
+pub extern "C" fn wasm_get_lcov_report_ptr() -> *const u8 {
     unsafe {
         if COV_MAP_PTR.is_null() || COV_HITS_PTR.is_null() {
             return std::ptr::null();
@@ -74,12 +74,19 @@ pub extern "C" fn get_lcov_report() -> *const u8 {
     }
 }
 
+/// Get the length of the LCOV report.
+#[no_mangle]
+pub extern "C" fn wasm_get_lcov_report_len() -> usize {
+    let report = LCOV_REPORT.lock().unwrap();
+    report.as_ref().map(|s| s.len()).unwrap_or(0)
+}
+
 /// Generate LCOV formatted report from mapping and hit data
 fn generate_lcov_report(mapping_data: &[u8], hit_data: &[u8]) -> String {
     use std::collections::HashMap;
 
     let mut report = String::new();
-    let mut file_coverage: HashMap<String, Vec<(u32, bool)>> = HashMap::new();
+    let mut file_coverage: HashMap<String, Vec<(u32, u32, bool)>> = HashMap::new();
 
     // Parse mapping entries
     // Header: [ num_entries (4 bytes) | mapping_size (4 bytes) ]
@@ -88,16 +95,30 @@ fn generate_lcov_report(mapping_data: &[u8], hit_data: &[u8]) -> String {
     let mut id = 0u32;
 
     while offset < mapping_data.len() {
-        if offset + 6 > mapping_data.len() {
+        if offset + 10 > mapping_data.len() {
             break;
         }
 
-        // Read id (4 bytes) - we can skip this as we iterate sequentially
-        // let _entry_id = u32::from_le_bytes([...]);
+        // Read id (4 bytes)
+        let _entry_id = u32::from_le_bytes([
+            mapping_data[offset],
+            mapping_data[offset + 1],
+            mapping_data[offset + 2],
+            mapping_data[offset + 3],
+        ]);
         offset += 4;
 
         // Read line number (4 bytes)
         let line = u32::from_le_bytes([
+            mapping_data[offset],
+            mapping_data[offset + 1],
+            mapping_data[offset + 2],
+            mapping_data[offset + 3],
+        ]);
+        offset += 4;
+
+        // Read column number (4 bytes)
+        let col = u32::from_le_bytes([
             mapping_data[offset],
             mapping_data[offset + 1],
             mapping_data[offset + 2],
@@ -130,17 +151,36 @@ fn generate_lcov_report(mapping_data: &[u8], hit_data: &[u8]) -> String {
             false
         };
 
-        file_coverage.entry(file).or_default().push((line, hit));
+        file_coverage.entry(file).or_default().push((line, col, hit));
 
         id += 1;
     }
 
     // Format LCOV
-    for (file, lines) in file_coverage {
+    for (file, entries) in file_coverage {
         report.push_str(&format!("SF:{}\n", file));
-        for (line, hit) in lines {
-            report.push_str(&format!("DA:{},{}\n", line, if hit { 1 } else { 0 }));
+        
+        // Group by line for DA records
+        let mut line_hits: HashMap<u32, u32> = HashMap::new();
+        for (line, _col, hit) in &entries {
+            if *hit {
+                *line_hits.entry(*line).or_default() += 1;
+            } else {
+                line_hits.entry(*line).or_default();
+            }
         }
+
+        for (line, hits) in line_hits {
+            report.push_str(&format!("DA:{},{}\n", line, hits));
+        }
+
+        // Output branch data (BRDA) using column as branch ID
+        // BRDA:<line>,<block>,<branch>,<hits>
+        // We'll use column as a proxy for branch ID to disambiguate multiple branches on same line
+        for (line, col, hit) in entries {
+            report.push_str(&format!("BRDA:{},0,{},{}\n", line, col, if hit { "1" } else { "-" }));
+        }
+
         report.push_str("end_of_record\n");
     }
 

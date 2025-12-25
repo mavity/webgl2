@@ -5,9 +5,9 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use gimli::{RunTimeEndian, SectionId};
+use gimli::RunTimeEndian;
 use rustc_demangle::demangle;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use walrus::{ir, ConstExpr, Module, ModuleConfig};
 
@@ -59,7 +59,7 @@ fn main() -> Result<()> {
         .context("Failed to parse input WASM")?;
 
     // Step 1: Analyze DWARF and build mapping
-    let (func_to_probe, probe_to_loc) = build_coverage_mapping(&wasm_bytes, &module)?;
+    let (func_to_probes, probe_to_loc) = build_coverage_mapping(&wasm_bytes, &module)?;
     tracing::info!("Found {} instrumentation points", probe_to_loc.len());
 
     // Step 2: Serialize mapping
@@ -171,7 +171,7 @@ fn main() -> Result<()> {
     // This allows instrument_functions to use `global.get` to find the buffer base address
     patch_global_ptr(&mut module, cov_hits_ptr_id, hits_offset)?;
 
-    instrument_functions(&mut module, &func_to_probe, hits_offset)?;
+    instrument_functions(&mut module, &func_to_probes, hits_offset)?;
 
     // Write output
     module.emit_wasm_file(&output_path)?;
@@ -181,21 +181,21 @@ fn main() -> Result<()> {
 }
 
 /// Build mapping of instrumentation IDs to source locations.
-/// Returns (FuncId -> ProbeId, ProbeId -> (File, Line))
+/// Returns (FuncId -> [ProbeId], ProbeId -> (File, Line, Column))
 fn build_coverage_mapping(
     wasm_bytes: &[u8],
     module: &Module,
 ) -> Result<(
-    HashMap<walrus::FunctionId, u32>,
-    HashMap<u32, (String, u32)>,
+    HashMap<walrus::FunctionId, Vec<u32>>,
+    HashMap<u32, (String, u32, u32)>,
 )> {
-    let mut func_to_probe = HashMap::new();
+    let mut func_to_probes = HashMap::new();
     let mut probe_to_loc = HashMap::new();
 
     let parser = wasmparser::Parser::new(0);
     let mut sections = HashMap::new();
     let mut code_section_start = 0;
-    let mut function_offsets = Vec::new();
+    let mut function_bodies = Vec::new();
 
     for payload in parser.parse_all(wasm_bytes) {
         match payload? {
@@ -208,7 +208,7 @@ fn build_coverage_mapping(
                 code_section_start = range.start;
             }
             wasmparser::Payload::CodeSectionEntry(body) => {
-                function_offsets.push(body.range().start);
+                function_bodies.push(body);
             }
             _ => {}
         }
@@ -244,50 +244,29 @@ fn build_coverage_mapping(
 
         let mut path = "unknown.rs".to_string();
         let mut line = 1;
+        let mut col = 0;
         let mut found_dwarf = false;
         let mut should_skip_function = false;
 
         if let Some(ref dwarf) = dwarf {
-            if i < function_offsets.len() {
-                let func_offset = function_offsets[i];
+            if i < function_bodies.len() {
+                let body = &function_bodies[i];
+                let func_offset = body.range().start;
                 let addr = (func_offset - code_section_start) as u64;
 
-                let mut units = dwarf.units();
-                'dwarf_loop: while let Ok(Some(header)) = units.next() {
-                    if let Ok(unit) = dwarf.unit(header) {
-                        if let Some(program) = unit.line_program.clone() {
-                            let mut rows = program.rows();
-                            while let Ok(Some((_, row_ref))) = rows.next_row() {
-                                if row_ref.address() >= addr {
-                                    let row = row_ref.clone();
-                                    let file_idx = row.file_index();
-                                    if let Some(file) = rows.header().file(file_idx) {
-                                        let path_name = file.path_name();
-                                        if let Ok(p) = dwarf.attr_string(&unit, path_name) {
-                                            let p_str = p.to_string_lossy();
-                                            if !p_str.is_empty() {
-                                                let p_owned = p_str.into_owned();
-                                                // Filter by path - BLOCKLIST
-                                                if p_owned.contains("library/std")
-                                                    || p_owned.contains("dlmalloc")
-                                                    || p_owned.contains("coverage.rs")
-                                                {
-                                                    should_skip_function = true;
-                                                    break 'dwarf_loop;
-                                                }
+                let (p, l, c) = get_line_for_offset(Some(dwarf), addr, &path, line);
+                if p != "unknown.rs" {
+                    path = p;
+                    line = l;
+                    col = c;
+                    found_dwarf = true;
 
-                                                path = p_owned;
-                                                if let Some(l) = row.line() {
-                                                    line = l.get() as u32;
-                                                }
-                                                found_dwarf = true;
-                                                break 'dwarf_loop;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    // Filter by path - BLOCKLIST
+                    if path.contains("library/std")
+                        || path.contains("dlmalloc")
+                        || path.contains("coverage.rs")
+                    {
+                        should_skip_function = true;
                     }
                 }
             }
@@ -297,43 +276,139 @@ fn build_coverage_mapping(
             continue;
         }
 
-        // If we didn't find DWARF, or if we did but it's not clearly excluded yet,
-        // apply strict filtering.
-
         // ALLOWLIST CHECK
         let is_whitelisted = if found_dwarf {
-            // If we have a path, it MUST look like our project code.
-            // We assume our code is in the current directory structure.
-            // Matches:
-            // - "src/..."
-            // - ".../webgl2/src/..."
-            // - "...\\webgl2\\src\\..."
             let p = path.replace('\\', "/");
-            (p.contains("webgl2") || p.starts_with("src/") || p.contains("lib.rs"))
+            (p.contains("src/") || p.contains("webgl2") || p.contains("lib.rs"))
+                && !p.contains("wgpu-fork")
                 && !p.contains("/registry/")
                 && !p.contains("/.cargo/")
         } else {
-            // If no DWARF, rely on symbol name
-            demangled.contains("webgl2")
+            demangled.contains("webgl2") && !demangled.contains("naga")
         };
 
         if !is_whitelisted {
             continue;
         }
 
-        // Double check exclusion (redundant but safe)
         if path.contains("coverage.rs") || demangled.contains("coverage") {
             continue;
         }
 
         tracing::debug!("Instrumenting: {} ({})", demangled, path);
 
-        func_to_probe.insert(id, probe_id);
-        probe_to_loc.insert(probe_id, (path, line));
-        probe_id += 1;
+        // Now collect all blocks for this function
+        let mut probes = Vec::new();
+        if i < function_bodies.len() {
+            let body = &function_bodies[i];
+            let mut reader = body.get_operators_reader()?;
+            
+            // 1. Entry block
+            let entry_offset = body.range().start;
+            let (p, l, c) = get_line_for_offset(dwarf.as_ref(), (entry_offset - code_section_start) as u64, &path, line);
+            probe_to_loc.insert(probe_id, (p, l, c));
+            probes.push(probe_id);
+            probe_id += 1;
+
+            // 2. Other blocks
+            let mut stack = VecDeque::new();
+            while !reader.eof() {
+                let (op, offset) = reader.read_with_offset()?;
+                match op {
+                    wasmparser::Operator::Block { .. } | wasmparser::Operator::Loop { .. } => {
+                        let (p, l, c) = get_line_for_offset(dwarf.as_ref(), (offset - code_section_start) as u64, &path, line);
+                        probe_to_loc.insert(probe_id, (p, l, c));
+                        probes.push(probe_id);
+                        probe_id += 1;
+                        stack.push_back(false);
+                    }
+                    wasmparser::Operator::If { .. } => {
+                        let (p, l, c) = get_line_for_offset(dwarf.as_ref(), (offset - code_section_start) as u64, &path, line);
+                        probe_to_loc.insert(probe_id, (p, l, c));
+                        probes.push(probe_id);
+                        probe_id += 1;
+                        stack.push_back(true); // is_if
+                    }
+                    wasmparser::Operator::Else => {
+                        let (p, l, c) = get_line_for_offset(dwarf.as_ref(), (offset - code_section_start) as u64, &path, line);
+                        probe_to_loc.insert(probe_id, (p, l, c));
+                        probes.push(probe_id);
+                        probe_id += 1;
+                        if let Some(is_if) = stack.back_mut() {
+                            *is_if = false; // marked as having explicit else
+                        }
+                    }
+                    wasmparser::Operator::End => {
+                        if let Some(is_if) = stack.pop_back() {
+                            if is_if {
+                                // Implicit else branch in walrus
+                                probe_to_loc.insert(probe_id, (path.clone(), line, col));
+                                probes.push(probe_id);
+                                probe_id += 1;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        } else {
+            // Fallback for functions without bodies (shouldn't happen for local funcs)
+            probe_to_loc.insert(probe_id, (path, line, col));
+            probes.push(probe_id);
+            probe_id += 1;
+        }
+
+        func_to_probes.insert(id, probes);
     }
 
-    Ok((func_to_probe, probe_to_loc))
+    Ok((func_to_probes, probe_to_loc))
+}
+
+fn get_line_for_offset(
+    dwarf: Option<&gimli::Dwarf<gimli::EndianSlice<RunTimeEndian>>>,
+    addr: u64,
+    default_path: &str,
+    default_line: u32,
+) -> (String, u32, u32) {
+    if let Some(dwarf) = dwarf {
+        let mut units = dwarf.units();
+        while let Ok(Some(header)) = units.next() {
+            if let Ok(unit) = dwarf.unit(header) {
+                if let Some(program) = unit.line_program.clone() {
+                    let mut rows = program.rows();
+                    let mut last_row: Option<gimli::LineNumberRow> = None;
+                    while let Ok(Some((_, row_ref))) = rows.next_row() {
+                        if row_ref.address() > addr {
+                            if let Some(row) = last_row {
+                                let file_idx = row.file_index();
+                                if let Some(file) = rows.header().file(file_idx) {
+                                    let path_name = file.path_name();
+                                    if let Ok(p) = dwarf.attr_string(&unit, path_name) {
+                                        let p_str = p.to_string_lossy();
+                                        if !p_str.is_empty() {
+                                            let mut line = default_line;
+                                            if let Some(l) = row.line() {
+                                                line = l.get() as u32;
+                                            }
+                                            let mut col = 0;
+                                            match row.column() {
+                                                gimli::ColumnType::LeftEdge => col = 0,
+                                                gimli::ColumnType::Column(c) => col = c.get() as u32,
+                                            }
+                                            return (p_str.into_owned(), line, col);
+                                        }
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                        last_row = Some(row_ref.clone());
+                    }
+                }
+            }
+        }
+    }
+    (default_path.to_string(), default_line, 0)
 }
 
 fn build_function_coverage_map_heuristic(module: &Module) -> HashMap<u32, (String, u32)> {
@@ -370,7 +445,7 @@ fn build_function_coverage_map_heuristic(module: &Module) -> HashMap<u32, (Strin
 }
 
 /// Serialize mapping and create coverage data
-fn create_coverage_data(mapping: &HashMap<u32, (String, u32)>) -> Result<(Vec<u8>, usize)> {
+fn create_coverage_data(mapping: &HashMap<u32, (String, u32, u32)>) -> Result<(Vec<u8>, usize)> {
     // Serialize mapping entries
     let mut ids: Vec<u32> = mapping.keys().copied().collect();
     ids.sort();
@@ -379,10 +454,11 @@ fn create_coverage_data(mapping: &HashMap<u32, (String, u32)>) -> Result<(Vec<u8
 
     let mut entries_data = Vec::new();
     for id in ids {
-        let (file, line) = mapping.get(&id).unwrap();
+        let (file, line, col) = mapping.get(&id).unwrap();
 
         entries_data.extend_from_slice(&id.to_le_bytes());
         entries_data.extend_from_slice(&line.to_le_bytes());
+        entries_data.extend_from_slice(&col.to_le_bytes());
 
         let file_bytes = file.as_bytes();
         entries_data.extend_from_slice(&(file_bytes.len() as u32).to_le_bytes());
@@ -396,9 +472,7 @@ fn create_coverage_data(mapping: &HashMap<u32, (String, u32)>) -> Result<(Vec<u8
     mapping_data.extend_from_slice(&(mapping_size as u32).to_le_bytes());
     mapping_data.extend_from_slice(&entries_data);
 
-    let hit_size = mapping.len();
-
-    Ok((mapping_data, hit_size))
+    Ok((mapping_data, mapping.len()))
 }
 
 /// Allocate hits segment in WASM memory
@@ -532,7 +606,7 @@ fn patch_global_len(module: &mut Module, global_id: walrus::GlobalId, value: u32
 /// Instrument functions with coverage probes
 fn instrument_functions(
     module: &mut Module,
-    func_to_probe: &HashMap<walrus::FunctionId, u32>,
+    func_to_probes: &HashMap<walrus::FunctionId, Vec<u32>>,
     hits_offset: u32,
 ) -> Result<()> {
     let memory_id = module
@@ -544,27 +618,52 @@ fn instrument_functions(
 
     let mut probes_injected = 0;
 
-    for (func_id, probe_id) in func_to_probe {
+    for (func_id, probes) in func_to_probes {
         let func = module.funcs.get_mut(*func_id);
         let local_func = match &mut func.kind {
             walrus::FunctionKind::Local(lf) => lf,
             _ => continue,
         };
 
+        let mut probe_queue = VecDeque::from(probes.clone());
         let entry_block = local_func.entry_block();
-        let builder = local_func.builder_mut();
-        let mut seq = builder.instr_seq(entry_block);
+
+        instrument_instr_seq(
+            local_func,
+            entry_block,
+            &mut probe_queue,
+            hits_offset,
+            memory_id,
+            &mut probes_injected,
+        );
+    }
+
+    tracing::info!("Injected {} coverage probes", probes_injected);
+    Ok(())
+}
+
+fn instrument_instr_seq(
+    func: &mut walrus::LocalFunction,
+    seq_id: walrus::ir::InstrSeqId,
+    probes: &mut VecDeque<u32>,
+    hits_offset: u32,
+    memory_id: walrus::MemoryId,
+    probes_injected: &mut u32,
+) {
+    let probe_id = match probes.pop_front() {
+        Some(id) => id,
+        None => return,
+    };
+
+    {
+        let builder = func.builder_mut();
+        let mut seq = builder.instr_seq(seq_id);
 
         // Insert probe at start
-        // i32.const $hits_offset
         seq.i32_const(hits_offset as i32);
-        // i32.const $offset
-        seq.i32_const(*probe_id as i32);
-        // i32.add
+        seq.i32_const(probe_id as i32);
         seq.binop(walrus::ir::BinaryOp::I32Add);
-        // i32.const 1
         seq.i32_const(1);
-        // i32.store8
         seq.store(
             memory_id,
             walrus::ir::StoreKind::I32_8 { atomic: false },
@@ -575,16 +674,60 @@ fn instrument_functions(
         );
 
         // Move the 5 injected instructions to the beginning of the block
-        // The block originally contained [Body...]. We appended [Probe...].
-        // We want [Probe..., Body...].
-        // So we rotate right by 5.
         seq.instrs_mut().rotate_right(5);
-
-        probes_injected += 1;
+        *probes_injected += 1;
     }
 
-    tracing::info!("Injected {} coverage probes", probes_injected);
-    Ok(())
+    // Now traverse instructions to find nested blocks
+    let instrs: Vec<_> = {
+        let builder = func.builder_mut();
+        let seq = builder.instr_seq(seq_id);
+        seq.instrs().iter().cloned().collect()
+    };
+
+    for (instr, _) in instrs {
+        match instr {
+            walrus::ir::Instr::Block(b) => {
+                instrument_instr_seq(
+                    func,
+                    b.seq,
+                    probes,
+                    hits_offset,
+                    memory_id,
+                    probes_injected,
+                );
+            }
+            walrus::ir::Instr::Loop(l) => {
+                instrument_instr_seq(
+                    func,
+                    l.seq,
+                    probes,
+                    hits_offset,
+                    memory_id,
+                    probes_injected,
+                );
+            }
+            walrus::ir::Instr::IfElse(i) => {
+                instrument_instr_seq(
+                    func,
+                    i.consequent,
+                    probes,
+                    hits_offset,
+                    memory_id,
+                    probes_injected,
+                );
+                instrument_instr_seq(
+                    func,
+                    i.alternative,
+                    probes,
+                    hits_offset,
+                    memory_id,
+                    probes_injected,
+                );
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Allocate a new data segment for the map data

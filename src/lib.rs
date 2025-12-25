@@ -653,7 +653,10 @@ pub extern "C" fn wasm_ctx_set_verbosity(ctx: u32, level: u32) -> u32 {
 // ---- Coverage Support (when enabled) ----
 
 #[cfg(feature = "coverage")]
-pub use coverage::{get_lcov_report, wasm_init_coverage, COV_HITS_PTR, COV_MAP_LEN, COV_MAP_PTR};
+pub use coverage::{
+    wasm_get_lcov_report_len, wasm_get_lcov_report_ptr, wasm_init_coverage, COV_HITS_PTR,
+    COV_MAP_LEN, COV_MAP_PTR,
+};
 
 // ============================================================================
 // Vertex Array Object Exports
