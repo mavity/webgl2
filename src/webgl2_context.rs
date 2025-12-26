@@ -162,6 +162,7 @@ struct VertexAttribute {
     offset: u32,
     buffer: Option<u32>,
     default_value: [f32; 4],
+    divisor: u32,
 }
 
 impl Default for VertexAttribute {
@@ -175,6 +176,7 @@ impl Default for VertexAttribute {
             offset: 0,
             buffer: None,
             default_value: [0.0, 0.0, 0.0, 1.0],
+            divisor: 0,
         }
     }
 }
@@ -334,7 +336,7 @@ impl Context {
         h
     }
 
-    fn fetch_vertex_attributes(&self, vertex_id: u32, dest: &mut [f32]) {
+    fn fetch_vertex_attributes(&self, vertex_id: u32, instance_id: u32, dest: &mut [f32]) {
         let vao = match self.vertex_arrays.get(&self.bound_vertex_array) {
             Some(v) => v,
             None => return, // Should not happen as default VAO is always there
@@ -346,6 +348,13 @@ impl Context {
                 dest[base_idx..base_idx + 4].copy_from_slice(&attr.default_value);
                 continue;
             }
+
+            // Calculate effective index based on divisor
+            let effective_index = if attr.divisor == 0 {
+                vertex_id
+            } else {
+                instance_id / attr.divisor
+            };
 
             if let Some(buffer_id) = attr.buffer {
                 if let Some(buffer) = self.buffers.get(&buffer_id) {
@@ -367,7 +376,7 @@ impl Context {
                     };
 
                     let offset =
-                        attr.offset as usize + (vertex_id as usize * effective_stride as usize);
+                        attr.offset as usize + (effective_index as usize * effective_stride as usize);
 
                     for component in 0..4 {
                         if component < attr.size as usize {
@@ -2336,6 +2345,30 @@ pub fn ctx_vertex_attrib_pointer(
     }
 }
 
+/// Vertex attribute divisor.
+pub fn ctx_vertex_attrib_divisor(ctx: u32, index: u32, divisor: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => return ERR_INVALID_HANDLE,
+    };
+
+    if let Some(vao) = ctx_obj.vertex_arrays.get_mut(&ctx_obj.bound_vertex_array) {
+        if (index as usize) < vao.attributes.len() {
+            let attr = &mut vao.attributes[index as usize];
+            attr.divisor = divisor;
+            ERR_OK
+        } else {
+            set_last_error("index out of range");
+            ERR_INVALID_ARGS
+        }
+    } else {
+        set_last_error("current vertex array not found");
+        ERR_INVALID_OPERATION
+    }
+}
+
 /// Set vertex attribute default value (1f).
 pub fn ctx_vertex_attrib1f(ctx: u32, index: u32, v0: f32) -> u32 {
     ctx_vertex_attrib4f(ctx, index, v0, 0.0, 0.0, 1.0)
@@ -2376,6 +2409,11 @@ pub fn ctx_vertex_attrib4f(ctx: u32, index: u32, v0: f32, v1: f32, v2: f32, v3: 
 
 /// Draw arrays.
 pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
+    ctx_draw_arrays_instanced(ctx, mode, first, count, 1)
+}
+
+/// Draw arrays instanced.
+pub fn ctx_draw_arrays_instanced(ctx: u32, mode: u32, first: i32, count: i32, instance_count: i32) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();
     let reg_ptr = &mut *reg;
@@ -2394,237 +2432,240 @@ pub fn ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i32) -> u32 {
     };
 
     let (vx, vy, vw, vh) = ctx_obj.viewport;
-    let mut vertices = Vec::with_capacity(count as usize);
 
-    // 1. Run VS for all vertices
-    let mut attr_data = vec![0.0f32; 16 * 4];
-    for i in 0..count {
-        ctx_obj.fetch_vertex_attributes((first + i) as u32, &mut attr_data);
+    for instance_id in 0..instance_count {
+        let mut vertices = Vec::with_capacity(count as usize);
 
-        let attr_ptr: u32 = 0x2000;
-        let uniform_ptr: u32 = 0x1000;
-        let varying_ptr: u32 = 0x3000;
-        let private_ptr: u32 = 0x4000;
-        let texture_ptr: u32 = 0x5000;
+        // 1. Run VS for all vertices
+        let mut attr_data = vec![0.0f32; 16 * 4];
+        for i in 0..count {
+            ctx_obj.fetch_vertex_attributes((first + i) as u32, instance_id as u32, &mut attr_data);
 
-        // Ensure attr_data is large enough for 64-byte alignment per location
-        let mut aligned_attr_data = vec![0.0f32; 1024]; // Enough for 16 locations * 16 floats
-        for (loc, chunk) in attr_data.chunks(4).enumerate() {
-            let offset = loc * 16;
-            if offset + 4 <= aligned_attr_data.len() {
-                aligned_attr_data[offset..offset + 4].copy_from_slice(chunk);
-            }
-        }
-
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                aligned_attr_data.as_ptr() as *const u8,
-                attr_ptr as *mut u8,
-                aligned_attr_data.len() * 4,
-            );
-            std::ptr::copy_nonoverlapping(
-                ctx_obj.uniform_data.as_ptr(),
-                uniform_ptr as *mut u8,
-                ctx_obj.uniform_data.len(),
-            );
-            ctx_obj.prepare_texture_metadata(texture_ptr);
-        }
-
-        crate::js_execute_shader(
-            0x8B31, /* VERTEX_SHADER */
-            attr_ptr,
-            uniform_ptr,
-            varying_ptr,
-            private_ptr,
-            texture_ptr,
-        );
-
-        let mut pos_bytes = [0u8; 16];
-        let mut varying_bytes = vec![0u8; 256]; // Capture first 256 bytes of varyings
-        unsafe {
-            std::ptr::copy_nonoverlapping(varying_ptr as *const u8, pos_bytes.as_mut_ptr(), 16);
-            std::ptr::copy_nonoverlapping(
-                varying_ptr as *const u8,
-                varying_bytes.as_mut_ptr(),
-                256,
-            );
-        }
-        let pos: [f32; 4] = unsafe { std::mem::transmute(pos_bytes) };
-
-        vertices.push(Vertex {
-            pos,
-            varyings: varying_bytes,
-        });
-    }
-
-    // 2. Rasterize
-    if mode == 0x0000 {
-        // GL_POINTS
-        for v in &vertices {
-            let screen_x = vx as f32 + (v.pos[0] / v.pos[3] + 1.0) * 0.5 * vw as f32;
-            let screen_y = vy as f32 + (v.pos[1] / v.pos[3] + 1.0) * 0.5 * vh as f32;
-
-            // Run FS
+            let attr_ptr: u32 = 0x2000;
             let uniform_ptr: u32 = 0x1000;
             let varying_ptr: u32 = 0x3000;
             let private_ptr: u32 = 0x4000;
             let texture_ptr: u32 = 0x5000;
 
+            // Ensure attr_data is large enough for 64-byte alignment per location
+            let mut aligned_attr_data = vec![0.0f32; 1024]; // Enough for 16 locations * 16 floats
+            for (loc, chunk) in attr_data.chunks(4).enumerate() {
+                let offset = loc * 16;
+                if offset + 4 <= aligned_attr_data.len() {
+                    aligned_attr_data[offset..offset + 4].copy_from_slice(chunk);
+                }
+            }
+
             unsafe {
                 std::ptr::copy_nonoverlapping(
-                    v.varyings.as_ptr(),
-                    varying_ptr as *mut u8,
-                    v.varyings.len(),
+                    aligned_attr_data.as_ptr() as *const u8,
+                    attr_ptr as *mut u8,
+                    aligned_attr_data.len() * 4,
                 );
+                std::ptr::copy_nonoverlapping(
+                    ctx_obj.uniform_data.as_ptr(),
+                    uniform_ptr as *mut u8,
+                    ctx_obj.uniform_data.len(),
+                );
+                ctx_obj.prepare_texture_metadata(texture_ptr);
             }
 
             crate::js_execute_shader(
-                0x8B30, /* FRAGMENT_SHADER */
-                0,
+                0x8B31, /* VERTEX_SHADER */
+                attr_ptr,
                 uniform_ptr,
                 varying_ptr,
                 private_ptr,
                 texture_ptr,
             );
 
-            let mut color_bytes = [0u8; 16];
+            let mut pos_bytes = [0u8; 16];
+            let mut varying_bytes = vec![0u8; 256]; // Capture first 256 bytes of varyings
             unsafe {
+                std::ptr::copy_nonoverlapping(varying_ptr as *const u8, pos_bytes.as_mut_ptr(), 16);
                 std::ptr::copy_nonoverlapping(
-                    private_ptr as *const u8,
-                    color_bytes.as_mut_ptr(),
-                    16,
+                    varying_ptr as *const u8,
+                    varying_bytes.as_mut_ptr(),
+                    256,
                 );
             }
-            let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
-            let color_u8 = [
-                (c[0].clamp(0.0, 1.0) * 255.0) as u8,
-                (c[1].clamp(0.0, 1.0) * 255.0) as u8,
-                (c[2].clamp(0.0, 1.0) * 255.0) as u8,
-                (c[3].clamp(0.0, 1.0) * 255.0) as u8,
-            ];
-            ctx_obj.rasterizer.draw_point(
-                &mut ctx_obj.default_framebuffer,
-                screen_x,
-                screen_y,
-                color_u8,
-            );
+            let pos: [f32; 4] = unsafe { std::mem::transmute(pos_bytes) };
+
+            vertices.push(Vertex {
+                pos,
+                varyings: varying_bytes,
+            });
         }
-    } else if mode == 0x0004 {
-        // GL_TRIANGLES
-        for i in (0..vertices.len()).step_by(3) {
-            if i + 2 >= vertices.len() {
-                break;
+
+        // 2. Rasterize
+        if mode == 0x0000 {
+            // GL_POINTS
+            for v in &vertices {
+                let screen_x = vx as f32 + (v.pos[0] / v.pos[3] + 1.0) * 0.5 * vw as f32;
+                let screen_y = vy as f32 + (v.pos[1] / v.pos[3] + 1.0) * 0.5 * vh as f32;
+
+                // Run FS
+                let uniform_ptr: u32 = 0x1000;
+                let varying_ptr: u32 = 0x3000;
+                let private_ptr: u32 = 0x4000;
+                let texture_ptr: u32 = 0x5000;
+
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        v.varyings.as_ptr(),
+                        varying_ptr as *mut u8,
+                        v.varyings.len(),
+                    );
+                }
+
+                crate::js_execute_shader(
+                    0x8B30, /* FRAGMENT_SHADER */
+                    0,
+                    uniform_ptr,
+                    varying_ptr,
+                    private_ptr,
+                    texture_ptr,
+                );
+
+                let mut color_bytes = [0u8; 16];
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        private_ptr as *const u8,
+                        color_bytes.as_mut_ptr(),
+                        16,
+                    );
+                }
+                let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
+                let color_u8 = [
+                    (c[0].clamp(0.0, 1.0) * 255.0) as u8,
+                    (c[1].clamp(0.0, 1.0) * 255.0) as u8,
+                    (c[2].clamp(0.0, 1.0) * 255.0) as u8,
+                    (c[3].clamp(0.0, 1.0) * 255.0) as u8,
+                ];
+                ctx_obj.rasterizer.draw_point(
+                    &mut ctx_obj.default_framebuffer,
+                    screen_x,
+                    screen_y,
+                    color_u8,
+                );
             }
-            let v0 = &vertices[i];
-            let v1 = &vertices[i + 1];
-            let v2 = &vertices[i + 2];
+        } else if mode == 0x0004 {
+            // GL_TRIANGLES
+            for i in (0..vertices.len()).step_by(3) {
+                if i + 2 >= vertices.len() {
+                    break;
+                }
+                let v0 = &vertices[i];
+                let v1 = &vertices[i + 1];
+                let v2 = &vertices[i + 2];
 
-            // Screen coordinates (with perspective divide)
-            let p0 = (
-                vx as f32 + (v0.pos[0] / v0.pos[3] + 1.0) * 0.5 * vw as f32,
-                vy as f32 + (v0.pos[1] / v0.pos[3] + 1.0) * 0.5 * vh as f32,
-            );
-            let p1 = (
-                vx as f32 + (v1.pos[0] / v1.pos[3] + 1.0) * 0.5 * vw as f32,
-                vy as f32 + (v1.pos[1] / v1.pos[3] + 1.0) * 0.5 * vh as f32,
-            );
-            let p2 = (
-                vx as f32 + (v2.pos[0] / v2.pos[3] + 1.0) * 0.5 * vw as f32,
-                vy as f32 + (v2.pos[1] / v2.pos[3] + 1.0) * 0.5 * vh as f32,
-            );
+                // Screen coordinates (with perspective divide)
+                let p0 = (
+                    vx as f32 + (v0.pos[0] / v0.pos[3] + 1.0) * 0.5 * vw as f32,
+                    vy as f32 + (v0.pos[1] / v0.pos[3] + 1.0) * 0.5 * vh as f32,
+                );
+                let p1 = (
+                    vx as f32 + (v1.pos[0] / v1.pos[3] + 1.0) * 0.5 * vw as f32,
+                    vy as f32 + (v1.pos[1] / v1.pos[3] + 1.0) * 0.5 * vh as f32,
+                );
+                let p2 = (
+                    vx as f32 + (v2.pos[0] / v2.pos[3] + 1.0) * 0.5 * vw as f32,
+                    vy as f32 + (v2.pos[1] / v2.pos[3] + 1.0) * 0.5 * vh as f32,
+                );
 
-            // Bounding box
-            let min_x = p0.0.min(p1.0).min(p2.0).max(0.0).floor() as i32;
-            let max_x = p0.0.max(p1.0).max(p2.0).min(vw as f32 - 1.0).ceil() as i32;
-            let min_y = p0.1.min(p1.1).min(p2.1).max(0.0).floor() as i32;
-            let max_y = p0.1.max(p1.1).max(p2.1).min(vh as f32 - 1.0).ceil() as i32;
+                // Bounding box
+                let min_x = p0.0.min(p1.0).min(p2.0).max(0.0).floor() as i32;
+                let max_x = p0.0.max(p1.0).max(p2.0).min(vw as f32 - 1.0).ceil() as i32;
+                let min_y = p0.1.min(p1.1).min(p2.1).max(0.0).floor() as i32;
+                let max_y = p0.1.max(p1.1).max(p2.1).min(vh as f32 - 1.0).ceil() as i32;
 
-            if max_x >= min_x && max_y >= min_y {
-                let w0_inv = 1.0 / v0.pos[3];
-                let w1_inv = 1.0 / v1.pos[3];
-                let w2_inv = 1.0 / v2.pos[3];
+                if max_x >= min_x && max_y >= min_y {
+                    let w0_inv = 1.0 / v0.pos[3];
+                    let w1_inv = 1.0 / v1.pos[3];
+                    let w2_inv = 1.0 / v2.pos[3];
 
-                let v0_f32: &[f32] =
-                    unsafe { std::slice::from_raw_parts(v0.varyings.as_ptr() as *const f32, 64) };
-                let v1_f32: &[f32] =
-                    unsafe { std::slice::from_raw_parts(v1.varyings.as_ptr() as *const f32, 64) };
-                let v2_f32: &[f32] =
-                    unsafe { std::slice::from_raw_parts(v2.varyings.as_ptr() as *const f32, 64) };
+                    let v0_f32: &[f32] =
+                        unsafe { std::slice::from_raw_parts(v0.varyings.as_ptr() as *const f32, 64) };
+                    let v1_f32: &[f32] =
+                        unsafe { std::slice::from_raw_parts(v1.varyings.as_ptr() as *const f32, 64) };
+                    let v2_f32: &[f32] =
+                        unsafe { std::slice::from_raw_parts(v2.varyings.as_ptr() as *const f32, 64) };
 
-                for y in min_y..=max_y {
-                    for x in min_x..=max_x {
-                        let (u, v, w) = barycentric((x as f32 + 0.5, y as f32 + 0.5), p0, p1, p2);
-                        if u >= 0.0 && v >= 0.0 && w >= 0.0 {
-                            // Interpolate depth (NDC z/w mapped to [0, 1])
-                            let z0 = v0.pos[2] / v0.pos[3];
-                            let z1 = v1.pos[2] / v1.pos[3];
-                            let z2 = v2.pos[2] / v2.pos[3];
-                            let depth_ndc = u * z0 + v * z1 + w * z2;
-                            let depth = (depth_ndc + 1.0) * 0.5;
+                    for y in min_y..=max_y {
+                        for x in min_x..=max_x {
+                            let (u, v, w) = barycentric((x as f32 + 0.5, y as f32 + 0.5), p0, p1, p2);
+                            if u >= 0.0 && v >= 0.0 && w >= 0.0 {
+                                // Interpolate depth (NDC z/w mapped to [0, 1])
+                                let z0 = v0.pos[2] / v0.pos[3];
+                                let z1 = v1.pos[2] / v1.pos[3];
+                                let z2 = v2.pos[2] / v2.pos[3];
+                                let depth_ndc = u * z0 + v * z1 + w * z2;
+                                let depth = (depth_ndc + 1.0) * 0.5;
 
-                            let fb_idx =
-                                (y as u32 * ctx_obj.default_framebuffer.width + x as u32) as usize;
+                                let fb_idx =
+                                    (y as u32 * ctx_obj.default_framebuffer.width + x as u32) as usize;
 
-                            if (0.0..=1.0).contains(&depth)
-                                && depth < ctx_obj.default_framebuffer.depth[fb_idx]
-                            {
-                                ctx_obj.default_framebuffer.depth[fb_idx] = depth;
+                                if (0.0..=1.0).contains(&depth)
+                                    && depth < ctx_obj.default_framebuffer.depth[fb_idx]
+                                {
+                                    ctx_obj.default_framebuffer.depth[fb_idx] = depth;
 
-                                // Perspective correct interpolation
-                                let w_interp_inv = u * w0_inv + v * w1_inv + w * w2_inv;
-                                let w_interp = 1.0 / w_interp_inv;
+                                    // Perspective correct interpolation
+                                    let w_interp_inv = u * w0_inv + v * w1_inv + w * w2_inv;
+                                    let w_interp = 1.0 / w_interp_inv;
 
-                                let mut interp_f32 = [0.0f32; 64];
-                                for k in 0..64 {
-                                    interp_f32[k] = (u * v0_f32[k] * w0_inv
-                                        + v * v1_f32[k] * w1_inv
-                                        + w * v2_f32[k] * w2_inv)
-                                        * w_interp;
-                                }
+                                    let mut interp_f32 = [0.0f32; 64];
+                                    for k in 0..64 {
+                                        interp_f32[k] = (u * v0_f32[k] * w0_inv
+                                            + v * v1_f32[k] * w1_inv
+                                            + w * v2_f32[k] * w2_inv)
+                                            * w_interp;
+                                    }
 
-                                // Run FS
-                                let uniform_ptr: u32 = 0x1000;
-                                let varying_ptr: u32 = 0x3000;
-                                let private_ptr: u32 = 0x4000;
-                                let texture_ptr: u32 = 0x5000;
+                                    // Run FS
+                                    let uniform_ptr: u32 = 0x1000;
+                                    let varying_ptr: u32 = 0x3000;
+                                    let private_ptr: u32 = 0x4000;
+                                    let texture_ptr: u32 = 0x5000;
 
-                                unsafe {
-                                    std::ptr::copy_nonoverlapping(
-                                        interp_f32.as_ptr() as *const u8,
-                                        varying_ptr as *mut u8,
-                                        256,
+                                    unsafe {
+                                        std::ptr::copy_nonoverlapping(
+                                            interp_f32.as_ptr() as *const u8,
+                                            varying_ptr as *mut u8,
+                                            256,
+                                        );
+                                    }
+
+                                    crate::js_execute_shader(
+                                        0x8B30, /* FRAGMENT_SHADER */
+                                        0,
+                                        uniform_ptr,
+                                        varying_ptr,
+                                        private_ptr,
+                                        texture_ptr,
                                     );
-                                }
 
-                                crate::js_execute_shader(
-                                    0x8B30, /* FRAGMENT_SHADER */
-                                    0,
-                                    uniform_ptr,
-                                    varying_ptr,
-                                    private_ptr,
-                                    texture_ptr,
-                                );
+                                    let mut color_bytes = [0u8; 16];
+                                    unsafe {
+                                        std::ptr::copy_nonoverlapping(
+                                            private_ptr as *const u8,
+                                            color_bytes.as_mut_ptr(),
+                                            16,
+                                        );
+                                    }
+                                    let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
+                                    let color_u8 = [
+                                        (c[0].clamp(0.0, 1.0) * 255.0) as u8,
+                                        (c[1].clamp(0.0, 1.0) * 255.0) as u8,
+                                        (c[2].clamp(0.0, 1.0) * 255.0) as u8,
+                                        (c[3].clamp(0.0, 1.0) * 255.0) as u8,
+                                    ];
 
-                                let mut color_bytes = [0u8; 16];
-                                unsafe {
-                                    std::ptr::copy_nonoverlapping(
-                                        private_ptr as *const u8,
-                                        color_bytes.as_mut_ptr(),
-                                        16,
-                                    );
-                                }
-                                let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
-                                let color_u8 = [
-                                    (c[0].clamp(0.0, 1.0) * 255.0) as u8,
-                                    (c[1].clamp(0.0, 1.0) * 255.0) as u8,
-                                    (c[2].clamp(0.0, 1.0) * 255.0) as u8,
-                                    (c[3].clamp(0.0, 1.0) * 255.0) as u8,
-                                ];
-
-                                let color_idx = fb_idx * 4;
-                                if color_idx + 3 < ctx_obj.default_framebuffer.color.len() {
-                                    ctx_obj.default_framebuffer.color[color_idx..color_idx + 4]
-                                        .copy_from_slice(&color_u8);
+                                    let color_idx = fb_idx * 4;
+                                    if color_idx + 3 < ctx_obj.default_framebuffer.color.len() {
+                                        ctx_obj.default_framebuffer.color[color_idx..color_idx + 4]
+                                            .copy_from_slice(&color_u8);
+                                    }
                                 }
                             }
                         }
@@ -2650,6 +2691,17 @@ pub fn ctx_set_verbosity(ctx: u32, level: u32) -> u32 {
 
 /// Draw elements.
 pub fn ctx_draw_elements(ctx: u32, mode: u32, count: i32, type_: u32, offset: u32) -> u32 {
+    ctx_draw_elements_instanced(ctx, mode, count, type_, offset, 1)
+}
+
+pub fn ctx_draw_elements_instanced(
+    ctx: u32,
+    mode: u32,
+    count: i32,
+    type_: u32,
+    offset: u32,
+    instance_count: i32,
+) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();
     let reg_ptr = &mut *reg;
@@ -2725,12 +2777,14 @@ pub fn ctx_draw_elements(ctx: u32, mode: u32, count: i32, type_: u32, offset: u3
     };
 
     let (vx, vy, vw, vh) = ctx_obj.viewport;
-    let mut vertices = Vec::with_capacity(count as usize);
 
-    // 1. Run VS for all vertices
+    for instance_id in 0..instance_count {
+        let mut vertices = Vec::with_capacity(count as usize);
+
+        // 1. Run VS for all vertices
     let mut attr_data = vec![0.0f32; 16 * 4];
     for &index in &indices {
-        ctx_obj.fetch_vertex_attributes(index, &mut attr_data);
+        ctx_obj.fetch_vertex_attributes(index, instance_id as u32, &mut attr_data);
 
         let attr_ptr: u32 = 0x2000;
         let uniform_ptr: u32 = 0x1000;
@@ -2963,6 +3017,7 @@ pub fn ctx_draw_elements(ctx: u32, mode: u32, count: i32, type_: u32, offset: u3
                 }
             }
         }
+    }
     }
     ERR_OK
 }

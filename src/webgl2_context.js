@@ -660,7 +660,15 @@ export class WasmWebGL2RenderingContext {
     _checkErr(code, this._instance);
   }
 
-  vertexAttribDivisor(index, divisor) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  vertexAttribDivisor(index, divisor) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_vertex_attrib_divisor !== 'function') {
+      throw new Error('wasm_ctx_vertex_attrib_divisor not found');
+    }
+    const code = ex.wasm_ctx_vertex_attrib_divisor(this._ctxHandle, index >>> 0, divisor >>> 0);
+    _checkErr(code, this._instance);
+  }
 
   createBuffer() {
     this._assertNotDestroyed();
@@ -792,8 +800,24 @@ export class WasmWebGL2RenderingContext {
     const code = ex.wasm_ctx_draw_elements(this._ctxHandle, mode >>> 0, count >>> 0, type >>> 0, offset >>> 0);
     _checkErr(code, this._instance);
   }
-  drawArraysInstanced(mode, first, count, instanceCount) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  drawElementsInstanced(mode, count, type, offset, instanceCount) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  drawArraysInstanced(mode, first, count, instanceCount) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_draw_arrays_instanced !== 'function') {
+      throw new Error('wasm_ctx_draw_arrays_instanced not found');
+    }
+    const code = ex.wasm_ctx_draw_arrays_instanced(this._ctxHandle, mode >>> 0, first | 0, count | 0, instanceCount | 0);
+    _checkErr(code, this._instance);
+  }
+  drawElementsInstanced(mode, count, type, offset, instanceCount) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_draw_elements_instanced !== 'function') {
+      throw new Error('wasm_ctx_draw_elements_instanced not found');
+    }
+    const code = ex.wasm_ctx_draw_elements_instanced(this._ctxHandle, mode >>> 0, count | 0, type >>> 0, offset >>> 0, instanceCount | 0);
+    _checkErr(code, this._instance);
+  }
   drawRangeElements(mode, start, end, count, type, offset) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   drawBuffers(buffers) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 

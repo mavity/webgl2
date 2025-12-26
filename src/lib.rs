@@ -609,6 +609,12 @@ pub extern "C" fn wasm_ctx_vertex_attrib4f(
     webgl2_context::ctx_vertex_attrib4f(ctx, index, v0, v1, v2, v3)
 }
 
+/// Vertex attribute divisor.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_vertex_attrib_divisor(ctx: u32, index: u32, divisor: u32) -> u32 {
+    webgl2_context::ctx_vertex_attrib_divisor(ctx, index, divisor)
+}
+
 /// Get a parameter (vector version).
 #[no_mangle]
 pub extern "C" fn wasm_ctx_get_parameter_v(
@@ -632,6 +638,18 @@ pub extern "C" fn wasm_ctx_draw_arrays(ctx: u32, mode: u32, first: i32, count: i
     webgl2_context::ctx_draw_arrays(ctx, mode, first, count)
 }
 
+/// Draw arrays instanced.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_draw_arrays_instanced(
+    ctx: u32,
+    mode: u32,
+    first: i32,
+    count: i32,
+    instance_count: i32,
+) -> u32 {
+    webgl2_context::ctx_draw_arrays_instanced(ctx, mode, first, count, instance_count)
+}
+
 /// Draw elements.
 #[no_mangle]
 pub extern "C" fn wasm_ctx_draw_elements(
@@ -642,6 +660,19 @@ pub extern "C" fn wasm_ctx_draw_elements(
     offset: u32,
 ) -> u32 {
     webgl2_context::ctx_draw_elements(ctx, mode, count, type_, offset)
+}
+
+/// Draw elements instanced.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_draw_elements_instanced(
+    ctx: u32,
+    mode: u32,
+    count: i32,
+    type_: u32,
+    offset: u32,
+    instance_count: i32,
+) -> u32 {
+    webgl2_context::ctx_draw_elements_instanced(ctx, mode, count, type_, offset, instance_count)
 }
 
 /// Set verbosity level.

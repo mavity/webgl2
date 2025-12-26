@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('vertexAttribDivisor throws not implemented', async () => {
+test('vertexAttribDivisor does not throw', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.vertexAttribDivisor(0, 1), /not implemented/); } finally { gl.destroy(); }
+  try {
+    gl.vertexAttribDivisor(0, 1);
+  } finally {
+    gl.destroy();
+  }
 });

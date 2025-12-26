@@ -10,7 +10,7 @@
 | src/core/imports.rs | 0 | 1 | 1 | 0.00% 🔴 |
 | src/imp_std.rs | 0 | 6 | 6 | 0.00% 🔴 |
 | src/lexer.rs | 6 | 2 | 8 | 75.00% 🟡 |
-| src/lib.rs | 70 | 14 | 84 | 83.33% 🟢 |
+| src/lib.rs | 73 | 14 | 87 | 83.91% 🟢 |
 | src/math/rint.rs | 0 | 2 | 2 | 0.00% 🔴 |
 | src/naga_wasm_backend/backend.rs | 39 | 0 | 39 | 100.00% 🟢 |
 | src/naga_wasm_backend/control_flow.rs | 15 | 4 | 19 | 78.95% 🟡 |
@@ -23,5 +23,6 @@
 | src/tables.rs | 1 | 2 | 3 | 33.33% 🔴 |
 | src/token.rs | 0 | 1 | 1 | 0.00% 🔴 |
 | src/wasm_gl_emu/framebuffer.rs | 2 | 0 | 2 | 100.00% 🟢 |
-| src/webgl2_context.rs | 154 | 15 | 169 | 91.12% 🟢 |
-| **Total** | **338** | **255** | **593** | **57.00% 🟡** |
+| src/wasm_gl_emu/rasterizer.rs | 1 | 0 | 1 | 100.00% 🟢 |
+| src/webgl2_context.rs | 151 | 10 | 161 | 93.79% 🟢 |
+| **Total** | **339** | **250** | **589** | **57.56% 🟡** |
