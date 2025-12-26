@@ -42,6 +42,7 @@ export class WasmWebGL2RenderingContext {
   VIEWPORT = 0x0BA2;
   COLOR_CLEAR_VALUE = 0x0C22;
   BUFFER_SIZE = 0x8764;
+  MAX_VERTEX_ATTRIBS = 0x8869;
   NO_ERROR = 0;
 
   RENDERBUFFER = 0x8D41;
@@ -1140,6 +1141,10 @@ export class WasmWebGL2RenderingContext {
       } finally {
         ex.wasm_free(ptr, 16);
       }
+    }
+
+    if (pname === 0x8869 /* MAX_VERTEX_ATTRIBS */) {
+      return 16;
     }
 
     throw new Error(`getParameter for ${pname} not implemented`);
