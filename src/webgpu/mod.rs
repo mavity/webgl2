@@ -5,6 +5,10 @@
 //! rasterization of WebGPU workloads.
 
 pub mod adapter;
+pub mod buffer;
+pub mod command;
+pub mod pipeline;
+pub mod shader;
 
 #[cfg(test)]
 mod tests;

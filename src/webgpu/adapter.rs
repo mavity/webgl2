@@ -3,7 +3,11 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use wgpu_core::global::Global;
-use wgpu_core::id::{AdapterId, DeviceId};
+use wgpu_core::id::{
+    AdapterId, BindGroupId, BindGroupLayoutId, BufferId, CommandBufferId, CommandEncoderId,
+    ComputePipelineId, DeviceId, PipelineLayoutId, QueueId, RenderPipelineId, ShaderModuleId,
+    TextureId, TextureViewId,
+};
 use wgpu_types as wgt;
 
 thread_local! {
@@ -19,8 +23,32 @@ pub struct WebGpuContext {
     pub global: Global,
     pub adapters: HashMap<u32, AdapterId>,
     pub devices: HashMap<u32, DeviceId>,
+    pub queues: HashMap<u32, QueueId>,
+    pub buffers: HashMap<u32, BufferId>,
+    pub shader_modules: HashMap<u32, ShaderModuleId>,
+    pub pipeline_layouts: HashMap<u32, PipelineLayoutId>,
+    pub bind_group_layouts: HashMap<u32, BindGroupLayoutId>,
+    pub bind_groups: HashMap<u32, BindGroupId>,
+    pub render_pipelines: HashMap<u32, RenderPipelineId>,
+    pub compute_pipelines: HashMap<u32, ComputePipelineId>,
+    pub command_encoders: HashMap<u32, CommandEncoderId>,
+    pub command_buffers: HashMap<u32, CommandBufferId>,
+    pub textures: HashMap<u32, TextureId>,
+    pub texture_views: HashMap<u32, TextureViewId>,
+
     pub next_adapter_id: u32,
     pub next_device_id: u32,
+    pub next_buffer_id: u32,
+    pub next_shader_module_id: u32,
+    pub next_pipeline_layout_id: u32,
+    pub next_bind_group_layout_id: u32,
+    pub next_bind_group_id: u32,
+    pub next_render_pipeline_id: u32,
+    pub next_compute_pipeline_id: u32,
+    pub next_command_encoder_id: u32,
+    pub next_command_buffer_id: u32,
+    pub next_texture_id: u32,
+    pub next_texture_view_id: u32,
 }
 
 impl WebGpuContext {
@@ -46,8 +74,32 @@ impl WebGpuContext {
             global,
             adapters: HashMap::new(),
             devices: HashMap::new(),
+            queues: HashMap::new(),
+            buffers: HashMap::new(),
+            shader_modules: HashMap::new(),
+            pipeline_layouts: HashMap::new(),
+            bind_group_layouts: HashMap::new(),
+            bind_groups: HashMap::new(),
+            render_pipelines: HashMap::new(),
+            compute_pipelines: HashMap::new(),
+            command_encoders: HashMap::new(),
+            command_buffers: HashMap::new(),
+            textures: HashMap::new(),
+            texture_views: HashMap::new(),
+
             next_adapter_id: 1,
             next_device_id: 1,
+            next_buffer_id: 1,
+            next_shader_module_id: 1,
+            next_pipeline_layout_id: 1,
+            next_bind_group_layout_id: 1,
+            next_bind_group_id: 1,
+            next_render_pipeline_id: 1,
+            next_compute_pipeline_id: 1,
+            next_command_encoder_id: 1,
+            next_command_buffer_id: 1,
+            next_texture_id: 1,
+            next_texture_view_id: 1,
         }
     }
 }
@@ -65,6 +117,22 @@ pub fn create_context() -> u32 {
         });
 
         id
+    })
+}
+
+/// Execute a closure with a mutable reference to a WebGPU context
+pub fn with_context<F, R>(handle: u32, f: F) -> R
+where
+    F: FnOnce(&mut WebGpuContext) -> R,
+    R: From<u32>,
+{
+    WEBGPU_CONTEXTS.with(|contexts| {
+        let mut contexts = contexts.borrow_mut();
+        if let Some(ctx) = contexts.get_mut(&handle) {
+            f(ctx)
+        } else {
+            super::NULL_HANDLE.into()
+        }
     })
 }
 
@@ -135,7 +203,7 @@ pub fn request_device(ctx_handle: u32, adapter_handle: u32) -> u32 {
             trace: wgt::Trace::Off,
         };
 
-        let (device_id, _) =
+        let (device_id, queue_id) =
             match ctx
                 .global
                 .adapter_request_device(adapter_id, &device_desc, None, None)
@@ -150,7 +218,19 @@ pub fn request_device(ctx_handle: u32, adapter_handle: u32) -> u32 {
         let handle = ctx.next_device_id;
         ctx.next_device_id += 1;
         ctx.devices.insert(handle, device_id);
+        ctx.queues.insert(handle, queue_id); // Use same handle for default queue for now
 
         handle
+    })
+}
+
+/// Destroy a device
+pub fn destroy_device(ctx_handle: u32, device_handle: u32) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        if ctx.devices.remove(&device_handle).is_some() {
+            super::WEBGPU_SUCCESS
+        } else {
+            super::WEBGPU_ERROR_INVALID_HANDLE
+        }
     })
 }

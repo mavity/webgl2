@@ -745,6 +745,103 @@ pub extern "C" fn wasm_webgpu_request_device(ctx_handle: u32, adapter_handle: u3
     webgpu::adapter::request_device(ctx_handle, adapter_handle)
 }
 
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_destroy_device(ctx_handle: u32, device_handle: u32) -> u32 {
+    webgpu::adapter::destroy_device(ctx_handle, device_handle)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_create_buffer(
+    ctx_handle: u32,
+    device_handle: u32,
+    size: u64,
+    usage: u32,
+    mapped_at_creation: bool,
+) -> u32 {
+    webgpu::buffer::create_buffer(ctx_handle, device_handle, size, usage, mapped_at_creation)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_buffer_destroy(ctx_handle: u32, buffer_handle: u32) -> u32 {
+    webgpu::buffer::destroy_buffer(ctx_handle, buffer_handle)
+}
+
+/// Create a shader module from WGSL code.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer for the shader code.
+#[no_mangle]
+pub unsafe extern "C" fn wasm_webgpu_create_shader_module(
+    ctx_handle: u32,
+    device_handle: u32,
+    code_ptr: *const u8,
+    code_len: usize,
+) -> u32 {
+    webgpu::shader::create_shader_module(ctx_handle, device_handle, code_ptr, code_len)
+}
+
+/// Create a render pipeline.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences raw pointers for entry point names.
+#[no_mangle]
+pub unsafe extern "C" fn wasm_webgpu_create_render_pipeline(
+    ctx_handle: u32,
+    device_handle: u32,
+    vertex_module_handle: u32,
+    vertex_entry_ptr: *const u8,
+    vertex_entry_len: usize,
+    fragment_module_handle: u32,
+    fragment_entry_ptr: *const u8,
+    fragment_entry_len: usize,
+) -> u32 {
+    let v_entry = {
+        let slice = std::slice::from_raw_parts(vertex_entry_ptr, vertex_entry_len);
+        std::str::from_utf8_unchecked(slice)
+    };
+    let f_entry = {
+        let slice = std::slice::from_raw_parts(fragment_entry_ptr, fragment_entry_len);
+        std::str::from_utf8_unchecked(slice)
+    };
+
+    webgpu::pipeline::create_render_pipeline(
+        ctx_handle,
+        device_handle,
+        vertex_module_handle,
+        v_entry,
+        fragment_module_handle,
+        f_entry,
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_create_command_encoder(ctx_handle: u32, device_handle: u32) -> u32 {
+    webgpu::command::create_command_encoder(ctx_handle, device_handle)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_command_encoder_finish(ctx_handle: u32, encoder_handle: u32) -> u32 {
+    webgpu::command::command_encoder_finish(ctx_handle, encoder_handle)
+}
+
+/// Submit command buffers to the queue.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer for command buffer handles.
+#[no_mangle]
+pub unsafe extern "C" fn wasm_webgpu_queue_submit(
+    ctx_handle: u32,
+    device_handle: u32,
+    cb_handles_ptr: *const u32,
+    cb_handles_len: usize,
+) -> u32 {
+    let cb_handles = std::slice::from_raw_parts(cb_handles_ptr, cb_handles_len);
+    webgpu::command::queue_submit(ctx_handle, device_handle, cb_handles)
+}
+
 // ============================================================================
 // Renderbuffer Exports
 // ============================================================================

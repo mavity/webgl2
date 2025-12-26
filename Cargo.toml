@@ -19,7 +19,7 @@ crate-type = ["cdylib", "rlib"]
 naga = { version = "28.0.0", path = "wgpu-fork/naga", features = ["glsl-in", "wgsl-in", "wgsl-out", "spv-out"] }
 
 # WebGPU infrastructure (wasm32-compatible)
-wgpu-core = { version = "28.0.0", path = "wgpu-fork/wgpu-core", default-features = false, features = ["noop", "std"] }
+wgpu-core = { version = "28.0.0", path = "wgpu-fork/wgpu-core", default-features = false, features = ["noop", "std", "wgsl"] }
 wgpu-types = { version = "28.0.0", path = "wgpu-fork/wgpu-types" }
 wgpu-hal = { version = "28.0.0", path = "wgpu-fork/wgpu-hal", default-features = false, features = [] }
 
