@@ -85,7 +85,7 @@ pub fn ctx_delete_renderbuffer(ctx: u32, renderbuffer: u32) -> u32 {
         ERR_OK
     } else {
         set_last_error("renderbuffer not found");
-        return ERR_INVALID_HANDLE;
+        ERR_INVALID_HANDLE
     }
 }
 

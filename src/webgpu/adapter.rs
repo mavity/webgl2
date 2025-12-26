@@ -9,7 +9,7 @@ thread_local! {
     // Thread-local storage for WebGPU contexts
     // This is safe because WASM is single-threaded
     static WEBGPU_CONTEXTS: RefCell<HashMap<u32, WebGpuContext>> = RefCell::new(HashMap::new());
-    static NEXT_CONTEXT_ID: RefCell<u32> = RefCell::new(1);
+    static NEXT_CONTEXT_ID: RefCell<u32> = const { RefCell::new(1) };
 }
 
 /// WebGPU context state

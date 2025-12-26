@@ -206,7 +206,6 @@ pub fn ctx_draw_arrays_instanced(
                     &pv0,
                     &pv1,
                     &pv2,
-                    (vx, vy, vw, vh),
                     &pipeline,
                     &state,
                 );
@@ -469,7 +468,6 @@ pub fn ctx_draw_elements_instanced(
                     &pv0,
                     &pv1,
                     &pv2,
-                    (vx, vy, vw, vh),
                     &pipeline,
                     &state,
                 );

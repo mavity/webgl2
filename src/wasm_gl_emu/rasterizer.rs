@@ -128,11 +128,10 @@ impl Rasterizer {
         v0: &ProcessedVertex,
         v1: &ProcessedVertex,
         v2: &ProcessedVertex,
-        viewport: (i32, i32, u32, u32),
         pipeline: &RasterPipeline,
         state: &RenderState,
     ) {
-        let (vx, vy, vw, vh) = viewport;
+        let (vx, vy, vw, vh) = state.viewport;
 
         // Screen coordinates (with perspective divide)
         let p0 = screen_position(&v0.position, vx, vy, vw, vh);
@@ -153,6 +152,14 @@ impl Rasterizer {
         let w0_inv = 1.0 / v0.position[3];
         let w1_inv = 1.0 / v1.position[3];
         let w2_inv = 1.0 / v2.position[3];
+
+        // Pre-allocate varyings buffer to avoid allocation per pixel
+        let varying_count = v0
+            .varyings
+            .len()
+            .min(v1.varyings.len())
+            .min(v2.varyings.len());
+        let mut interp_varyings = vec![0.0f32; varying_count];
 
         for y in min_y..=max_y {
             for x in min_x..=max_x {
@@ -176,15 +183,8 @@ impl Rasterizer {
                         let w_interp_inv = u * w0_inv + v * w1_inv + w * w2_inv;
                         let w_interp = 1.0 / w_interp_inv;
 
-                        let varying_count = v0
-                            .varyings
-                            .len()
-                            .min(v1.varyings.len())
-                            .min(v2.varyings.len());
-                        let mut interp_varyings = vec![0.0f32; varying_count];
-
-                        for k in 0..varying_count {
-                            interp_varyings[k] = (u * v0.varyings[k] * w0_inv
+                        for (k, varying) in interp_varyings.iter_mut().enumerate() {
+                            *varying = (u * v0.varyings[k] * w0_inv
                                 + v * v1.varyings[k] * w1_inv
                                 + w * v2.varyings[k] * w2_inv)
                                 * w_interp;
