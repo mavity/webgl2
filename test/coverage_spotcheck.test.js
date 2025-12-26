@@ -30,9 +30,9 @@ test('coverage: createTexture triggers coverage in texture-related code', async 
   // Debug: print some hits
   // console.log('Sample hits:', hits.slice(0, 10).map(h => `${h.path.split(/[\\/]/).pop()}:${h.line}:${h.col}`));
 
-  // Check if we hit something in webgl2_context.rs
-  const textureHits = hits.filter(h => h.path.includes('webgl2_context.rs'));
-  assert(textureHits.length > 0, 'Should hit code in webgl2_context.rs');
+  // Check if we hit something in webgl2_context
+  const textureHits = hits.filter(h => h.path.includes('webgl2_context'));
+  assert(textureHits.length > 0, 'Should hit code in webgl2_context');
 });
 
 function getCoverageData(instance, module) {
