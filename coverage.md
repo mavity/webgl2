@@ -30,4 +30,4 @@
 | src/lib.rs | 20/99 | [57] `pub fn js_log(level: u32, s: &str) {` | 79.80% 🟡 |
 | src/naga_wasm_backend/expressions.rs | 12/39 | [49] `if component_idx == 0 {` | 69.23% 🟡 |
 | src/naga_wasm_backend/control_flow.rs | 4/19 | [80] `for _ in 0..types.len() {` | 78.95% 🟡 |
-| src/webgl2_context/drawing.rs | 3/30 | [424] `if i + 2 >= vertices.len() {` | 90.00% 🟢 |
+| src/webgl2_context/drawing.rs | 3/30 | [435] `if i + 2 >= vertices.len() {` | 90.00% 🟢 |

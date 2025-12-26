@@ -12,7 +12,7 @@
     "build-debug": "npm run build-debug-wasm-only && npm run build-debug-distill",
     "build": "npm run build-release && npm run build-debug",
     "prepublishOnly": "npm run build",
-    "test": "NODE_OPTIONS='--import ./test/all-coverage.js' node --test test/*.test.js"
+    "test": "node --import ./test/all-coverage.js --test test/*.test.js"
   },
   "repository": {
     "type": "git",
