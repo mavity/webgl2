@@ -712,3 +712,50 @@ pub extern "C" fn wasm_ctx_bind_vertex_array(ctx: u32, vao: u32) -> u32 {
 pub extern "C" fn wasm_ctx_is_vertex_array(ctx: u32, vao: u32) -> u32 {
     webgl2_context::ctx_is_vertex_array(ctx, vao)
 }
+
+// ============================================================================
+// Renderbuffer Exports
+// ============================================================================
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_create_renderbuffer(ctx: u32) -> u32 {
+    webgl2_context::ctx_create_renderbuffer(ctx)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_bind_renderbuffer(ctx: u32, target: u32, renderbuffer: u32) -> u32 {
+    webgl2_context::ctx_bind_renderbuffer(ctx, target, renderbuffer)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_delete_renderbuffer(ctx: u32, renderbuffer: u32) -> u32 {
+    webgl2_context::ctx_delete_renderbuffer(ctx, renderbuffer)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_renderbuffer_storage(
+    ctx: u32,
+    target: u32,
+    internal_format: u32,
+    width: i32,
+    height: i32,
+) -> u32 {
+    webgl2_context::ctx_renderbuffer_storage(ctx, target, internal_format, width, height)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_framebuffer_renderbuffer(
+    ctx: u32,
+    target: u32,
+    attachment: u32,
+    renderbuffertarget: u32,
+    renderbuffer: u32,
+) -> u32 {
+    webgl2_context::ctx_framebuffer_renderbuffer(
+        ctx,
+        target,
+        attachment,
+        renderbuffertarget,
+        renderbuffer,
+    )
+}

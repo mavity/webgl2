@@ -15,7 +15,7 @@ export const ERR_GL = 5;
 export const ERR_INTERNAL = 6;
 
 import { WasmWebGLTexture } from './webgl2_texture.js';
-import { WasmWebGLShader, WasmWebGLProgram, WasmWebGLBuffer } from './webgl2_resources.js';
+import { WasmWebGLShader, WasmWebGLProgram, WasmWebGLBuffer, WasmWebGLRenderbuffer } from './webgl2_resources.js';
 
 /**
  * @implements {WebGL2RenderingContext}
@@ -43,6 +43,19 @@ export class WasmWebGL2RenderingContext {
   COLOR_CLEAR_VALUE = 0x0C22;
   BUFFER_SIZE = 0x8764;
   NO_ERROR = 0;
+
+  RENDERBUFFER = 0x8D41;
+  FRAMEBUFFER = 0x8D40;
+  DEPTH_COMPONENT16 = 0x81A5;
+  DEPTH_STENCIL = 0x84F9;
+  RGBA4 = 0x8056;
+  RGB565 = 0x8D62;
+  RGB5_A1 = 0x8057;
+  STENCIL_INDEX8 = 0x8D48;
+  COLOR_ATTACHMENT0 = 0x8CE0;
+  DEPTH_ATTACHMENT = 0x8D00;
+  STENCIL_ATTACHMENT = 0x8D20;
+  DEPTH_STENCIL_ATTACHMENT = 0x821A;
 
   TEXTURE_2D = 0x0DE1;
   TEXTURE_WRAP_S = 0x2802;
@@ -234,6 +247,69 @@ export class WasmWebGL2RenderingContext {
       textarget >>> 0,
       texHandle,
       level >>> 0
+    );
+    _checkErr(code, this._instance);
+  }
+
+  createRenderbuffer() {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_create_renderbuffer !== 'function') {
+      throw new Error('wasm_ctx_create_renderbuffer not found');
+    }
+    const handle = ex.wasm_ctx_create_renderbuffer(this._ctxHandle);
+    if (handle === 0) {
+      const msg = readErrorMessage(this._instance);
+      throw new Error(`Failed to create renderbuffer: ${msg}`);
+    }
+    return new WasmWebGLRenderbuffer(this, handle);
+  }
+
+  bindRenderbuffer(target, renderbuffer) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_bind_renderbuffer !== 'function') {
+      throw new Error('wasm_ctx_bind_renderbuffer not found');
+    }
+    const rbHandle = renderbuffer && typeof renderbuffer === 'object' && typeof renderbuffer._handle === 'number' ? renderbuffer._handle : (renderbuffer >>> 0);
+    const code = ex.wasm_ctx_bind_renderbuffer(this._ctxHandle, target >>> 0, rbHandle);
+    _checkErr(code, this._instance);
+  }
+
+  deleteRenderbuffer(renderbuffer) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_delete_renderbuffer !== 'function') {
+      throw new Error('wasm_ctx_delete_renderbuffer not found');
+    }
+    const rbHandle = renderbuffer && typeof renderbuffer === 'object' && typeof renderbuffer._handle === 'number' ? renderbuffer._handle : (renderbuffer >>> 0);
+    const code = ex.wasm_ctx_delete_renderbuffer(this._ctxHandle, rbHandle);
+    _checkErr(code, this._instance);
+  }
+
+  renderbufferStorage(target, internalFormat, width, height) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_renderbuffer_storage !== 'function') {
+      throw new Error('wasm_ctx_renderbuffer_storage not found');
+    }
+    const code = ex.wasm_ctx_renderbuffer_storage(this._ctxHandle, target >>> 0, internalFormat >>> 0, width | 0, height | 0);
+    _checkErr(code, this._instance);
+  }
+
+  framebufferRenderbuffer(target, attachment, renderbuffertarget, renderbuffer) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_framebuffer_renderbuffer !== 'function') {
+      throw new Error('wasm_ctx_framebuffer_renderbuffer not found');
+    }
+    const rbHandle = renderbuffer && typeof renderbuffer === 'object' && typeof renderbuffer._handle === 'number' ? renderbuffer._handle : (renderbuffer >>> 0);
+    const code = ex.wasm_ctx_framebuffer_renderbuffer(
+      this._ctxHandle,
+      target >>> 0,
+      attachment >>> 0,
+      renderbuffertarget >>> 0,
+      rbHandle
     );
     _checkErr(code, this._instance);
   }
@@ -918,11 +994,6 @@ export class WasmWebGL2RenderingContext {
   copyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   texImage3D(target, level, internalformat, width, height, depth, border, format, type, pixels) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
-  createRenderbuffer() { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  bindRenderbuffer(target, rb) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  deleteRenderbuffer(rb) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  renderbufferStorage(target, internalformat, width, height) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  framebufferRenderbuffer(target, attachment, renderbuffertarget, renderbuffer) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   checkFramebufferStatus(target) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   blitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   readBuffer(src) { this._assertNotDestroyed(); throw new Error('not implemented'); }

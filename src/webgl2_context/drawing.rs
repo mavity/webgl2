@@ -659,21 +659,33 @@ pub fn ctx_read_pixels(
                 return ERR_INVALID_HANDLE;
             }
         };
-        let tex_handle = match fb.color_attachment {
-            Some(h) => h,
+        
+        match fb.color_attachment {
+            Some(Attachment::Texture(tex_handle)) => {
+                let tex = match ctx_obj.textures.get(&tex_handle) {
+                    Some(t) => t,
+                    None => {
+                        set_last_error("attached texture not found");
+                        return ERR_INVALID_HANDLE;
+                    }
+                };
+                (&tex.data, tex.width, tex.height)
+            }
+            Some(Attachment::Renderbuffer(rb_handle)) => {
+                let rb = match ctx_obj.renderbuffers.get(&rb_handle) {
+                    Some(r) => r,
+                    None => {
+                        set_last_error("attached renderbuffer not found");
+                        return ERR_INVALID_HANDLE;
+                    }
+                };
+                (&rb.data, rb.width, rb.height)
+            }
             None => {
                 set_last_error("framebuffer has no color attachment");
                 return ERR_INVALID_ARGS;
             }
-        };
-        let tex = match ctx_obj.textures.get(&tex_handle) {
-            Some(t) => t,
-            None => {
-                set_last_error("attached texture not found");
-                return ERR_INVALID_HANDLE;
-            }
-        };
-        (&tex.data, tex.width, tex.height)
+        }
     } else {
         (
             &ctx_obj.default_framebuffer.color,

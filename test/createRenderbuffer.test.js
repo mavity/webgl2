@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('createRenderbuffer throws not implemented', async () => {
+test('createRenderbuffer returns a renderbuffer object', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.createRenderbuffer(), /not implemented/); } finally { gl.destroy(); }
+  const rb = gl.createRenderbuffer();
+  assert.ok(rb, 'createRenderbuffer should return an object');
+  assert.equal(gl.getError(), gl.NO_ERROR);
+  gl.destroy();
 });

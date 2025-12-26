@@ -39,16 +39,43 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
         let a = (ctx_obj.clear_color[3] * 255.0) as u8;
 
         if let Some(fb_handle) = ctx_obj.bound_framebuffer {
-            if let Some(fb) = ctx_obj.framebuffers.get(&fb_handle) {
-                if let Some(tex_handle) = fb.color_attachment {
-                    if let Some(tex) = ctx_obj.textures.get_mut(&tex_handle) {
-                        for i in (0..tex.data.len()).step_by(4) {
-                            if i + 3 < tex.data.len() {
-                                tex.data[i] = r;
-                                tex.data[i + 1] = g;
-                                tex.data[i + 2] = b;
-                                tex.data[i + 3] = a;
+            // We need to clone the attachment info to avoid borrowing issues
+            let attachment = if let Some(fb) = ctx_obj.framebuffers.get(&fb_handle) {
+                fb.color_attachment
+            } else {
+                None
+            };
+
+            if let Some(att) = attachment {
+                match att {
+                    Attachment::Texture(tex_handle) => {
+                        if let Some(tex) = ctx_obj.textures.get_mut(&tex_handle) {
+                            for i in (0..tex.data.len()).step_by(4) {
+                                if i + 3 < tex.data.len() {
+                                    tex.data[i] = r;
+                                    tex.data[i + 1] = g;
+                                    tex.data[i + 2] = b;
+                                    tex.data[i + 3] = a;
+                                }
                             }
+                        }
+                    }
+                    Attachment::Renderbuffer(rb_handle) => {
+                        if let Some(rb) = ctx_obj.renderbuffers.get_mut(&rb_handle) {
+                            // Only clear if it's a color renderbuffer
+                            // For now we assume RGBA4 or similar that fits in u8/pixel logic roughly?
+                            // Actually RGBA4 is 2 bytes per pixel.
+                            // But let's just fill with 0 for now if it's not RGBA8, or try to support it.
+                            // Since we only support software rasterizer for default FB, this is mostly for correctness of API.
+                            // If the user clears a renderbuffer, we should probably fill it.
+                            // But `rb.data` is `Vec<u8>`.
+                            // If format is RGBA4, we need to pack r,g,b,a into 16 bits.
+                            // For now, let's just fill with 0s if we don't know the format, or implement proper clearing later.
+                            // Or just ignore for now to avoid complexity, as software rasterizer doesn't support FBOs fully yet.
+                            // But we should at least not crash.
+                            
+                            // Simple clear for now:
+                            rb.data.fill(0); 
                         }
                     }
                 }

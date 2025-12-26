@@ -41,6 +41,14 @@ pub const GL_VIEWPORT: u32 = 0x0BA2;
 pub const GL_COLOR_CLEAR_VALUE: u32 = 0x0C22;
 pub const GL_BUFFER_SIZE: u32 = 0x8764;
 pub const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
+pub const GL_RENDERBUFFER: u32 = 0x8D41;
+pub const GL_FRAMEBUFFER: u32 = 0x8D40;
+pub const GL_DEPTH_COMPONENT16: u32 = 0x81A5;
+pub const GL_DEPTH_STENCIL: u32 = 0x84F9;
+pub const GL_RGBA4: u32 = 0x8056;
+pub const GL_RGB565: u32 = 0x8D62;
+pub const GL_RGB5_A1: u32 = 0x8057;
+pub const GL_STENCIL_INDEX8: u32 = 0x8D48;
 
 // Handle constants
 pub(crate) const INVALID_HANDLE: u32 = 0;
@@ -63,10 +71,27 @@ pub(crate) struct Texture {
     pub(crate) wrap_t: u32,
 }
 
-/// A WebGL2 framebuffer resource (stores attachment texture ID)
+/// A WebGL2 renderbuffer resource
+#[derive(Clone)]
+pub(crate) struct Renderbuffer {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) internal_format: u32,
+    pub(crate) data: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Attachment {
+    Texture(u32),
+    Renderbuffer(u32),
+}
+
+/// A WebGL2 framebuffer resource
 #[derive(Clone)]
 pub(crate) struct FramebufferObj {
-    pub(crate) color_attachment: Option<u32>, // texture handle
+    pub(crate) color_attachment: Option<Attachment>,
+    pub(crate) depth_attachment: Option<Attachment>,
+    pub(crate) stencil_attachment: Option<Attachment>,
 }
 
 /// A WebGL2 buffer resource
@@ -156,6 +181,7 @@ pub struct Context {
     pub(crate) shaders: HashMap<u32, Shader>,
     pub(crate) programs: HashMap<u32, Program>,
     pub(crate) vertex_arrays: HashMap<u32, VertexArray>,
+    pub(crate) renderbuffers: HashMap<u32, Renderbuffer>,
 
     pub(crate) next_texture_handle: u32,
     pub(crate) next_framebuffer_handle: u32,
@@ -163,9 +189,11 @@ pub struct Context {
     pub(crate) next_shader_handle: u32,
     pub(crate) next_program_handle: u32,
     pub(crate) next_vertex_array_handle: u32,
+    pub(crate) next_renderbuffer_handle: u32,
 
     pub(crate) bound_texture: Option<u32>,
     pub(crate) bound_framebuffer: Option<u32>,
+    pub(crate) bound_renderbuffer: Option<u32>,
     pub(crate) bound_array_buffer: Option<u32>,
     pub(crate) bound_vertex_array: u32,
     pub(crate) current_program: Option<u32>,
@@ -202,6 +230,7 @@ impl Default for Context {
             shaders: HashMap::new(),
             programs: HashMap::new(),
             vertex_arrays,
+            renderbuffers: HashMap::new(),
 
             next_texture_handle: FIRST_HANDLE,
             next_framebuffer_handle: FIRST_HANDLE,
@@ -209,9 +238,11 @@ impl Default for Context {
             next_shader_handle: FIRST_HANDLE,
             next_program_handle: FIRST_HANDLE,
             next_vertex_array_handle: FIRST_HANDLE,
+            next_renderbuffer_handle: FIRST_HANDLE,
 
             bound_texture: None,
             bound_framebuffer: None,
+            bound_renderbuffer: None,
             bound_array_buffer: None,
             bound_vertex_array: 0,
             current_program: None,
@@ -299,6 +330,15 @@ impl Context {
         self.next_vertex_array_handle = self.next_vertex_array_handle.saturating_add(1);
         if self.next_vertex_array_handle == 0 {
             self.next_vertex_array_handle = FIRST_HANDLE;
+        }
+        h
+    }
+
+    pub(crate) fn allocate_renderbuffer_handle(&mut self) -> u32 {
+        let h = self.next_renderbuffer_handle;
+        self.next_renderbuffer_handle = self.next_renderbuffer_handle.saturating_add(1);
+        if self.next_renderbuffer_handle == 0 {
+            self.next_renderbuffer_handle = FIRST_HANDLE;
         }
         h
     }

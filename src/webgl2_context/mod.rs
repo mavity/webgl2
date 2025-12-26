@@ -7,6 +7,7 @@ pub mod framebuffers;
 pub mod shaders;
 pub mod vaos;
 pub mod drawing;
+pub mod renderbuffers;
 
 pub use registry::{
     create_context, destroy_context, wasm_alloc, wasm_free, set_last_error, last_error_ptr,
@@ -19,6 +20,7 @@ pub use framebuffers::*;
 pub use shaders::*;
 pub use vaos::*;
 pub use drawing::*;
+pub use renderbuffers::*;
 pub use types::{
     ERR_OK, ERR_INVALID_HANDLE, ERR_OOM, ERR_INVALID_ARGS, ERR_NOT_IMPLEMENTED, ERR_GL,
     ERR_INTERNAL, ERR_INVALID_OPERATION, ERR_INVALID_ENUM, GL_NO_ERROR, GL_INVALID_ENUM,
@@ -27,4 +29,6 @@ pub use types::{
     GL_INFO_LOG_LENGTH, GL_ATTACHED_SHADERS, GL_ACTIVE_UNIFORMS, GL_ACTIVE_ATTRIBUTES,
     GL_TEXTURE_MAG_FILTER, GL_TEXTURE_MIN_FILTER, GL_TEXTURE_WRAP_S, GL_TEXTURE_WRAP_T,
     GL_VIEWPORT, GL_COLOR_CLEAR_VALUE, GL_BUFFER_SIZE, GL_COLOR_BUFFER_BIT,
+    GL_RENDERBUFFER, GL_FRAMEBUFFER, GL_DEPTH_COMPONENT16, GL_DEPTH_STENCIL,
+    GL_RGBA4, GL_RGB565, GL_RGB5_A1, GL_STENCIL_INDEX8,
 };

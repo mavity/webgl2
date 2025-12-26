@@ -49,3 +49,19 @@ export class WasmWebGLBuffer {
     this._deleted = false;
   }
 }
+
+/**
+ * Thin wrapper for a WebGLRenderbuffer handle returned from WASM.
+ * @implements {WebGLRenderbuffer}
+ */
+export class WasmWebGLRenderbuffer {
+  /**
+   * @param {import('./webgl2_context.js').WasmWebGL2RenderingContext} ctx
+   * @param {number} handle
+   */
+  constructor(ctx, handle) {
+    this._ctx = ctx;
+    this._handle = handle;
+    this._deleted = false;
+  }
+}

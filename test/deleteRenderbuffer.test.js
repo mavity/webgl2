@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('deleteRenderbuffer throws not implemented', async () => {
+test('deleteRenderbuffer works', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.deleteRenderbuffer(1), /not implemented/); } finally { gl.destroy(); }
+  const rb = gl.createRenderbuffer();
+  gl.deleteRenderbuffer(rb);
+  assert.equal(gl.getError(), gl.NO_ERROR);
+  gl.destroy();
 });
