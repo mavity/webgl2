@@ -20,8 +20,7 @@ pub extern "C" fn wasm_init_coverage(size: usize) {
             return;
         }
         // Allocate buffer using Rust's allocator
-        let mut buf = Vec::with_capacity(size);
-        buf.resize(size, 0);
+        let mut buf = vec![0; size];
         let ptr = buf.as_mut_ptr();
         std::mem::forget(buf); // Leak it so it lives forever
         COV_HITS_PTR = ptr;

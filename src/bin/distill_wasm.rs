@@ -182,6 +182,7 @@ fn main() -> Result<()> {
 
 /// Build mapping of instrumentation IDs to source locations.
 /// Returns (FuncId -> [ProbeId], ProbeId -> (File, Line, Column))
+#[allow(clippy::type_complexity)]
 fn build_coverage_mapping(
     wasm_bytes: &[u8],
     module: &Module,
@@ -224,7 +225,7 @@ fn build_coverage_mapping(
         };
 
     let dwarf = gimli::Dwarf::load(&loader).ok();
-    let dwarf_lookup = dwarf.as_ref().map(|d| DwarfLookup::new(d));
+    let dwarf_lookup = dwarf.as_ref().map(DwarfLookup::new);
 
     let mut probe_id = 0;
 
@@ -400,21 +401,21 @@ impl DwarfLookup {
                                 let dir_idx = file.directory_index();
                                 if let Some(dir_val) = program_rows.header().directory(dir_idx) {
                                     if let Ok(dir_attr) = dwarf.attr_string(&unit, dir_val) {
-                                            let d_str = dir_attr.to_string_lossy();
-                                            if !d_str.is_empty() {
-                                                let d_clean = d_str.replace('\\', "/");
-                                                let p_clean = p_str.replace('\\', "/");
-                                                // If filename is not absolute, prepend directory
-                                                if !p_clean.starts_with('/') && !p_clean.contains(':') {
-                                                    if d_clean.ends_with('/') {
-                                                        p_str = format!("{}{}", d_clean, p_clean);
-                                                    } else {
-                                                        p_str = format!("{}/{}", d_clean, p_clean);
-                                                    }
+                                        let d_str = dir_attr.to_string_lossy();
+                                        if !d_str.is_empty() {
+                                            let d_clean = d_str.replace('\\', "/");
+                                            let p_clean = p_str.replace('\\', "/");
+                                            // If filename is not absolute, prepend directory
+                                            if !p_clean.starts_with('/') && !p_clean.contains(':') {
+                                                if d_clean.ends_with('/') {
+                                                    p_str = format!("{}{}", d_clean, p_clean);
+                                                } else {
+                                                    p_str = format!("{}/{}", d_clean, p_clean);
                                                 }
                                             }
                                         }
                                     }
+                                }
 
                                 if !p_str.is_empty() {
                                     // Normalize slashes
@@ -424,7 +425,9 @@ impl DwarfLookup {
                                     if let Ok(cwd) = std::env::current_dir() {
                                         let cwd_str = cwd.to_string_lossy().replace('\\', "/");
                                         if final_path.starts_with(&cwd_str) {
-                                            final_path = final_path[cwd_str.len()..].trim_start_matches('/').to_string();
+                                            final_path = final_path[cwd_str.len()..]
+                                                .trim_start_matches('/')
+                                                .to_string();
                                         }
                                     }
 
@@ -477,39 +480,6 @@ impl DwarfLookup {
     }
 }
 
-fn build_function_coverage_map_heuristic(module: &Module) -> HashMap<u32, (String, u32)> {
-    let mut map = HashMap::new();
-    let mut probe_id = 0;
-
-    for (id, _) in module.funcs.iter_local() {
-        let func = module.funcs.get(id);
-        let name = func.name.as_deref().unwrap_or("unknown");
-
-        let mut path = "unmapped_function.rs".to_string();
-        let mut line = 1;
-
-        if name != "unknown" {
-            let clean_name = if name.starts_with("_ZN") { name } else { name };
-
-            if clean_name.contains("webgl2") {
-                let parts: Vec<&str> = clean_name.split("::").collect();
-                for part in parts {
-                    if part.starts_with("webgl2_") {
-                        path = format!("src/{}.rs", part);
-                        line = 100;
-                        break;
-                    }
-                }
-            }
-        }
-
-        map.insert(probe_id, (path, line));
-        probe_id += 1;
-    }
-
-    map
-}
-
 /// Serialize mapping and create coverage data
 fn create_coverage_data(mapping: &HashMap<u32, (String, u32, u32)>) -> Result<(Vec<u8>, usize)> {
     // Serialize mapping entries
@@ -539,88 +509,6 @@ fn create_coverage_data(mapping: &HashMap<u32, (String, u32, u32)>) -> Result<(V
     mapping_data.extend_from_slice(&entries_data);
 
     Ok((mapping_data, mapping.len()))
-}
-
-/// Allocate hits segment in WASM memory
-fn allocate_hits_segment(module: &mut Module, size: usize) -> Result<u32> {
-    // Find the first memory
-    let memory_id = module
-        .memories
-        .iter()
-        .next()
-        .context("No memory found in WASM module")?
-        .id();
-
-    // Get current data size by examining existing data segments
-    let mut max_offset = 0u32;
-    for data_segment in module.data.iter() {
-        if let walrus::DataKind::Active { memory: _, offset } = &data_segment.kind {
-            let offset_val = match offset {
-                ConstExpr::Value(ir::Value::I32(v)) => (*v).max(0) as u32,
-                _ => continue,
-            };
-            let end = offset_val + data_segment.value.len() as u32;
-            if end > max_offset {
-                max_offset = end;
-            }
-        }
-    }
-
-    // Align to 16 bytes
-    let segment_offset = (max_offset + 15) & !15;
-
-    // Ensure memory is large enough
-    let required_bytes = segment_offset + size as u32;
-    let required_pages = ((required_bytes + 65535) / 65536) as u64;
-
-    let memory = module.memories.get_mut(memory_id);
-
-    // Add some padding for the heap (e.g. 16 pages = 1MB)
-    let padding_pages = 16;
-    let target_pages = required_pages + padding_pages;
-
-    if memory.initial < target_pages {
-        tracing::info!(
-            "Expanding memory from {} to {} pages (including {} padding)",
-            memory.initial,
-            target_pages,
-            padding_pages
-        );
-        memory.initial = target_pages;
-    }
-    if let Some(max) = memory.maximum {
-        if max < target_pages {
-            memory.maximum = Some(target_pages);
-        }
-    }
-
-    // Add new data segment (zeros)
-    let offset_expr = ConstExpr::Value(ir::Value::I32(segment_offset as i32));
-    module.data.add(
-        walrus::DataKind::Active {
-            memory: memory_id,
-            offset: offset_expr,
-        },
-        vec![0u8; size],
-    );
-
-    // Update __heap_base if it exists
-    let new_end = segment_offset + size as u32;
-
-    if let Some(heap_base) = find_exported_global(module, "__heap_base") {
-        update_global_initializer(module, heap_base, new_end)?;
-        tracing::info!("Updated __heap_base to {}", new_end);
-    } else {
-        tracing::warn!("__heap_base not found, heap corruption likely!");
-    }
-
-    // Update __data_end if it exists
-    if let Some(data_end) = find_exported_global(module, "__data_end") {
-        update_global_initializer(module, data_end, new_end)?;
-        tracing::info!("Updated __data_end to {}", new_end);
-    }
-
-    Ok(segment_offset)
 }
 
 fn find_exported_global(module: &Module, name: &str) -> Option<walrus::GlobalId> {
@@ -662,10 +550,6 @@ fn update_global_initializer(
 }
 
 fn patch_global_ptr(module: &mut Module, global_id: walrus::GlobalId, value: u32) -> Result<()> {
-    update_global_initializer(module, global_id, value)
-}
-
-fn patch_global_len(module: &mut Module, global_id: walrus::GlobalId, value: u32) -> Result<()> {
     update_global_initializer(module, global_id, value)
 }
 
@@ -748,7 +632,7 @@ fn instrument_instr_seq(
     let instrs: Vec<_> = {
         let builder = func.builder_mut();
         let seq = builder.instr_seq(seq_id);
-        seq.instrs().iter().cloned().collect()
+        seq.instrs().to_vec()
     };
 
     for (instr, _) in instrs {
@@ -826,7 +710,7 @@ fn allocate_data_segment(module: &mut Module, data: &[u8]) -> Result<u32> {
 
     // Ensure memory is large enough
     let required_bytes = segment_offset + data.len() as u32;
-    let required_pages = ((required_bytes + 65535) / 65536) as u64;
+    let required_pages = required_bytes.div_ceil(65536) as u64;
 
     let memory = module.memories.get_mut(memory_id);
 
