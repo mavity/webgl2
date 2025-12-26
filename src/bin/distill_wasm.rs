@@ -441,6 +441,11 @@ impl DwarfLookup {
                                         continue;
                                     }
 
+                                    // Filter out files that don't exist locally
+                                    if !std::path::Path::new(&final_path).exists() {
+                                        continue;
+                                    }
+
                                     let line = row.line().map(|l| l.get() as u32).unwrap_or(0);
                                     let col = match row.column() {
                                         gimli::ColumnType::LeftEdge => 0,
