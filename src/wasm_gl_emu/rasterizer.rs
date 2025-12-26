@@ -44,6 +44,8 @@ impl Default for ShaderMemoryLayout {
 
 /// Render state for a draw call
 pub struct RenderState<'a> {
+    /// Context handle
+    pub ctx_handle: u32,
     /// Memory layout for shaders
     pub memory: ShaderMemoryLayout,
     /// Viewport (x, y, width, height)
@@ -209,7 +211,7 @@ impl Rasterizer {
         &self,
         varyings: &[f32],
         pipeline: &RasterPipeline,
-        _state: &RenderState,
+        state: &RenderState,
     ) -> [u8; 4] {
         // Copy varyings to shader memory
         unsafe {
@@ -222,6 +224,7 @@ impl Rasterizer {
 
         // Execute fragment shader
         crate::js_execute_shader(
+            state.ctx_handle,
             pipeline.fragment_shader_type,
             0,
             pipeline.memory.uniform_ptr,

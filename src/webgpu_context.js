@@ -57,6 +57,7 @@ export class GPUDevice {
         this.ctxHandle = ctxHandle;
         this.deviceHandle = deviceHandle;
         this.queue = new GPUQueue(wasmModule, wasmMemory, ctxHandle, 1); // Placeholder queue handle
+        this._destroyed = false;
     }
 
     /**
@@ -107,7 +108,11 @@ export class GPUDevice {
      * Destroy the device
      */
     destroy() {
-        // TODO: Clean up device resources
+        if (this._destroyed) return;
+        if (typeof this.wasm.wasm_webgpu_destroy_context === 'function') {
+            this.wasm.wasm_webgpu_destroy_context(this.ctxHandle);
+        }
+        this._destroyed = true;
     }
 }
 

@@ -79,6 +79,7 @@ pub fn ctx_draw_arrays_instanced(
             }
 
             crate::js_execute_shader(
+                ctx,
                 0x8B31, /* VERTEX_SHADER */
                 attr_ptr,
                 uniform_ptr,
@@ -127,6 +128,7 @@ pub fn ctx_draw_arrays_instanced(
                 }
 
                 crate::js_execute_shader(
+                    ctx,
                     0x8B30, /* FRAGMENT_SHADER */
                     0,
                     uniform_ptr,
@@ -162,6 +164,7 @@ pub fn ctx_draw_arrays_instanced(
             // Create pipeline configuration
             let pipeline = RasterPipeline::default();
             let state = RenderState {
+                ctx_handle: ctx,
                 memory: ShaderMemoryLayout::default(),
                 viewport: (vx, vy, vw, vh),
                 uniform_data: &ctx_obj.uniform_data,
@@ -342,6 +345,7 @@ pub fn ctx_draw_elements_instanced(
             }
 
             crate::js_execute_shader(
+                ctx,
                 0x8B31, /* VERTEX_SHADER */
                 attr_ptr,
                 uniform_ptr,
@@ -390,6 +394,7 @@ pub fn ctx_draw_elements_instanced(
                 }
 
                 crate::js_execute_shader(
+                    ctx,
                     0x8B30, /* FRAGMENT_SHADER */
                     0,
                     uniform_ptr,
@@ -424,6 +429,7 @@ pub fn ctx_draw_elements_instanced(
             // GL_TRIANGLES - use shared rasterizer
             let pipeline = RasterPipeline::default();
             let state = RenderState {
+                ctx_handle: ctx,
                 memory: ShaderMemoryLayout::default(),
                 viewport: (vx, vy, vw, vh),
                 uniform_data: &ctx_obj.uniform_data,

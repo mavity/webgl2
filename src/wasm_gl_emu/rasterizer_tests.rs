@@ -162,6 +162,7 @@ fn test_is_inside_function() {
 fn test_render_state_creation() {
     let uniform_data = vec![1u8, 2, 3, 4];
     let state = RenderState {
+        ctx_handle: 1,
         memory: ShaderMemoryLayout::default(),
         viewport: (0, 0, 800, 600),
         uniform_data: &uniform_data,

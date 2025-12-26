@@ -84,8 +84,11 @@ export class WasmWebGL2RenderingContext {
     /** @type {import('./webgl2_resources.js').WasmWebGLProgram | null} */
     this._currentProgram = null;
 
-    WasmWebGL2RenderingContext.activeContext = this;
+    WasmWebGL2RenderingContext._contexts.set(ctxHandle, this);
   }
+
+  /** @type {Map<number, WasmWebGL2RenderingContext>} */
+  static _contexts = new Map();
 
   _executeShader(type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr) {
     if (!this._currentProgram) {
@@ -107,12 +110,11 @@ export class WasmWebGL2RenderingContext {
 
   destroy() {
     if (this._destroyed) return;
+    WasmWebGL2RenderingContext._contexts.delete(this._ctxHandle);
     const ex = this._instance.exports;
-    if (ex && typeof ex.wasm_ctx_destroy_context === 'function') {
-      if (typeof ex.wasm_destroy_context === 'function') {
-        const code = ex.wasm_destroy_context(this._ctxHandle);
-        _checkErr(code, this._instance);
-      }
+    if (ex && typeof ex.wasm_destroy_context === 'function') {
+      const code = ex.wasm_destroy_context(this._ctxHandle);
+      _checkErr(code, this._instance);
     }
     this._destroyed = true;
   }

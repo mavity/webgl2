@@ -6,6 +6,7 @@ import {
   ERR_INVALID_HANDLE,
   readErrorMessage
 } from './src/webgl2_context.js';
+import { GPU } from './src/webgpu_context.js';
 
 /**
  * WebGL2 Prototype: Rust-owned Context, JS thin-forwarder
@@ -48,21 +49,18 @@ const isNode =
  */
 async function webGL2({ debug = process.env.WEBGL2_DEBUG === 'true' } = {}) {
   // Load WASM binary
-  if (!wasmInitPromise) {
-    wasmInitPromise = (async () => {
-      // ensure success is cached but not failure
-      let succeeded = false;
-      try {
-        const wasm = await initWASM({ debug });
-        succeeded = true;
-        return wasm;
-      } finally {
-        if (!succeeded)
-          wasmInitPromise = undefined;
+  let promise = wasmCache.get(!!debug);
+  if (!promise) {
+    promise = initWASM({ debug });
+    wasmCache.set(!!debug, promise);
+    // ensure success is cached but not failure
+    promise.catch(() => {
+      if (wasmCache.get(!!debug) === promise) {
+        wasmCache.delete(!!debug);
       }
-    })();
+    });
   }
-  const { ex, instance } = await wasmInitPromise;
+  const { ex, instance } = await promise;
 
   // Initialize coverage if available
   if (ex.wasm_init_coverage && ex.COV_MAP_PTR) {
@@ -87,13 +85,32 @@ async function webGL2({ debug = process.env.WEBGL2_DEBUG === 'true' } = {}) {
 }
 
 /**
- * @type {(
- *  Promise<{ ex: WebAssembly.Exports, instance: WebAssembly.Instance }> |
- * { ex: WebAssembly.Exports, instance: WebAssembly.Instance } |
- *  undefined
- *  )}
+ * Factory function: create a new WebGPU instance.
+ *
+ * @param {{
+ *  debug?: boolean,
+ * }} [opts] - options
+ * @returns {Promise<GPU>}
  */
-var wasmInitPromise;
+async function webGPU({ debug = process.env.WEBGL2_DEBUG === 'true' } = {}) {
+  let promise = wasmCache.get(!!debug);
+  if (!promise) {
+    promise = initWASM({ debug });
+    wasmCache.set(!!debug, promise);
+    promise.catch(() => {
+      if (wasmCache.get(!!debug) === promise) {
+        wasmCache.delete(!!debug);
+      }
+    });
+  }
+  const { ex, instance } = await promise;
+  return new GPU(ex, ex.memory);
+}
+
+/**
+ * @type {Map<boolean, Promise<{ ex: WebAssembly.Exports, instance: WebAssembly.Instance, module: WebAssembly.Module }>>}
+ */
+const wasmCache = new Map();
 
 async function initWASM({ debug } = {}) {
   const wasmFile = debug ? 'webgl2.debug.wasm' : 'webgl2.wasm';
@@ -130,9 +147,10 @@ async function initWASM({ debug } = {}) {
         const bytes = mem.subarray(ptr, ptr + len);
         console.log(new TextDecoder('utf-8').decode(bytes));
       },
-      wasm_execute_shader: (type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr) => {
-        if (WasmWebGL2RenderingContext.activeContext) {
-          WasmWebGL2RenderingContext.activeContext._executeShader(type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
+      wasm_execute_shader: (ctx, type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr) => {
+        const gl = WasmWebGL2RenderingContext._contexts.get(ctx);
+        if (gl) {
+          gl._executeShader(type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
         }
       }
     }
@@ -147,7 +165,7 @@ async function initWASM({ debug } = {}) {
   if (!(ex.memory instanceof WebAssembly.Memory)) {
     throw new Error('WASM module missing memory export');
   }
-  return wasmInitPromise = { ex, instance, module: wasmModule };
+  return { ex, instance, module: wasmModule };
 }
 
 /**
@@ -185,12 +203,13 @@ function _checkErr(code, instance) {
 
 
 // Exports: ESM-style. Also attach globals in browser for convenience.
-export { webGL2, WasmWebGL2RenderingContext, ERR_OK, ERR_INVALID_HANDLE };
+export { webGL2, webGPU, WasmWebGL2RenderingContext, ERR_OK, ERR_INVALID_HANDLE };
 
 if (typeof window !== 'undefined' && window) {
   // also populate globals when running in a browser environment
   try {
     window.webGL2 = webGL2;
+    window.webGPU = webGPU;
     window.WasmWebGL2RenderingContext = WasmWebGL2RenderingContext;
   } catch (e) {
     // ignore if window is not writable

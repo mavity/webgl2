@@ -25,6 +25,7 @@ pub mod coverage;
 extern "C" {
     fn print(ptr: *const u8, len: usize);
     fn wasm_execute_shader(
+        ctx: u32,
         type_: u32,
         attr_ptr: i32,
         uniform_ptr: i32,
@@ -39,6 +40,7 @@ unsafe fn print(_ptr: *const u8, _len: usize) {}
 
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn wasm_execute_shader(
+    _ctx: u32,
     _type_: u32,
     _attr_ptr: i32,
     _uniform_ptr: i32,
@@ -69,6 +71,7 @@ pub fn js_log(level: u32, s: &str) {
 }
 
 pub fn js_execute_shader(
+    ctx: u32,
     type_: u32,
     attr_ptr: u32,
     uniform_ptr: u32,
@@ -78,6 +81,7 @@ pub fn js_execute_shader(
 ) {
     unsafe {
         wasm_execute_shader(
+            ctx,
             type_,
             attr_ptr as i32,
             uniform_ptr as i32,
