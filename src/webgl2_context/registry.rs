@@ -1,7 +1,7 @@
+use super::types::*;
 use std::alloc::{alloc, dealloc, Layout};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use super::types::*;
 
 /// Global registry: handle -> Context
 ///

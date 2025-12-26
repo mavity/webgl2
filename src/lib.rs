@@ -15,6 +15,7 @@ pub mod js_codegen;
 pub mod naga_wasm_backend;
 pub mod wasm_gl_emu;
 pub mod webgl2_context;
+pub mod webgpu;
 
 #[cfg(feature = "coverage")]
 pub mod coverage;
@@ -711,6 +712,20 @@ pub extern "C" fn wasm_ctx_bind_vertex_array(ctx: u32, vao: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn wasm_ctx_is_vertex_array(ctx: u32, vao: u32) -> u32 {
     webgl2_context::ctx_is_vertex_array(ctx, vao)
+}
+
+// ============================================================================
+// WebGPU API Exports
+// ============================================================================
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_create_context() -> u32 {
+    webgpu::adapter::create_context()
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_destroy_context(handle: u32) -> u32 {
+    webgpu::adapter::destroy_context(handle)
 }
 
 // ============================================================================

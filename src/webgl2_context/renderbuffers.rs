@@ -1,4 +1,4 @@
-use super::registry::{get_registry, set_last_error, clear_last_error};
+use super::registry::{clear_last_error, get_registry, set_last_error};
 use super::types::*;
 
 // ============================================================================
@@ -79,7 +79,7 @@ pub fn ctx_delete_renderbuffer(ctx: u32, renderbuffer: u32) -> u32 {
         if ctx_obj.bound_renderbuffer == Some(renderbuffer) {
             ctx_obj.bound_renderbuffer = None;
         }
-        // Also detach from any framebuffers? 
+        // Also detach from any framebuffers?
         // In a real implementation we should check all FBs, but for now we skip that O(N) check.
         // The spec says it should be detached.
         ERR_OK
@@ -144,7 +144,7 @@ pub fn ctx_renderbuffer_storage(
         GL_DEPTH_COMPONENT16 => 2,
         GL_STENCIL_INDEX8 => 1,
         GL_DEPTH_STENCIL => 4, // 24 depth + 8 stencil usually, let's say 4 bytes
-        _ => 4, // Default to 4 bytes (RGBA8 etc)
+        _ => 4,                // Default to 4 bytes (RGBA8 etc)
     };
 
     let size = (width as usize) * (height as usize) * bpp;

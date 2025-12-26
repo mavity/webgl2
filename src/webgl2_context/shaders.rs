@@ -1,4 +1,4 @@
-use super::registry::{get_registry, set_last_error, clear_last_error};
+use super::registry::{clear_last_error, get_registry, set_last_error};
 use super::types::*;
 use crate::naga_wasm_backend::{WasmBackend, WasmBackendConfig};
 use naga::front::glsl::{Frontend, Options};
@@ -630,12 +630,7 @@ pub fn ctx_use_program(ctx: u32, program: u32) -> u32 {
     }
 }
 
-pub fn ctx_get_uniform_location(
-    ctx: u32,
-    program: u32,
-    name_ptr: u32,
-    name_len: u32,
-) -> i32 {
+pub fn ctx_get_uniform_location(ctx: u32, program: u32, name_ptr: u32, name_len: u32) -> i32 {
     clear_last_error();
     let reg = get_registry().borrow();
     let ctx_obj = match reg.contexts.get(&ctx) {
@@ -643,7 +638,8 @@ pub fn ctx_get_uniform_location(
         None => return -1,
     };
 
-    let name_slice = unsafe { std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize) };
+    let name_slice =
+        unsafe { std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize) };
     let name = String::from_utf8_lossy(name_slice).into_owned();
 
     if let Some(p) = ctx_obj.programs.get(&program) {
@@ -657,12 +653,7 @@ pub fn ctx_get_uniform_location(
     }
 }
 
-pub fn ctx_get_attrib_location(
-    ctx: u32,
-    program: u32,
-    name_ptr: u32,
-    name_len: u32,
-) -> i32 {
+pub fn ctx_get_attrib_location(ctx: u32, program: u32, name_ptr: u32, name_len: u32) -> i32 {
     clear_last_error();
     let reg = get_registry().borrow();
     let ctx_obj = match reg.contexts.get(&ctx) {
@@ -670,7 +661,8 @@ pub fn ctx_get_attrib_location(
         None => return -1,
     };
 
-    let name_slice = unsafe { std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize) };
+    let name_slice =
+        unsafe { std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize) };
     let name = String::from_utf8_lossy(name_slice).into_owned();
 
     if let Some(p) = ctx_obj.programs.get(&program) {

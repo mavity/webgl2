@@ -1,4 +1,4 @@
-use super::registry::{get_registry, set_last_error, clear_last_error};
+use super::registry::{clear_last_error, get_registry, set_last_error};
 use super::types::*;
 
 // ============================================================================
@@ -130,10 +130,10 @@ pub fn ctx_framebuffer_texture2d(
     // In real WebGL2, attachment can be COLOR_ATTACHMENTi, DEPTH_ATTACHMENT, etc.
     // But this function signature doesn't check attachment type properly yet in the original code?
     // The original code was cut off in read_file, but I assume it was setting color_attachment.
-    
+
     // Let's assume attachment == 0x8CE0 (GL_COLOR_ATTACHMENT0)
     // But wait, the function signature has `attachment` arg.
-    
+
     // 0x8CE0 = GL_COLOR_ATTACHMENT0
     // 0x8D00 = GL_DEPTH_ATTACHMENT
     // 0x8D20 = GL_STENCIL_ATTACHMENT
@@ -147,13 +147,17 @@ pub fn ctx_framebuffer_texture2d(
         Some(Attachment::Texture(tex))
     };
 
-    if attachment_enum == 0x8CE0 { // GL_COLOR_ATTACHMENT0
+    if attachment_enum == 0x8CE0 {
+        // GL_COLOR_ATTACHMENT0
         fb.color_attachment = attachment_obj;
-    } else if attachment_enum == 0x8D00 { // GL_DEPTH_ATTACHMENT
+    } else if attachment_enum == 0x8D00 {
+        // GL_DEPTH_ATTACHMENT
         fb.depth_attachment = attachment_obj;
-    } else if attachment_enum == 0x8D20 { // GL_STENCIL_ATTACHMENT
+    } else if attachment_enum == 0x8D20 {
+        // GL_STENCIL_ATTACHMENT
         fb.stencil_attachment = attachment_obj;
-    } else if attachment_enum == 0x821A { // GL_DEPTH_STENCIL_ATTACHMENT
+    } else if attachment_enum == 0x821A {
+        // GL_DEPTH_STENCIL_ATTACHMENT
         fb.depth_attachment = attachment_obj;
         fb.stencil_attachment = attachment_obj;
     } else {
@@ -214,13 +218,17 @@ pub fn ctx_framebuffer_renderbuffer(
         Some(Attachment::Renderbuffer(renderbuffer))
     };
 
-    if attachment == 0x8CE0 { // GL_COLOR_ATTACHMENT0
+    if attachment == 0x8CE0 {
+        // GL_COLOR_ATTACHMENT0
         fb.color_attachment = attachment_obj;
-    } else if attachment == 0x8D00 { // GL_DEPTH_ATTACHMENT
+    } else if attachment == 0x8D00 {
+        // GL_DEPTH_ATTACHMENT
         fb.depth_attachment = attachment_obj;
-    } else if attachment == 0x8D20 { // GL_STENCIL_ATTACHMENT
+    } else if attachment == 0x8D20 {
+        // GL_STENCIL_ATTACHMENT
         fb.stencil_attachment = attachment_obj;
-    } else if attachment == 0x821A { // GL_DEPTH_STENCIL_ATTACHMENT
+    } else if attachment == 0x821A {
+        // GL_DEPTH_STENCIL_ATTACHMENT
         fb.depth_attachment = attachment_obj;
         fb.stencil_attachment = attachment_obj;
     } else {
@@ -230,5 +238,3 @@ pub fn ctx_framebuffer_renderbuffer(
 
     ERR_OK
 }
-
-

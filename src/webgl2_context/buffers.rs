@@ -1,4 +1,4 @@
-use super::registry::{get_registry, set_last_error, clear_last_error};
+use super::registry::{clear_last_error, get_registry, set_last_error};
 use super::types::*;
 
 /// Get buffer parameter.

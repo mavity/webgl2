@@ -343,7 +343,12 @@ impl Context {
         h
     }
 
-    pub(crate) fn fetch_vertex_attributes(&self, vertex_id: u32, instance_id: u32, dest: &mut [f32]) {
+    pub(crate) fn fetch_vertex_attributes(
+        &self,
+        vertex_id: u32,
+        instance_id: u32,
+        dest: &mut [f32],
+    ) {
         let vao = match self.vertex_arrays.get(&self.bound_vertex_array) {
             Some(v) => v,
             None => return, // Should not happen as default VAO is always there
@@ -382,8 +387,8 @@ impl Context {
                         attr.stride
                     };
 
-                    let offset =
-                        attr.offset as usize + (effective_index as usize * effective_stride as usize);
+                    let offset = attr.offset as usize
+                        + (effective_index as usize * effective_stride as usize);
 
                     for component in 0..4 {
                         if component < attr.size as usize {

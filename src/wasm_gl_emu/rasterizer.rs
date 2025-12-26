@@ -1,4 +1,78 @@
-//! Triangle rasterizer
+//! Triangle rasterizer - shared between WebGL2 and WebGPU
+//!
+//! This module provides a driver-agnostic software rasterizer that can be used
+//! by both WebGL2 and WebGPU implementations. It handles vertex fetching,
+//! barycentric interpolation, and fragment shading.
+
+/// Vertex data after vertex shader execution
+#[derive(Clone)]
+pub struct ProcessedVertex {
+    /// Clip-space position [x, y, z, w]
+    pub position: [f32; 4],
+    /// Varying data (interpolated between vertices)
+    pub varyings: Vec<f32>,
+}
+
+/// Memory pointers for shader execution
+/// This replaces hardcoded memory offsets with flexible pointers
+#[derive(Clone, Copy, Debug)]
+pub struct ShaderMemoryLayout {
+    /// Pointer to attribute data (vertex shader input)
+    pub attr_ptr: u32,
+    /// Pointer to uniform data
+    pub uniform_ptr: u32,
+    /// Pointer to varying data (VS output / FS input)
+    pub varying_ptr: u32,
+    /// Pointer to private/local shader data
+    pub private_ptr: u32,
+    /// Pointer to texture metadata
+    pub texture_ptr: u32,
+}
+
+impl Default for ShaderMemoryLayout {
+    fn default() -> Self {
+        // Default WebGL-compatible memory layout
+        Self {
+            attr_ptr: 0x2000,
+            uniform_ptr: 0x1000,
+            varying_ptr: 0x3000,
+            private_ptr: 0x4000,
+            texture_ptr: 0x5000,
+        }
+    }
+}
+
+/// Render state for a draw call
+pub struct RenderState<'a> {
+    /// Memory layout for shaders
+    pub memory: ShaderMemoryLayout,
+    /// Viewport (x, y, width, height)
+    pub viewport: (i32, i32, u32, u32),
+    /// Uniform data buffer
+    pub uniform_data: &'a [u8],
+    /// Texture metadata preparation callback
+    pub prepare_textures: Option<Box<dyn Fn(u32) + 'a>>,
+}
+
+/// Pipeline configuration for rasterization
+/// Decouples from WebGL's Program object to support WebGPU
+pub struct RasterPipeline {
+    /// Shader function table indices or identifiers
+    pub vertex_shader_type: u32,
+    pub fragment_shader_type: u32,
+    /// Memory layout for this pipeline
+    pub memory: ShaderMemoryLayout,
+}
+
+impl Default for RasterPipeline {
+    fn default() -> Self {
+        Self {
+            vertex_shader_type: 0x8B31,   // GL_VERTEX_SHADER
+            fragment_shader_type: 0x8B30, // GL_FRAGMENT_SHADER
+            memory: ShaderMemoryLayout::default(),
+        }
+    }
+}
 
 /// Software triangle rasterizer
 #[derive(Default)]
@@ -17,7 +91,7 @@ impl Rasterizer {
         }
     }
 
-    /// Draw a triangle to the framebuffer
+    /// Draw a triangle to the framebuffer (simple, no interpolation)
     pub fn draw_triangle(
         &self,
         fb: &mut super::Framebuffer,
@@ -45,6 +119,155 @@ impl Rasterizer {
             }
         }
     }
+
+    /// Rasterize a triangle with perspective-correct interpolation
+    /// This is the core rasterization function extracted from drawing.rs
+    pub fn rasterize_triangle(
+        &self,
+        fb: &mut super::Framebuffer,
+        v0: &ProcessedVertex,
+        v1: &ProcessedVertex,
+        v2: &ProcessedVertex,
+        viewport: (i32, i32, u32, u32),
+        pipeline: &RasterPipeline,
+        state: &RenderState,
+    ) {
+        let (vx, vy, vw, vh) = viewport;
+
+        // Screen coordinates (with perspective divide)
+        let p0 = screen_position(&v0.position, vx, vy, vw, vh);
+        let p1 = screen_position(&v1.position, vx, vy, vw, vh);
+        let p2 = screen_position(&v2.position, vx, vy, vw, vh);
+
+        // Bounding box
+        let min_x = p0.0.min(p1.0).min(p2.0).max(0.0).floor() as i32;
+        let max_x = p0.0.max(p1.0).max(p2.0).min(vw as f32 - 1.0).ceil() as i32;
+        let min_y = p0.1.min(p1.1).min(p2.1).max(0.0).floor() as i32;
+        let max_y = p0.1.max(p1.1).max(p2.1).min(vh as f32 - 1.0).ceil() as i32;
+
+        if max_x < min_x || max_y < min_y {
+            return;
+        }
+
+        // Perspective correction factors
+        let w0_inv = 1.0 / v0.position[3];
+        let w1_inv = 1.0 / v1.position[3];
+        let w2_inv = 1.0 / v2.position[3];
+
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let (u, v, w) = barycentric((x as f32 + 0.5, y as f32 + 0.5), p0, p1, p2);
+
+                if u >= 0.0 && v >= 0.0 && w >= 0.0 {
+                    // Interpolate depth (NDC z/w mapped to [0, 1])
+                    let z0 = v0.position[2] / v0.position[3];
+                    let z1 = v1.position[2] / v1.position[3];
+                    let z2 = v2.position[2] / v2.position[3];
+                    let depth_ndc = u * z0 + v * z1 + w * z2;
+                    let depth = (depth_ndc + 1.0) * 0.5;
+
+                    let fb_idx = (y as u32 * fb.width + x as u32) as usize;
+
+                    // Depth test
+                    if (0.0..=1.0).contains(&depth) && depth < fb.depth[fb_idx] {
+                        fb.depth[fb_idx] = depth;
+
+                        // Perspective correct interpolation of varyings
+                        let w_interp_inv = u * w0_inv + v * w1_inv + w * w2_inv;
+                        let w_interp = 1.0 / w_interp_inv;
+
+                        let varying_count = v0
+                            .varyings
+                            .len()
+                            .min(v1.varyings.len())
+                            .min(v2.varyings.len());
+                        let mut interp_varyings = vec![0.0f32; varying_count];
+
+                        for k in 0..varying_count {
+                            interp_varyings[k] = (u * v0.varyings[k] * w0_inv
+                                + v * v1.varyings[k] * w1_inv
+                                + w * v2.varyings[k] * w2_inv)
+                                * w_interp;
+                        }
+
+                        // Execute fragment shader and get color
+                        let color = self.execute_fragment_shader(&interp_varyings, pipeline, state);
+
+                        // Write color to framebuffer
+                        let color_idx = fb_idx * 4;
+                        if color_idx + 3 < fb.color.len() {
+                            fb.color[color_idx..color_idx + 4].copy_from_slice(&color);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Execute fragment shader and return RGBA color
+    fn execute_fragment_shader(
+        &self,
+        varyings: &[f32],
+        pipeline: &RasterPipeline,
+        _state: &RenderState,
+    ) -> [u8; 4] {
+        // Copy varyings to shader memory
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                varyings.as_ptr() as *const u8,
+                pipeline.memory.varying_ptr as *mut u8,
+                varyings.len() * 4,
+            );
+        }
+
+        // Execute fragment shader
+        crate::js_execute_shader(
+            pipeline.fragment_shader_type,
+            0,
+            pipeline.memory.uniform_ptr,
+            pipeline.memory.varying_ptr,
+            pipeline.memory.private_ptr,
+            pipeline.memory.texture_ptr,
+        );
+
+        // Read color from private memory
+        let mut color_bytes = [0u8; 16];
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                pipeline.memory.private_ptr as *const u8,
+                color_bytes.as_mut_ptr(),
+                16,
+            );
+        }
+
+        let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
+        [
+            (c[0].clamp(0.0, 1.0) * 255.0) as u8,
+            (c[1].clamp(0.0, 1.0) * 255.0) as u8,
+            (c[2].clamp(0.0, 1.0) * 255.0) as u8,
+            (c[3].clamp(0.0, 1.0) * 255.0) as u8,
+        ]
+    }
+}
+
+/// Calculate screen position from clip-space position
+fn screen_position(pos: &[f32; 4], vx: i32, vy: i32, vw: u32, vh: u32) -> (f32, f32) {
+    (
+        vx as f32 + (pos[0] / pos[3] + 1.0) * 0.5 * vw as f32,
+        vy as f32 + (pos[1] / pos[3] + 1.0) * 0.5 * vh as f32,
+    )
+}
+
+/// Calculate barycentric coordinates
+pub fn barycentric(p: (f32, f32), a: (f32, f32), b: (f32, f32), c: (f32, f32)) -> (f32, f32, f32) {
+    let area = (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
+    if area.abs() < 1e-6 {
+        return (-1.0, -1.0, -1.0);
+    }
+    let w0 = ((b.0 - p.0) * (c.1 - p.1) - (b.1 - p.1) * (c.0 - p.0)) / area;
+    let w1 = ((c.0 - p.0) * (a.1 - p.1) - (c.1 - p.1) * (a.0 - p.0)) / area;
+    let w2 = 1.0 - w0 - w1;
+    (w0, w1, w2)
 }
 
 fn is_inside(px: f32, py: f32, p0: (f32, f32), p1: (f32, f32), p2: (f32, f32)) -> bool {
@@ -54,3 +277,50 @@ fn is_inside(px: f32, py: f32, p0: (f32, f32), p1: (f32, f32), p2: (f32, f32)) -
 
     (edge0 >= 0.0 && edge1 >= 0.0 && edge2 >= 0.0) || (edge0 <= 0.0 && edge1 <= 0.0 && edge2 <= 0.0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_barycentric_inside() {
+        let p0 = (0.0, 0.0);
+        let p1 = (10.0, 0.0);
+        let p2 = (5.0, 10.0);
+
+        // Center of triangle
+        let (u, v, w) = barycentric((5.0, 3.0), p0, p1, p2);
+        assert!(u >= 0.0 && v >= 0.0 && w >= 0.0);
+        assert!((u + v + w - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_barycentric_outside() {
+        let p0 = (0.0, 0.0);
+        let p1 = (10.0, 0.0);
+        let p2 = (5.0, 10.0);
+
+        // Point outside triangle
+        let (u, v, w) = barycentric((20.0, 20.0), p0, p1, p2);
+        assert!(u < 0.0 || v < 0.0 || w < 0.0);
+    }
+
+    #[test]
+    fn test_shader_memory_layout_default() {
+        let layout = ShaderMemoryLayout::default();
+        assert_eq!(layout.attr_ptr, 0x2000);
+        assert_eq!(layout.uniform_ptr, 0x1000);
+        assert_eq!(layout.varying_ptr, 0x3000);
+    }
+
+    #[test]
+    fn test_raster_pipeline_default() {
+        let pipeline = RasterPipeline::default();
+        assert_eq!(pipeline.vertex_shader_type, 0x8B31);
+        assert_eq!(pipeline.fragment_shader_type, 0x8B30);
+    }
+}
+
+#[cfg(test)]
+#[path = "rasterizer_tests.rs"]
+mod rasterizer_tests;

@@ -9,7 +9,7 @@ mod runtime_wasmi;
 
 mod framebuffer;
 mod pipeline;
-mod rasterizer;
+pub mod rasterizer;
 mod state;
 mod texture;
 
@@ -18,7 +18,9 @@ pub use runtime_wasmi::ShaderRuntime;
 
 pub use framebuffer::Framebuffer;
 pub use pipeline::{Pipeline, VertexOutput};
-pub use rasterizer::Rasterizer;
+pub use rasterizer::{
+    ProcessedVertex, RasterPipeline, Rasterizer, RenderState, ShaderMemoryLayout,
+};
 pub use state::WebGLState;
 pub use texture::Texture;
 

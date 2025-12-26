@@ -1,4 +1,4 @@
-use super::registry::{get_registry, set_last_error, clear_last_error};
+use super::registry::{clear_last_error, get_registry, set_last_error};
 use super::types::*;
 
 // ============================================================================
@@ -73,9 +73,9 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
                             // For now, let's just fill with 0s if we don't know the format, or implement proper clearing later.
                             // Or just ignore for now to avoid complexity, as software rasterizer doesn't support FBOs fully yet.
                             // But we should at least not crash.
-                            
+
                             // Simple clear for now:
-                            rb.data.fill(0); 
+                            rb.data.fill(0);
                         }
                     }
                 }
