@@ -1259,25 +1259,6 @@ export class WasmWebGL2RenderingContext {
     }
     this._verbosity = level;
   }
-
-  /**
-   * Get LCOV coverage report.
-   * @returns {string}
-   */
-  getLcovReport() {
-    // Coverage is global to the WASM module, so we can retrieve it even if context is destroyed.
-    // this._assertNotDestroyed();
-    const ex = this._instance.exports;
-    if (ex && typeof ex.wasm_get_lcov_report_ptr === 'function' && typeof ex.wasm_get_lcov_report_len === 'function') {
-      const ptr = ex.wasm_get_lcov_report_ptr();
-      const len = ex.wasm_get_lcov_report_len();
-      if (ptr === 0 || len === 0) return '';
-      const mem = new Uint8Array(ex.memory.buffer);
-      const bytes = mem.subarray(ptr, ptr + len);
-      return new TextDecoder('utf-8').decode(bytes);
-    }
-    return '';
-  }
 }
 
 /**

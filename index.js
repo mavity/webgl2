@@ -8,6 +8,13 @@ import {
 } from './src/webgl2_context.js';
 import { GPU } from './src/webgpu_context.js';
 
+export const debug = {
+  getLcovReport,
+  resetLcovReport
+};
+
+export { WasmWebGL2RenderingContext, ERR_OK, ERR_INVALID_HANDLE };
+
 /**
  * WebGL2 Prototype: Rust-owned Context, JS thin-forwarder
  * Implements docs/1.1.1-webgl2-prototype.md
@@ -47,7 +54,7 @@ const isNode =
  * @returns {Promise<WasmWebGL2RenderingContext>}
  * @throws {Error} if WASM loading or instantiation fails
  */
-async function webGL2({ debug = process.env.WEBGL2_DEBUG === 'true' } = {}) {
+export async function webGL2({ debug = process.env.WEBGL2_DEBUG === 'true' } = {}) {
   // Load WASM binary
   let promise = wasmCache.get(!!debug);
   if (!promise) {
@@ -92,7 +99,7 @@ async function webGL2({ debug = process.env.WEBGL2_DEBUG === 'true' } = {}) {
  * }} [opts] - options
  * @returns {Promise<GPU>}
  */
-async function webGPU({ debug = process.env.WEBGL2_DEBUG === 'true' } = {}) {
+export async function webGPU({ debug = process.env.WEBGL2_DEBUG === 'true' } = {}) {
   let promise = wasmCache.get(!!debug);
   if (!promise) {
     promise = initWASM({ debug });
@@ -189,6 +196,55 @@ function _readErrorMessage(instance) {
 }
 
 /**
+ * Get LCOV coverage report from a context or device.
+ * @param {any} glOrGpu
+ * @returns {string}
+ */
+function getLcovReport(glOrGpu) {
+  if (!glOrGpu) return '';
+
+  let ex;
+  if (glOrGpu._instance && glOrGpu._instance.exports) {
+    ex = glOrGpu._instance.exports;
+  } else if (glOrGpu.wasm) {
+    ex = glOrGpu.wasm;
+  } else if (glOrGpu._instance) {
+    ex = glOrGpu._instance;
+  }
+
+  if (ex && typeof ex.wasm_get_lcov_report_ptr === 'function' && typeof ex.wasm_get_lcov_report_len === 'function') {
+    const ptr = ex.wasm_get_lcov_report_ptr();
+    const len = ex.wasm_get_lcov_report_len();
+    if (ptr === 0 || len === 0) return '';
+    const mem = new Uint8Array(ex.memory.buffer);
+    const bytes = mem.subarray(ptr, ptr + len);
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+  return '';
+}
+
+/**
+ * Reset LCOV coverage counters.
+ * @param {any} glOrGpu
+ */
+export function resetLcovReport(glOrGpu) {
+  if (!glOrGpu) return;
+
+  let ex;
+  if (glOrGpu._instance && glOrGpu._instance.exports) {
+    ex = glOrGpu._instance.exports;
+  } else if (glOrGpu.wasm) {
+    ex = glOrGpu.wasm;
+  } else if (glOrGpu._instance) {
+    ex = glOrGpu._instance;
+  }
+
+  if (ex && typeof ex.wasm_reset_coverage === 'function') {
+    ex.wasm_reset_coverage();
+  }
+}
+
+/**
  * Checks a WASM return code (errno).
  * If non-zero, reads the error message and throws.
  * @param {number} code
@@ -201,15 +257,13 @@ function _checkErr(code, instance) {
   throw new Error(`WASM error ${code}: ${msg}`);
 }
 
-
-// Exports: ESM-style. Also attach globals in browser for convenience.
-export { webGL2, webGPU, WasmWebGL2RenderingContext, ERR_OK, ERR_INVALID_HANDLE };
-
 if (typeof window !== 'undefined' && window) {
   // also populate globals when running in a browser environment
   try {
     window.webGL2 = webGL2;
     window.webGPU = webGPU;
+    window.getLcovReport = getLcovReport;
+    window.resetLcovReport = resetLcovReport;
     window.WasmWebGL2RenderingContext = WasmWebGL2RenderingContext;
   } catch (e) {
     // ignore if window is not writable

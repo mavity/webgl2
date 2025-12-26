@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 // Enable debug/coverage mode for all tests in this process
 process.env.WEBGL2_DEBUG = 'true';
 
-import { webGL2 } from '../index.js';
+import { webGL2, debug } from '../index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,7 +16,7 @@ const gl = await webGL2({ debug: true });
 after(async () => {
   // 1. Parse current run coverage
   const currentCoverage = {};
-  const lcov = gl.getLcovReport();
+  const lcov = debug.getLcovReport(gl);
   
   if (lcov) {
     let currentFile = null;

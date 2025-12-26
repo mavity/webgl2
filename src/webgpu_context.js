@@ -1,3 +1,30 @@
+// @ts-check
+
+/**
+ * @typedef {Int8Array
+ * | Uint8Array | Uint8ClampedArray
+ * | Int16Array | Uint16Array
+ * | Int32Array | Uint32Array
+ * | Float32Array
+ * | Float64Array
+ * | BigInt64Array | BigUint64Array
+ * } TypedArray
+ */
+
+/**
+ * @typedef {{
+ *  powerPreference?: 'low-power' | 'high-performance'
+ * }} RequestAdapterOptions
+ */
+
+/**
+ * @typedef {{
+ *  size: number,
+ *  usage: number,
+ *  mappedAtCreation?: boolean
+ * }} GPUBufferDescriptor
+ */
+
 /**
  * WebGPU API implementation for WebAssembly
  * 
@@ -6,7 +33,15 @@
  * and software rasterization of WebGPU workloads.
  */
 
+/**
+ * Wrapper around a WebAssembly-backed WebGPU implementation.
+ */
 export class GPU {
+
+    /**
+     * @param {*} wasmModule - WebAssembly module exports implementing WebGPU.
+     * @param {WebAssembly.Memory} wasmMemory - WebAssembly linear memory.
+     */
     constructor(wasmModule, wasmMemory) {
         this.wasm = wasmModule;
         this.memory = wasmMemory;
@@ -14,43 +49,72 @@ export class GPU {
 
     /**
      * Request a GPUAdapter
-     * @param {Object} options - Adapter request options
-     * @returns {Promise<GPUAdapter>}
+     * @param {RequestAdapterOptions} options - Adapter request options
+     * @returns {Promise<GPUAdapter | null>}
      */
     async requestAdapter(options = {}) {
         // Create a WebGPU context
         const ctxHandle = this.wasm.wasm_webgpu_create_context();
-        if (ctxHandle === 0) {
+        if (!ctxHandle)
+            return null;
+
+        let powerPreference = 0; // None
+        if (options.powerPreference === 'low-power') {
+            powerPreference = 1;
+        } else if (options.powerPreference === 'high-performance') {
+            powerPreference = 2;
+        }
+
+        const adapterHandle = this.wasm.wasm_webgpu_request_adapter(ctxHandle, powerPreference);
+        if (adapterHandle === 0) {
+            this.wasm.wasm_webgpu_destroy_context(ctxHandle);
             return null;
         }
 
-        return new GPUAdapter(this.wasm, this.memory, ctxHandle);
+        return new GPUAdapter(this.wasm, this.memory, ctxHandle, adapterHandle);
     }
 }
 
 export class GPUAdapter {
-    constructor(wasmModule, wasmMemory, ctxHandle) {
+
+    /**
+     * @param {*} wasmModule
+     * @param {WebAssembly.Memory} wasmMemory
+     * @param {number} ctxHandle
+     * @param {number} adapterHandle
+     */
+    constructor(wasmModule, wasmMemory, ctxHandle, adapterHandle) {
         this.wasm = wasmModule;
         this.memory = wasmMemory;
         this.ctxHandle = ctxHandle;
+        this.adapterHandle = adapterHandle;
+        /** @type {Set<string>} */
         this.features = new Set();
+        /** @type {Record<string, number>} */
         this.limits = {};
     }
 
     /**
      * Request a GPUDevice
      * @param {Object} descriptor - Device descriptor
-     * @returns {Promise<GPUDevice>}
+     * @returns {Promise<GPUDevice | null>}
      */
     async requestDevice(descriptor = {}) {
-        // TODO: Call wasm function to create device
-        // Using placeholder handle until WASM integration is complete
-        const deviceHandle = 1; // FIXME: Generate unique handles
+        const deviceHandle = this.wasm.wasm_webgpu_request_device(this.ctxHandle, this.adapterHandle);
+        if (deviceHandle === 0) {
+            return null;
+        }
         return new GPUDevice(this.wasm, this.memory, this.ctxHandle, deviceHandle);
     }
 }
 
 export class GPUDevice {
+    /**
+     * @param {*} wasmModule
+     * @param {WebAssembly.Memory} wasmMemory
+     * @param {number} ctxHandle
+     * @param {number} deviceHandle
+     */
     constructor(wasmModule, wasmMemory, ctxHandle, deviceHandle) {
         this.wasm = wasmModule;
         this.memory = wasmMemory;
@@ -62,7 +126,7 @@ export class GPUDevice {
 
     /**
      * Create a buffer
-     * @param {Object} descriptor - Buffer descriptor
+     * @param {GPUBufferDescriptor} descriptor - Buffer descriptor
      * @returns {GPUBuffer}
      */
     createBuffer(descriptor) {
@@ -117,6 +181,12 @@ export class GPUDevice {
 }
 
 export class GPUQueue {
+    /**
+     * @param {*} wasmModule
+     * @param {WebAssembly.Memory} wasmMemory
+     * @param {number} ctxHandle
+     * @param {number} queueHandle
+     */
     constructor(wasmModule, wasmMemory, ctxHandle, queueHandle) {
         this.wasm = wasmModule;
         this.memory = wasmMemory;
@@ -146,6 +216,13 @@ export class GPUQueue {
 }
 
 export class GPUBuffer {
+    /**
+     * @param {*} wasmModule
+     * @param {WebAssembly.Memory} wasmMemory
+     * @param {number} ctxHandle
+     * @param {number} bufferHandle
+     * @param {number} size
+     */
     constructor(wasmModule, wasmMemory, ctxHandle, bufferHandle, size) {
         this.wasm = wasmModule;
         this.memory = wasmMemory;
@@ -193,6 +270,12 @@ export class GPUBuffer {
 }
 
 export class GPUShaderModule {
+    /**
+     * @param {*} wasmModule
+     * @param {WebAssembly.Memory} wasmMemory
+     * @param {number} ctxHandle
+     * @param {number} moduleHandle
+     */
     constructor(wasmModule, wasmMemory, ctxHandle, moduleHandle) {
         this.wasm = wasmModule;
         this.memory = wasmMemory;
@@ -202,6 +285,12 @@ export class GPUShaderModule {
 }
 
 export class GPURenderPipeline {
+    /**
+     * @param {*} wasmModule
+     * @param {WebAssembly.Memory} wasmMemory
+     * @param {number} ctxHandle
+     * @param {number} pipelineHandle
+     */
     constructor(wasmModule, wasmMemory, ctxHandle, pipelineHandle) {
         this.wasm = wasmModule;
         this.memory = wasmMemory;
@@ -211,6 +300,12 @@ export class GPURenderPipeline {
 }
 
 export class GPUCommandEncoder {
+    /**
+     * @param {*} wasmModule
+     * @param {WebAssembly.Memory} wasmMemory
+     * @param {number} ctxHandle
+     * @param {number} encoderHandle
+     */
     constructor(wasmModule, wasmMemory, ctxHandle, encoderHandle) {
         this.wasm = wasmModule;
         this.memory = wasmMemory;
@@ -241,6 +336,12 @@ export class GPUCommandEncoder {
 }
 
 export class GPURenderPassEncoder {
+    /**
+     * @param {*} wasmModule
+     * @param {WebAssembly.Memory} wasmMemory
+     * @param {number} ctxHandle
+     * @param {number} passHandle
+     */
     constructor(wasmModule, wasmMemory, ctxHandle, passHandle) {
         this.wasm = wasmModule;
         this.memory = wasmMemory;
@@ -287,6 +388,12 @@ export class GPURenderPassEncoder {
 }
 
 export class GPUCommandBuffer {
+    /**
+     * @param {*} wasmModule
+     * @param {WebAssembly.Memory} wasmMemory
+     * @param {number} ctxHandle
+     * @param {number} commandBufferHandle
+     */
     constructor(wasmModule, wasmMemory, ctxHandle, commandBufferHandle) {
         this.wasm = wasmModule;
         this.memory = wasmMemory;

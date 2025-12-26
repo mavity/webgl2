@@ -24,6 +24,27 @@ pub extern "C" fn wasm_init_coverage(size: usize) {
         let ptr = buf.as_mut_ptr();
         std::mem::forget(buf); // Leak it so it lives forever
         COV_HITS_PTR = ptr;
+        COV_HITS_LEN = size;
+    }
+}
+
+#[no_mangle]
+pub static mut COV_HITS_LEN: usize = 0;
+
+/// Reset coverage hits to zero.
+#[no_mangle]
+pub extern "C" fn wasm_reset_coverage() {
+    unsafe {
+        if COV_HITS_PTR.is_null() || COV_HITS_LEN == 0 {
+            return;
+        }
+
+        // Zero the entire hits buffer based on its allocated length.
+        std::ptr::write_bytes(COV_HITS_PTR, 0, COV_HITS_LEN);
+        // Also clear the cached report
+        if let Ok(mut report) = LCOV_REPORT.lock() {
+            *report = None;
+        }
     }
 }
 

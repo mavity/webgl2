@@ -4,13 +4,13 @@
 
 | File | Lines Covered | Lines Missed | Total Lines | Coverage |
 |---|---|---|---|---|
-| src/lib.rs | 82 | 17 | 99 | 82.83% 🟢 |
+| src/lib.rs | 83 | 17 | 100 | 83.00% 🟢 |
 | src/naga_wasm_backend/backend.rs | 39 | 0 | 39 | 100.00% 🟢 |
 | src/naga_wasm_backend/control_flow.rs | 15 | 4 | 19 | 78.95% 🟡 |
 | src/naga_wasm_backend/expressions.rs | 27 | 12 | 39 | 69.23% 🟡 |
 | src/naga_wasm_backend/types.rs | 6 | 0 | 6 | 100.00% 🟢 |
 | src/wasm_gl_emu/rasterizer.rs | 6 | 0 | 6 | 100.00% 🟢 |
-| src/webgl2_context/buffers.rs | 16 | 2 | 18 | 88.89% 🟢 |
+| src/webgl2_context/buffers.rs | 16 | 1 | 17 | 94.12% 🟢 |
 | src/webgl2_context/drawing.rs | 27 | 3 | 30 | 90.00% 🟢 |
 | src/webgl2_context/framebuffers.rs | 8 | 0 | 8 | 100.00% 🟢 |
 | src/webgl2_context/registry.rs | 5 | 0 | 5 | 100.00% 🟢 |
@@ -21,13 +21,13 @@
 | src/webgl2_context/types.rs | 11 | 1 | 12 | 91.67% 🟢 |
 | src/webgl2_context/vaos.rs | 24 | 0 | 24 | 100.00% 🟢 |
 | src/webgpu/adapter.rs | 1 | 0 | 1 | 100.00% 🟢 |
-| **Total** | **352** | **40** | **392** | **89.80% 🟢** |
+| **Total** | **353** | **39** | **392** | **90.05% 🟢** |
 
 ## Top Missed Files
 
 | File | Lines Missed | Illustrative Line | Coverage |
 |---|---|---|---|
-| src/lib.rs | 17/99 | [59] `pub fn js_log(level: u32, s: &str) {` | 82.83% 🟢 |
+| src/lib.rs | 17/100 | [59] `pub fn js_log(level: u32, s: &str) {` | 83.00% 🟢 |
 | src/naga_wasm_backend/expressions.rs | 12/39 | [49] `if component_idx == 0 {` | 69.23% 🟡 |
 | src/naga_wasm_backend/control_flow.rs | 4/19 | [80] `for _ in 0..types.len() {` | 78.95% 🟡 |
 | src/webgl2_context/drawing.rs | 3/30 | [440] `if i + 2 >= vertices.len() {` | 90.00% 🟢 |

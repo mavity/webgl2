@@ -690,8 +690,8 @@ pub extern "C" fn wasm_ctx_set_verbosity(ctx: u32, level: u32) -> u32 {
 
 #[cfg(feature = "coverage")]
 pub use coverage::{
-    wasm_get_lcov_report_len, wasm_get_lcov_report_ptr, wasm_init_coverage, COV_HITS_PTR,
-    COV_MAP_LEN, COV_MAP_PTR,
+    wasm_get_lcov_report_len, wasm_get_lcov_report_ptr, wasm_init_coverage, wasm_reset_coverage,
+    COV_HITS_PTR, COV_MAP_LEN, COV_MAP_PTR,
 };
 
 // ============================================================================
@@ -730,6 +730,19 @@ pub extern "C" fn wasm_webgpu_create_context() -> u32 {
 #[no_mangle]
 pub extern "C" fn wasm_webgpu_destroy_context(handle: u32) -> u32 {
     webgpu::adapter::destroy_context(handle)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_request_adapter(
+    ctx_handle: u32,
+    power_preference: wgpu_types::PowerPreference,
+) -> u32 {
+    webgpu::adapter::request_adapter(ctx_handle, power_preference)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_request_device(ctx_handle: u32, adapter_handle: u32) -> u32 {
+    webgpu::adapter::request_device(ctx_handle, adapter_handle)
 }
 
 // ============================================================================
