@@ -947,6 +947,58 @@ pub unsafe extern "C" fn wasm_webgpu_queue_submit(
     webgpu::command::queue_submit(ctx_handle, device_handle, cb_handles)
 }
 
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_command_encoder_copy_texture_to_buffer(
+    ctx_handle: u32,
+    encoder_handle: u32,
+    source_texture_handle: u32,
+    dest_buffer_handle: u32,
+    dest_offset: u64,
+    dest_bytes_per_row: u32,
+    dest_rows_per_image: u32,
+    size_width: u32,
+    size_height: u32,
+    size_depth: u32,
+) -> u32 {
+    webgpu::command::command_encoder_copy_texture_to_buffer(
+        ctx_handle,
+        encoder_handle,
+        source_texture_handle,
+        dest_buffer_handle,
+        dest_offset,
+        dest_bytes_per_row,
+        dest_rows_per_image,
+        size_width,
+        size_height,
+        size_depth,
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_command_encoder_begin_render_pass_1_color(
+    ctx_handle: u32,
+    encoder_handle: u32,
+    view_handle: u32,
+    load_op: u32,
+    store_op: u32,
+    clear_r: f64,
+    clear_g: f64,
+    clear_b: f64,
+    clear_a: f64,
+) -> u32 {
+    webgpu::command::command_encoder_begin_render_pass_1_color(
+        ctx_handle,
+        encoder_handle,
+        view_handle,
+        load_op,
+        store_op,
+        clear_r,
+        clear_g,
+        clear_b,
+        clear_a,
+    )
+}
+
 // ============================================================================
 // Renderbuffer Exports
 // ============================================================================

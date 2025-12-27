@@ -136,3 +136,141 @@ pub fn queue_submit(ctx_handle: u32, device_handle: u32, cb_handles: &[u32]) -> 
         }
     })
 }
+
+/// Copy texture to buffer
+pub fn command_encoder_copy_texture_to_buffer(
+    ctx_handle: u32,
+    encoder_handle: u32,
+    source_texture_handle: u32,
+    dest_buffer_handle: u32,
+    dest_offset: u64,
+    dest_bytes_per_row: u32,
+    dest_rows_per_image: u32,
+    size_width: u32,
+    size_height: u32,
+    size_depth: u32,
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let encoder_id = match ctx.command_encoders.get(&encoder_handle) {
+            Some(id) => *id,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        let texture_id = match ctx.textures.get(&source_texture_handle) {
+            Some(id) => *id,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        let buffer_id = match ctx.buffers.get(&dest_buffer_handle) {
+            Some(id) => *id,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        let source = wgt::TexelCopyTextureInfo {
+            texture: texture_id,
+            mip_level: 0,
+            origin: wgt::Origin3d::ZERO,
+            aspect: wgt::TextureAspect::All,
+        };
+
+        let dest = wgt::TexelCopyBufferInfo {
+            buffer: buffer_id,
+            layout: wgt::TexelCopyBufferLayout {
+                offset: dest_offset,
+                bytes_per_row: if dest_bytes_per_row > 0 { Some(dest_bytes_per_row) } else { None },
+                rows_per_image: if dest_rows_per_image > 0 { Some(dest_rows_per_image) } else { None },
+            },
+        };
+
+        let size = wgt::Extent3d {
+            width: size_width,
+            height: size_height,
+            depth_or_array_layers: size_depth,
+        };
+
+        if let Err(e) = ctx.global.command_encoder_copy_texture_to_buffer(
+            encoder_id,
+            &source,
+            &dest,
+            &size,
+        ) {
+            crate::js_log(0, &format!("Failed to copy texture to buffer: {:?}", e));
+            return super::WEBGPU_ERROR_OPERATION_FAILED;
+        }
+        
+        super::WEBGPU_SUCCESS
+    })
+}
+
+/// Begin render pass (simplified for 1 color attachment)
+pub fn command_encoder_begin_render_pass_1_color(
+    ctx_handle: u32,
+    encoder_handle: u32,
+    view_handle: u32,
+    load_op: u32, // 0: Load, 1: Clear
+    store_op: u32, // 0: Store, 1: Discard
+    clear_r: f64,
+    clear_g: f64,
+    clear_b: f64,
+    clear_a: f64,
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let encoder_id = match ctx.command_encoders.get(&encoder_handle) {
+            Some(id) => *id,
+            None => return super::NULL_HANDLE,
+        };
+
+        let view_id = match ctx.texture_views.get(&view_handle) {
+            Some(id) => *id,
+            None => return super::NULL_HANDLE,
+        };
+
+        let load = match load_op {
+            0 => wgpu_core::command::LoadOp::Load,
+            _ => wgpu_core::command::LoadOp::Clear(wgt::Color {
+                r: clear_r,
+                g: clear_g,
+                b: clear_b,
+                a: clear_a,
+            }),
+        };
+
+        let store = match store_op {
+            0 => wgt::StoreOp::Store,
+            _ => wgt::StoreOp::Discard,
+        };
+
+        let color_attachment = wgpu_core::command::RenderPassColorAttachment {
+            view: view_id,
+            resolve_target: None,
+            load_op: load,
+            store_op: store,
+            depth_slice: None,
+        };
+
+        let desc = wgpu_core::command::RenderPassDescriptor {
+            label: None,
+            color_attachments: vec![Some(color_attachment)].into(),
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        };
+
+        let (mut pass, err) = ctx.global.command_encoder_begin_render_pass(encoder_id, &desc);
+        if let Some(e) = err {
+             crate::js_log(0, &format!("Failed to begin render pass: {:?}", e));
+             return super::WEBGPU_ERROR_OPERATION_FAILED;
+        }
+        
+        // End immediately to simulate "one-shot" pass for clearing
+        if let Err(e) = ctx.global.render_pass_end(&mut pass) {
+             crate::js_log(0, &format!("Failed to end render pass: {:?}", e));
+             return super::WEBGPU_ERROR_OPERATION_FAILED;
+        }
+        
+        super::WEBGPU_SUCCESS
+    })
+}
+
+

@@ -4,7 +4,7 @@
 
 | File | Lines Covered | Lines Missed | Total Lines | Coverage |
 |---|---|---|---|---|
-| src/lib.rs | 97 | 32 | 129 | 75.19% 🟡 |
+| src/lib.rs | 101 | 30 | 131 | 77.10% 🟡 |
 | src/naga_wasm_backend/backend.rs | 39 | 0 | 39 | 100.00% 🟢 |
 | src/naga_wasm_backend/control_flow.rs | 15 | 4 | 19 | 78.95% 🟡 |
 | src/naga_wasm_backend/expressions.rs | 29 | 12 | 41 | 70.73% 🟡 |
@@ -21,14 +21,14 @@
 | src/webgl2_context/types.rs | 11 | 1 | 12 | 91.67% 🟢 |
 | src/webgl2_context/vaos.rs | 23 | 0 | 23 | 100.00% 🟢 |
 | src/webgpu/adapter.rs | 2 | 0 | 2 | 100.00% 🟢 |
-| src/webgpu/backend.rs | 12 | 31 | 43 | 27.91% 🟠 |
-| **Total** | **391** | **92** | **483** | **80.95% 🟢** |
+| src/webgpu/backend.rs | 23 | 20 | 43 | 53.49% 🟡 |
+| **Total** | **406** | **79** | **485** | **83.71% 🟢** |
 
 ## Top Missed Files
 
 | File | Lines Missed | Illustrative Line | Coverage |
 |---|---|---|---|
-| src/lib.rs | 32/129 | [516] `#[no_mangle]` | 75.19% 🟡 |
-| src/webgpu/backend.rs | 31/43 | [697] `}` | 27.91% 🟠 |
+| src/lib.rs | 30/131 | [516] `#[no_mangle]` | 77.10% 🟡 |
+| src/webgpu/backend.rs | 20/43 | [697] `}` | 53.49% 🟡 |
 | src/naga_wasm_backend/expressions.rs | 12/41 | [49] `if component_idx == 0 {` | 70.73% 🟡 |
 | src/webgl2_context/shaders.rs | 5/72 | [415] `if let Some(other_name) = used_locations.get(&loc) {` | 93.06% 🟢 |

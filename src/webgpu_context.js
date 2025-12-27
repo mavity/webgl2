@@ -185,6 +185,47 @@ export class GPUDevice {
     }
 
     /**
+     * Create a texture
+     * @param {Object} descriptor - Texture descriptor
+     * @returns {GPUTexture}
+     */
+    createTexture(descriptor) {
+        let width, height, depthOrArrayLayers;
+        if (Array.isArray(descriptor.size)) {
+            width = descriptor.size[0];
+            height = descriptor.size[1] || 1;
+            depthOrArrayLayers = descriptor.size[2] || 1;
+        } else {
+            width = descriptor.size.width;
+            height = descriptor.size.height || 1;
+            depthOrArrayLayers = descriptor.size.depthOrArrayLayers || 1;
+        }
+
+        const textureHandle = this.wasm.wasm_webgpu_create_texture(
+            this.ctxHandle,
+            this.deviceHandle,
+            width,
+            height,
+            depthOrArrayLayers,
+            descriptor.mipLevelCount || 1,
+            descriptor.sampleCount || 1,
+            1, // dimension: 2D (1)
+            0, // format (ignored by backend for now)
+            descriptor.usage
+        );
+        if (textureHandle === 0) {
+            throw new Error("Failed to create texture");
+        }
+        
+        // Create a normalized descriptor for the GPUTexture
+        const normalizedDescriptor = Object.assign({}, descriptor, {
+            size: { width, height, depthOrArrayLayers }
+        });
+        
+        return new GPUTexture(this.wasm, this.memory, this.ctxHandle, this.deviceHandle, textureHandle, normalizedDescriptor);
+    }
+
+    /**
      * Create a shader module
      * @param {Object} descriptor - Shader module descriptor
      * @returns {GPUShaderModule}
@@ -412,12 +453,66 @@ export class GPUCommandEncoder {
     }
 
     /**
+     * Copy texture to buffer
+     * @param {Object} source
+     * @param {Object} destination
+     * @param {Object} size
+     */
+    copyTextureToBuffer(source, destination, size) {
+        let width, height, depthOrArrayLayers;
+        if (Array.isArray(size)) {
+            width = size[0];
+            height = size[1] || 1;
+            depthOrArrayLayers = size[2] || 1;
+        } else {
+            width = size.width;
+            height = size.height || 1;
+            depthOrArrayLayers = size.depthOrArrayLayers || 1;
+        }
+
+        this.wasm.wasm_webgpu_command_encoder_copy_texture_to_buffer(
+            this.ctxHandle,
+            this.encoderHandle,
+            source.texture.textureHandle,
+            destination.buffer.bufferHandle,
+            BigInt(destination.offset || 0),
+            destination.bytesPerRow || 0,
+            destination.rowsPerImage || 0,
+            width,
+            height,
+            depthOrArrayLayers
+        );
+    }
+
+    /**
      * Begin a render pass
      * @param {Object} descriptor - Render pass descriptor
      * @returns {GPURenderPassEncoder}
      */
     beginRenderPass(descriptor) {
-        // TODO: Call wasm function to begin render pass
+        // Simplified implementation for testing:
+        // If we have 1 color attachment with clear, we call the special function
+        if (descriptor.colorAttachments && descriptor.colorAttachments.length === 1) {
+            const att = descriptor.colorAttachments[0];
+            const loadOp = att.loadOp === 'clear' ? 1 : 0;
+            const storeOp = att.storeOp === 'discard' ? 1 : 0;
+            const clearColor = att.clearValue || { r: 0, g: 0, b: 0, a: 0 };
+            
+            // This function executes the pass immediately (begin + end)
+            // This is a hack for the prototype to test clearing
+            this.wasm.wasm_webgpu_command_encoder_begin_render_pass_1_color(
+                this.ctxHandle,
+                this.encoderHandle,
+                att.view.viewHandle,
+                loadOp,
+                storeOp,
+                clearColor.r,
+                clearColor.g,
+                clearColor.b,
+                clearColor.a
+            );
+        }
+        
         const passHandle = 1; // Placeholder
         return new GPURenderPassEncoder(this.wasm, this.memory, this.ctxHandle, passHandle);
     }
@@ -499,6 +594,66 @@ export class GPUCommandBuffer {
         this.memory = wasmMemory;
         this.ctxHandle = ctxHandle;
         this.commandBufferHandle = commandBufferHandle;
+    }
+}
+
+export class GPUTexture {
+    /**
+     * @param {*} wasmModule
+     * @param {WebAssembly.Memory} wasmMemory
+     * @param {number} ctxHandle
+     * @param {number} deviceHandle
+     * @param {number} textureHandle
+     * @param {Object} descriptor
+     */
+    constructor(wasmModule, wasmMemory, ctxHandle, deviceHandle, textureHandle, descriptor) {
+        this.wasm = wasmModule;
+        this.memory = wasmMemory;
+        this.ctxHandle = ctxHandle;
+        this.deviceHandle = deviceHandle;
+        this.textureHandle = textureHandle;
+        this.width = descriptor.size.width;
+        this.height = descriptor.size.height;
+        this.depthOrArrayLayers = descriptor.size.depthOrArrayLayers || 1;
+        this.format = descriptor.format;
+        this.usage = descriptor.usage;
+    }
+
+    /**
+     * Create a view
+     * @param {Object} descriptor
+     * @returns {GPUTextureView}
+     */
+    createView(descriptor = {}) {
+        const viewHandle = this.wasm.wasm_webgpu_create_texture_view(
+            this.ctxHandle,
+            this.textureHandle
+        );
+        if (viewHandle === 0) {
+            throw new Error("Failed to create texture view");
+        }
+        return new GPUTextureView(this.wasm, this.memory, this.ctxHandle, viewHandle, this);
+    }
+    
+    destroy() {
+        // TODO
+    }
+}
+
+export class GPUTextureView {
+    /**
+     * @param {*} wasmModule
+     * @param {WebAssembly.Memory} wasmMemory
+     * @param {number} ctxHandle
+     * @param {number} viewHandle
+     * @param {GPUTexture} texture
+     */
+    constructor(wasmModule, wasmMemory, ctxHandle, viewHandle, texture) {
+        this.wasm = wasmModule;
+        this.memory = wasmMemory;
+        this.ctxHandle = ctxHandle;
+        this.viewHandle = viewHandle;
+        this.texture = texture;
     }
 }
 
