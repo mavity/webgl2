@@ -268,10 +268,11 @@ pub fn ctx_vertex_attrib4f(ctx: u32, index: u32, v0: f32, v1: f32, v2: f32, v3: 
             vao.attributes[index as usize].default_value =
                 [v0.to_bits(), v1.to_bits(), v2.to_bits(), v3.to_bits()];
             vao.attributes[index as usize].is_integer = false;
+            vao.attributes[index as usize].current_value_type = GL_FLOAT;
             ERR_OK
         } else {
-            set_last_error("index out of range");
-            ERR_INVALID_ARGS
+            ctx_obj.gl_error = GL_INVALID_VALUE;
+            ERR_GL
         }
     } else {
         set_last_error("current vertex array not found");
@@ -293,10 +294,11 @@ pub fn ctx_vertex_attrib_i4i(ctx: u32, index: u32, v0: i32, v1: i32, v2: i32, v3
             vao.attributes[index as usize].default_value =
                 [v0 as u32, v1 as u32, v2 as u32, v3 as u32];
             vao.attributes[index as usize].is_integer = true;
+            vao.attributes[index as usize].current_value_type = GL_INT;
             ERR_OK
         } else {
-            set_last_error("index out of range");
-            ERR_INVALID_ARGS
+            ctx_obj.gl_error = GL_INVALID_VALUE;
+            ERR_GL
         }
     } else {
         set_last_error("current vertex array not found");
@@ -317,13 +319,151 @@ pub fn ctx_vertex_attrib_i4ui(ctx: u32, index: u32, v0: u32, v1: u32, v2: u32, v
         if (index as usize) < vao.attributes.len() {
             vao.attributes[index as usize].default_value = [v0, v1, v2, v3];
             vao.attributes[index as usize].is_integer = true;
+            vao.attributes[index as usize].current_value_type = GL_UNSIGNED_INT;
             ERR_OK
         } else {
-            set_last_error("index out of range");
-            ERR_INVALID_ARGS
+            ctx_obj.gl_error = GL_INVALID_VALUE;
+            ERR_GL
         }
     } else {
         set_last_error("current vertex array not found");
         ERR_INVALID_OPERATION
+    }
+}
+
+// Force rebuild
+/// Get vertex attribute parameter.
+pub fn ctx_get_vertex_attrib_v4(
+    ctx: u32,
+    index: u32,
+    pname: u32,
+    dest_ptr: u32,
+    dest_len: u32,
+) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => return ERR_INVALID_HANDLE,
+    };
+
+    if index >= 16 {
+        ctx_obj.gl_error = GL_INVALID_VALUE;
+        return ERR_GL;
+    }
+
+    // Debug: check index
+    // return index + 100;
+
+    let bound_vao = ctx_obj.bound_vertex_array;
+    let vao = match ctx_obj.vertex_arrays.get(&bound_vao) {
+        Some(v) => v,
+        None => {
+            set_last_error("current vertex array not found");
+            return ERR_INVALID_OPERATION;
+        }
+    };
+
+    // Double check index against VAO size
+    if (index as usize) >= vao.attributes.len() {
+        set_last_error("index out of range (VAO check)");
+        return ERR_INVALID_ARGS;
+    }
+
+    let attr = &vao.attributes[index as usize];
+
+    match pname {
+        GL_VERTEX_ATTRIB_ARRAY_ENABLED => {
+            if dest_len < 4 {
+                return ERR_INVALID_ARGS;
+            }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            dest[0] = if attr.enabled { 1 } else { 0 };
+            ERR_OK
+        }
+        GL_VERTEX_ATTRIB_ARRAY_SIZE => {
+            if dest_len < 4 {
+                return ERR_INVALID_ARGS;
+            }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            dest[0] = attr.size;
+            ERR_OK
+        }
+        GL_VERTEX_ATTRIB_ARRAY_STRIDE => {
+            if dest_len < 4 {
+                return ERR_INVALID_ARGS;
+            }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            dest[0] = attr.stride;
+            ERR_OK
+        }
+        GL_VERTEX_ATTRIB_ARRAY_TYPE => {
+            if dest_len < 4 {
+                return ERR_INVALID_ARGS;
+            }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            dest[0] = attr.type_ as i32;
+            ERR_OK
+        }
+        GL_VERTEX_ATTRIB_ARRAY_NORMALIZED => {
+            if dest_len < 4 {
+                return ERR_INVALID_ARGS;
+            }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            dest[0] = if attr.normalized { 1 } else { 0 };
+            ERR_OK
+        }
+        GL_VERTEX_ATTRIB_ARRAY_INTEGER => {
+            if dest_len < 4 {
+                return ERR_INVALID_ARGS;
+            }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            dest[0] = if attr.is_integer { 1 } else { 0 };
+            ERR_OK
+        }
+        GL_VERTEX_ATTRIB_ARRAY_DIVISOR => {
+            if dest_len < 4 {
+                return ERR_INVALID_ARGS;
+            }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            dest[0] = attr.divisor as i32;
+            ERR_OK
+        }
+        GL_VERTEX_ATTRIB_ARRAY_POINTER => {
+            if dest_len < 4 {
+                return ERR_INVALID_ARGS;
+            }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            dest[0] = attr.offset as i32;
+            ERR_OK
+        }
+        GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING => {
+            if dest_len < 4 {
+                return ERR_INVALID_ARGS;
+            }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            dest[0] = attr.buffer.unwrap_or(0) as i32;
+            ERR_OK
+        }
+        GL_CURRENT_VERTEX_ATTRIB => {
+            if dest_len < 16 {
+                return ERR_INVALID_ARGS;
+            }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut u32, 5) };
+            dest[0] = attr.default_value[0];
+            dest[1] = attr.default_value[1];
+            dest[2] = attr.default_value[2];
+            dest[3] = attr.default_value[3];
+            if dest_len >= 20 {
+                dest[4] = attr.current_value_type;
+            }
+            ERR_OK
+        }
+        _ => {
+            if ctx_obj.gl_error == GL_NO_ERROR {
+                ctx_obj.gl_error = GL_INVALID_ENUM;
+            }
+            return ERR_GL;
+        }
     }
 }

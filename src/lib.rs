@@ -621,6 +621,18 @@ pub extern "C" fn wasm_ctx_vertex_attrib4f(
     webgl2_context::ctx_vertex_attrib4f(ctx, index, v0, v1, v2, v3)
 }
 
+/// Get vertex attribute parameter.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_get_vertex_attrib(
+    ctx: u32,
+    index: u32,
+    pname: u32,
+    ptr: u32,
+    len: u32,
+) -> u32 {
+    webgl2_context::ctx_get_vertex_attrib_v4(ctx, index, pname, ptr, len)
+}
+
 /// Set vertex attribute default value (I4i).
 #[no_mangle]
 pub extern "C" fn wasm_ctx_vertex_attrib_i4i(
@@ -676,6 +688,12 @@ pub extern "C" fn wasm_ctx_get_parameter_v(
     dest_len: u32,
 ) -> u32 {
     webgl2_context::ctx_get_parameter_v(ctx, pname, dest_ptr, dest_len)
+}
+
+/// Set GL error.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_set_gl_error(ctx: u32, error: u32) -> u32 {
+    webgl2_context::ctx_set_gl_error(ctx, error)
 }
 
 /// Get buffer parameter.

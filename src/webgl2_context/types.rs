@@ -32,6 +32,25 @@ pub const GL_ATTACHED_SHADERS: u32 = 0x8B85;
 pub const GL_ACTIVE_UNIFORMS: u32 = 0x8B86;
 pub const GL_ACTIVE_ATTRIBUTES: u32 = 0x8B89;
 
+pub const GL_BYTE: u32 = 0x1400;
+pub const GL_UNSIGNED_BYTE: u32 = 0x1401;
+pub const GL_SHORT: u32 = 0x1402;
+pub const GL_UNSIGNED_SHORT: u32 = 0x1403;
+pub const GL_INT: u32 = 0x1404;
+pub const GL_UNSIGNED_INT: u32 = 0x1405;
+pub const GL_FLOAT: u32 = 0x1406;
+
+pub const GL_VERTEX_ATTRIB_ARRAY_ENABLED: u32 = 0x8622;
+pub const GL_VERTEX_ATTRIB_ARRAY_SIZE: u32 = 0x8623;
+pub const GL_VERTEX_ATTRIB_ARRAY_STRIDE: u32 = 0x8624;
+pub const GL_VERTEX_ATTRIB_ARRAY_TYPE: u32 = 0x8625;
+pub const GL_VERTEX_ATTRIB_ARRAY_NORMALIZED: u32 = 0x886A;
+pub const GL_VERTEX_ATTRIB_ARRAY_POINTER: u32 = 0x8645;
+pub const GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING: u32 = 0x889F;
+pub const GL_VERTEX_ATTRIB_ARRAY_DIVISOR: u32 = 0x88FE;
+pub const GL_VERTEX_ATTRIB_ARRAY_INTEGER: u32 = 0x88FD;
+pub const GL_CURRENT_VERTEX_ATTRIB: u32 = 0x8626;
+
 pub const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
 pub const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
 pub const GL_TEXTURE_WRAP_S: u32 = 0x2802;
@@ -158,6 +177,7 @@ pub(crate) struct VertexAttribute {
     pub(crate) default_value: [u32; 4], // Store as raw bits
     pub(crate) divisor: u32,
     pub(crate) is_integer: bool,
+    pub(crate) current_value_type: u32, // GL_FLOAT, GL_INT, or GL_UNSIGNED_INT
 }
 
 impl Default for VertexAttribute {
@@ -173,6 +193,7 @@ impl Default for VertexAttribute {
             default_value: [0, 0, 0, 0x3F800000], // 0.0, 0.0, 0.0, 1.0 (as float bits)
             divisor: 0,
             is_integer: false,
+            current_value_type: 0x1406, // GL_FLOAT
         }
     }
 }

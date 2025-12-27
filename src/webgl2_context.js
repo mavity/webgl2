@@ -48,6 +48,21 @@ export class WasmWebGL2RenderingContext {
   BUFFER_SIZE = 0x8764;
   MAX_VERTEX_ATTRIBS = 0x8869;
   NO_ERROR = 0;
+  INVALID_ENUM = 0x0500;
+  INVALID_VALUE = 0x0501;
+  INVALID_OPERATION = 0x0502;
+  OUT_OF_MEMORY = 0x0505;
+
+  CURRENT_VERTEX_ATTRIB = 0x8626;
+  VERTEX_ATTRIB_ARRAY_ENABLED = 0x8622;
+  VERTEX_ATTRIB_ARRAY_SIZE = 0x8623;
+  VERTEX_ATTRIB_ARRAY_STRIDE = 0x8624;
+  VERTEX_ATTRIB_ARRAY_TYPE = 0x8625;
+  VERTEX_ATTRIB_ARRAY_NORMALIZED = 0x886A;
+  VERTEX_ATTRIB_ARRAY_POINTER = 0x8645;
+  VERTEX_ATTRIB_ARRAY_BUFFER_BINDING = 0x889F;
+  VERTEX_ATTRIB_ARRAY_DIVISOR = 0x88FE;
+  VERTEX_ATTRIB_ARRAY_INTEGER = 0x88FD;
 
   RENDERBUFFER = 0x8D41;
   FRAMEBUFFER = 0x8D40;
@@ -754,6 +769,7 @@ export class WasmWebGL2RenderingContext {
       throw new Error('wasm_ctx_vertex_attrib1f not found');
     }
     const code = ex.wasm_ctx_vertex_attrib1f(this._ctxHandle, index >>> 0, +v0);
+    if (code === 5) return; // ERR_GL
     _checkErr(code, this._instance);
   }
   vertexAttrib2f(index, v0, v1) {
@@ -763,6 +779,7 @@ export class WasmWebGL2RenderingContext {
       throw new Error('wasm_ctx_vertex_attrib2f not found');
     }
     const code = ex.wasm_ctx_vertex_attrib2f(this._ctxHandle, index >>> 0, +v0, +v1);
+    if (code === 5) return; // ERR_GL
     _checkErr(code, this._instance);
   }
   vertexAttrib3f(index, v0, v1, v2) {
@@ -772,6 +789,7 @@ export class WasmWebGL2RenderingContext {
       throw new Error('wasm_ctx_vertex_attrib3f not found');
     }
     const code = ex.wasm_ctx_vertex_attrib3f(this._ctxHandle, index >>> 0, +v0, +v1, +v2);
+    if (code === 5) return; // ERR_GL
     _checkErr(code, this._instance);
   }
   vertexAttrib4f(index, v0, v1, v2, v3) {
@@ -781,7 +799,37 @@ export class WasmWebGL2RenderingContext {
       throw new Error('wasm_ctx_vertex_attrib4f not found');
     }
     const code = ex.wasm_ctx_vertex_attrib4f(this._ctxHandle, index >>> 0, +v0, +v1, +v2, +v3);
+    if (code === 5) return; // ERR_GL
     _checkErr(code, this._instance);
+  }
+
+  vertexAttrib1fv(index, v) {
+    if (v && v.length >= 1) {
+      this.vertexAttrib1f(index, v[0]);
+    } else {
+      this._setError(0x0501);
+    }
+  }
+  vertexAttrib2fv(index, v) {
+    if (v && v.length >= 2) {
+      this.vertexAttrib2f(index, v[0], v[1]);
+    } else {
+      this._setError(0x0501);
+    }
+  }
+  vertexAttrib3fv(index, v) {
+    if (v && v.length >= 3) {
+      this.vertexAttrib3f(index, v[0], v[1], v[2]);
+    } else {
+      this._setError(0x0501);
+    }
+  }
+  vertexAttrib4fv(index, v) {
+    if (v && v.length >= 4) {
+      this.vertexAttrib4f(index, v[0], v[1], v[2], v[3]);
+    } else {
+      this._setError(0x0501);
+    }
   }
 
   vertexAttribI4i(index, v0, v1, v2, v3) {
@@ -791,6 +839,7 @@ export class WasmWebGL2RenderingContext {
       throw new Error('wasm_ctx_vertex_attrib_i4i not found');
     }
     const code = ex.wasm_ctx_vertex_attrib_i4i(this._ctxHandle, index >>> 0, v0 | 0, v1 | 0, v2 | 0, v3 | 0);
+    if (code === 5) return; // ERR_GL
     _checkErr(code, this._instance);
   }
 
@@ -801,18 +850,23 @@ export class WasmWebGL2RenderingContext {
       throw new Error('wasm_ctx_vertex_attrib_i4ui not found');
     }
     const code = ex.wasm_ctx_vertex_attrib_i4ui(this._ctxHandle, index >>> 0, v0 >>> 0, v1 >>> 0, v2 >>> 0, v3 >>> 0);
+    if (code === 5) return; // ERR_GL
     _checkErr(code, this._instance);
   }
 
   vertexAttribI4iv(index, v) {
     if (v && v.length >= 4) {
       this.vertexAttribI4i(index, v[0], v[1], v[2], v[3]);
+    } else {
+      this._setError(0x0501);
     }
   }
 
   vertexAttribI4uiv(index, v) {
     if (v && v.length >= 4) {
       this.vertexAttribI4ui(index, v[0], v[1], v[2], v[3]);
+    } else {
+      this._setError(0x0501);
     }
   }
 
@@ -1191,6 +1245,64 @@ export class WasmWebGL2RenderingContext {
   getActiveUniform(program, index) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   getActiveAttrib(program, index) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
+  getVertexAttrib(index, pname) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_vertex_attrib !== 'function') {
+      throw new Error('wasm_ctx_get_vertex_attrib not found');
+    }
+
+    // Allocate memory for result.
+    // Most params return 1 int (4 bytes).
+    // CURRENT_VERTEX_ATTRIB returns 4 values (16 bytes) + type (4 bytes) = 20 bytes.
+    const len = 20;
+    const ptr = ex.wasm_alloc(len);
+    if (ptr === 0) throw new Error('Failed to allocate memory for getVertexAttrib');
+
+    try {
+      const code = ex.wasm_ctx_get_vertex_attrib(this._ctxHandle, index >>> 0, pname >>> 0, ptr, len);
+      if (code === 5) { // ERR_GL
+          return undefined;
+      }
+      _checkErr(code, this._instance);
+
+      const mem = new Int32Array(ex.memory.buffer, ptr, 5);
+      const memU = new Uint32Array(ex.memory.buffer, ptr, 5);
+      const memF = new Float32Array(ex.memory.buffer, ptr, 5);
+
+      if (pname === 0x8626 /* CURRENT_VERTEX_ATTRIB */) {
+        // Check type at index 4
+        const type = memU[4];
+        if (type === 0x1404 /* INT */) {
+          return new Int32Array([mem[0], mem[1], mem[2], mem[3]]);
+        } else if (type === 0x1405 /* UNSIGNED_INT */) {
+          return new Uint32Array([memU[0], memU[1], memU[2], memU[3]]);
+        } else {
+          // Default to float
+          return new Float32Array([memF[0], memF[1], memF[2], memF[3]]);
+        }
+      }
+
+      // Other params
+      if (pname === 0x8622 /* ENABLED */ || 
+          pname === 0x886A /* NORMALIZED */ || 
+          pname === 0x88FD /* INTEGER */) {
+        return mem[0] !== 0;
+      }
+      
+      if (pname === 0x889F /* BUFFER_BINDING */) {
+        const handle = memU[0];
+        if (handle === 0) return null;
+        return new WasmWebGLBuffer(this, handle);
+      }
+
+      return mem[0];
+    } finally {
+      ex.wasm_free(ptr, len);
+    }
+  }
+
+
   getParameter(pname) {
     this._assertNotDestroyed();
     const ex = this._instance.exports;
@@ -1236,6 +1348,14 @@ export class WasmWebGL2RenderingContext {
     }
     return ex.wasm_ctx_get_error(this._ctxHandle);
   }
+
+  _setError(error) {
+    const ex = this._instance.exports;
+    if (ex && typeof ex.wasm_ctx_set_gl_error === 'function') {
+      ex.wasm_ctx_set_gl_error(this._ctxHandle, error);
+    }
+  }
+
   finish() { this._assertNotDestroyed(); throw new Error('not implemented'); }
   flush() { this._assertNotDestroyed(); throw new Error('not implemented'); }
 

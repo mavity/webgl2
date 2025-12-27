@@ -55,7 +55,7 @@ class DRNG {
     }
 }
 
-test('WebGL vertexAttrib Conformance Tests', { skip: true }, async (t) => {
+test('WebGL vertexAttrib Conformance Tests', async (t) => {
     const gl = await webGL2();
     const drng = new DRNG();
 

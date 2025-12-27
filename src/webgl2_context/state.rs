@@ -324,6 +324,20 @@ pub fn ctx_get_parameter_v(ctx: u32, pname: u32, dest_ptr: u32, dest_len: u32) -
     }
 }
 
+/// Set GL error.
+pub fn ctx_set_gl_error(ctx: u32, error: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    if let Some(ctx_obj) = reg.contexts.get_mut(&ctx) {
+        if ctx_obj.gl_error == GL_NO_ERROR {
+            ctx_obj.gl_error = error;
+        }
+        ERR_OK
+    } else {
+        ERR_INVALID_HANDLE
+    }
+}
+
 /// Set verbosity level.
 pub fn ctx_set_verbosity(ctx: u32, level: u32) -> u32 {
     clear_last_error();

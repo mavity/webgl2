@@ -134,6 +134,7 @@ async function initWASM({ debug } = {}) {
     const fs = await import('fs');
     const { fileURLToPath } = await import('url');
     const wasmPath = path.join(path.dirname(fileURLToPath(import.meta.url)), wasmFile);
+    console.log('Loading WASM from:', wasmPath);
     if (!fs.existsSync(wasmPath)) {
       throw new Error(`WASM not found at ${wasmPath}. Run: npm run build:wasm`);
     }
