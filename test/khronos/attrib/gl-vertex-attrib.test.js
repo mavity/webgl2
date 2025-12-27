@@ -24,7 +24,7 @@ import { webGL2 } from '../../../index.js';
 
 // Helper to generate range [0, ..., n-1]
 function range(n) {
-    return Array.from({length: n}, (_, i) => i);
+    return Array.from({ length: n }, (_, i) => i);
 }
 
 // Helper for cross product of arrays
@@ -32,7 +32,7 @@ function crossCombine(arr1, arr2) {
     const result = [];
     for (const i of arr1) {
         for (const j of arr2) {
-            result.push({...i, ...j});
+            result.push({ ...i, ...j });
         }
     }
     return result;
@@ -55,7 +55,7 @@ class DRNG {
     }
 }
 
-test('WebGL vertexAttrib Conformance Tests', { skip:true }, async (t) => {
+test('WebGL vertexAttrib Conformance Tests', { skip: true }, async (t) => {
     const gl = await webGL2();
     const drng = new DRNG();
 
@@ -95,9 +95,9 @@ test('WebGL vertexAttrib Conformance Tests', { skip:true }, async (t) => {
     await t.test('vertexAttrib1fv', () => {
         const res1 = checkAcrossAllIndices((i) => gl.vertexAttrib1fv(i, [1]), [1, 0, 0, 1], Float32Array);
         const res2 = checkAcrossAllIndices((i) => gl.vertexAttrib1fv(i, new Float32Array([-1])), [-1, 0, 0, 1], Float32Array);
-        
+
         assert.deepStrictEqual(
-            { case1: res1.actual, case2: res2.actual }, 
+            { case1: res1.actual, case2: res2.actual },
             { case1: res1.expected, case2: res2.expected }
         );
         checkError(gl.NO_ERROR);
@@ -108,7 +108,7 @@ test('WebGL vertexAttrib Conformance Tests', { skip:true }, async (t) => {
         const res2 = checkAcrossAllIndices((i) => gl.vertexAttrib2fv(i, new Float32Array([1, -2])), [1, -2, 0, 1], Float32Array);
 
         assert.deepStrictEqual(
-            { case1: res1.actual, case2: res2.actual }, 
+            { case1: res1.actual, case2: res2.actual },
             { case1: res1.expected, case2: res2.expected }
         );
         checkError(gl.NO_ERROR);
@@ -119,7 +119,7 @@ test('WebGL vertexAttrib Conformance Tests', { skip:true }, async (t) => {
         const res2 = checkAcrossAllIndices((i) => gl.vertexAttrib3fv(i, new Float32Array([1, -2, 3])), [1, -2, 3, 1], Float32Array);
 
         assert.deepStrictEqual(
-            { case1: res1.actual, case2: res2.actual }, 
+            { case1: res1.actual, case2: res2.actual },
             { case1: res1.expected, case2: res2.expected }
         );
         checkError(gl.NO_ERROR);
@@ -130,7 +130,7 @@ test('WebGL vertexAttrib Conformance Tests', { skip:true }, async (t) => {
         const res2 = checkAcrossAllIndices((i) => gl.vertexAttrib4fv(i, new Float32Array([1, 2, -3, 4])), [1, 2, -3, 4], Float32Array);
 
         assert.deepStrictEqual(
-            { case1: res1.actual, case2: res2.actual }, 
+            { case1: res1.actual, case2: res2.actual },
             { case1: res1.expected, case2: res2.expected }
         );
         checkError(gl.NO_ERROR);
@@ -177,7 +177,7 @@ test('WebGL vertexAttrib Conformance Tests', { skip:true }, async (t) => {
         const res2 = checkAcrossAllIndices((i) => gl.vertexAttribI4iv(i, new Int32Array([1, 0, -1, 2])), [1, 0, -1, 2], Int32Array);
 
         assert.deepStrictEqual(
-            { case1: res1.actual, case2: res2.actual }, 
+            { case1: res1.actual, case2: res2.actual },
             { case1: res1.expected, case2: res2.expected }
         );
         checkError(gl.NO_ERROR);
@@ -188,7 +188,7 @@ test('WebGL vertexAttrib Conformance Tests', { skip:true }, async (t) => {
         const res2 = checkAcrossAllIndices((i) => gl.vertexAttribI4uiv(i, new Uint32Array([0, 2, 1, 3])), [0, 2, 1, 3], Uint32Array);
 
         assert.deepStrictEqual(
-            { case1: res1.actual, case2: res2.actual }, 
+            { case1: res1.actual, case2: res2.actual },
             { case1: res1.expected, case2: res2.expected }
         );
         checkError(gl.NO_ERROR);
@@ -255,7 +255,7 @@ test('WebGL vertexAttrib Conformance Tests', { skip:true }, async (t) => {
 
     await t.test('Checking invalid array lengths', () => {
         const idx = numVertexAttribs - 1;
-        
+
         gl.vertexAttrib1fv(idx, []);
         checkError(gl.INVALID_VALUE);
 
@@ -295,22 +295,22 @@ test('WebGL vertexAttrib Conformance Tests', { skip:true }, async (t) => {
 
     await t.test('Checking round-tripping of valid random values', () => {
         const FUNCS = [
-            { func_name: 'vertexAttrib1f' , val_count: 1, array_ctor: Float32Array },
-            { func_name: 'vertexAttrib2f' , val_count: 2, array_ctor: Float32Array },
-            { func_name: 'vertexAttrib3f' , val_count: 3, array_ctor: Float32Array },
-            { func_name: 'vertexAttrib4f' , val_count: 4, array_ctor: Float32Array },
+            { func_name: 'vertexAttrib1f', val_count: 1, array_ctor: Float32Array },
+            { func_name: 'vertexAttrib2f', val_count: 2, array_ctor: Float32Array },
+            { func_name: 'vertexAttrib3f', val_count: 3, array_ctor: Float32Array },
+            { func_name: 'vertexAttrib4f', val_count: 4, array_ctor: Float32Array },
             { func_name: 'vertexAttrib1fv', val_count: 1, array_ctor: Float32Array },
             { func_name: 'vertexAttrib2fv', val_count: 2, array_ctor: Float32Array },
             { func_name: 'vertexAttrib3fv', val_count: 3, array_ctor: Float32Array },
             { func_name: 'vertexAttrib4fv', val_count: 4, array_ctor: Float32Array },
-            { func_name: 'vertexAttribI4i'  , val_count: 4, array_ctor: Int32Array },
-            { func_name: 'vertexAttribI4iv' , val_count: 4, array_ctor: Int32Array },
-            { func_name: 'vertexAttribI4ui' , val_count: 4, array_ctor: Uint32Array },
+            { func_name: 'vertexAttribI4i', val_count: 4, array_ctor: Int32Array },
+            { func_name: 'vertexAttribI4iv', val_count: 4, array_ctor: Int32Array },
+            { func_name: 'vertexAttribI4ui', val_count: 4, array_ctor: Uint32Array },
             { func_name: 'vertexAttribI4uiv', val_count: 4, array_ctor: Uint32Array },
         ];
 
         const TESTS = crossCombine(
-            range(numVertexAttribs).map(attrib_id => ({attrib_id})),
+            range(numVertexAttribs).map(attrib_id => ({ attrib_id })),
             FUNCS
         );
 
@@ -348,7 +348,7 @@ test('WebGL vertexAttrib Conformance Tests', { skip:true }, async (t) => {
             gl[test.func_name](...args);
 
             const attrib = gl.getVertexAttrib(test.attrib_id, gl.CURRENT_VERTEX_ATTRIB);
-            
+
             actualResults.push({
                 attrib_id: test.attrib_id,
                 func: test.func_name,
@@ -363,7 +363,7 @@ test('WebGL vertexAttrib Conformance Tests', { skip:true }, async (t) => {
                 values: Array.from(out_vals)
             });
         }
-        
+
         assert.deepStrictEqual(actualResults, expectedResults);
         checkError(gl.NO_ERROR);
     });

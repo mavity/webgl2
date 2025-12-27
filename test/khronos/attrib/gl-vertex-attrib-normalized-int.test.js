@@ -69,12 +69,12 @@ test('WebGL 2 Normalized Vertex Attributes Conformance Test', { skip: true }, as
     const buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Int8Array([
-        -0x80,  0x7f, -0x7f,
-         0x7f,  0x7f, -0x7f,
+        -0x80, 0x7f, -0x7f,
+        0x7f, 0x7f, -0x7f,
         -0x80, -0x7f, -0x7f,
         -0x80, -0x7f, -0x7f,
-         0x7f,  0x7f, -0x7f,
-         0x7f, -0x80, -0x7f
+        0x7f, 0x7f, -0x7f,
+        0x7f, -0x80, -0x7f
     ]), gl.STATIC_DRAW);
 
     gl.enableVertexAttribArray(0);
@@ -84,7 +84,7 @@ test('WebGL 2 Normalized Vertex Attributes Conformance Test', { skip: true }, as
 
     const pixels = new Uint8Array(4);
     gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    
+
     // Check for opaque white [255, 255, 255, 255]
     assert.deepStrictEqual(Array.from(pixels), [255, 255, 255, 255], "should be opaque white");
 });
