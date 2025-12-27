@@ -155,8 +155,9 @@ pub(crate) struct VertexAttribute {
     pub(crate) stride: i32,
     pub(crate) offset: u32,
     pub(crate) buffer: Option<u32>,
-    pub(crate) default_value: [f32; 4],
+    pub(crate) default_value: [u32; 4], // Store as raw bits
     pub(crate) divisor: u32,
+    pub(crate) is_integer: bool,
 }
 
 impl Default for VertexAttribute {
@@ -169,8 +170,9 @@ impl Default for VertexAttribute {
             stride: 0,
             offset: 0,
             buffer: None,
-            default_value: [0.0, 0.0, 0.0, 1.0],
+            default_value: [0, 0, 0, 0x3F800000], // 0.0, 0.0, 0.0, 1.0 (as float bits)
             divisor: 0,
+            is_integer: false,
         }
     }
 }
@@ -350,7 +352,7 @@ impl Context {
         &self,
         vertex_id: u32,
         instance_id: u32,
-        dest: &mut [f32],
+        dest: &mut [u32],
     ) {
         Self::fetch_vertex_attributes_static(
             &self.vertex_arrays,
@@ -368,7 +370,7 @@ impl Context {
         buffers: &HashMap<u32, Buffer>,
         vertex_id: u32,
         instance_id: u32,
-        dest: &mut [f32],
+        dest: &mut [u32],
     ) {
         let vao = match vertex_arrays.get(&bound_vertex_array) {
             Some(v) => v,
@@ -392,13 +394,13 @@ impl Context {
             if let Some(buffer_id) = attr.buffer {
                 if let Some(buffer) = buffers.get(&buffer_id) {
                     let type_size = match attr.type_ {
-                        0x1406 => 4, // GL_FLOAT
                         0x1400 => 1, // GL_BYTE
                         0x1401 => 1, // GL_UNSIGNED_BYTE
                         0x1402 => 2, // GL_SHORT
                         0x1403 => 2, // GL_UNSIGNED_SHORT
                         0x1404 => 4, // GL_INT
                         0x1405 => 4, // GL_UNSIGNED_INT
+                        0x1406 => 4, // GL_FLOAT
                         _ => 4,
                     };
 
@@ -415,22 +417,136 @@ impl Context {
                         if component < attr.size as usize {
                             let src_off = offset + component * type_size as usize;
                             if src_off + type_size as usize <= buffer.data.len() {
-                                let val = match attr.type_ {
-                                    0x1406 => f32::from_le_bytes(
-                                        buffer.data[src_off..src_off + 4]
-                                            .try_into()
-                                            .unwrap_or([0; 4]),
-                                    ),
-                                    0x1401 => buffer.data[src_off] as f32 / 255.0, // GL_UNSIGNED_BYTE (normalized)
-                                    _ => 0.0,
+                                let bits = if attr.is_integer {
+                                    // Pure integer attribute
+                                    match attr.type_ {
+                                        0x1400 => (buffer.data[src_off] as i8) as i32 as u32,
+                                        0x1401 => buffer.data[src_off] as u32,
+                                        0x1402 => i16::from_le_bytes(
+                                            buffer.data[src_off..src_off + 2].try_into().unwrap(),
+                                        ) as i32
+                                            as u32,
+                                        0x1403 => u16::from_le_bytes(
+                                            buffer.data[src_off..src_off + 2].try_into().unwrap(),
+                                        ) as u32,
+                                        0x1404 => u32::from_le_bytes(
+                                            buffer.data[src_off..src_off + 4].try_into().unwrap(),
+                                        ),
+                                        0x1405 => u32::from_le_bytes(
+                                            buffer.data[src_off..src_off + 4].try_into().unwrap(),
+                                        ),
+                                        _ => 0,
+                                    }
+                                } else {
+                                    // Float or normalized attribute
+                                    let val: f32 = match attr.type_ {
+                                        0x1406 => f32::from_le_bytes(
+                                            buffer.data[src_off..src_off + 4]
+                                                .try_into()
+                                                .unwrap_or([0; 4]),
+                                        ),
+                                        0x1400 => {
+                                            // GL_BYTE
+                                            let v = (buffer.data[src_off] as i8) as f32;
+                                            if attr.normalized {
+                                                // Signed byte normalization: max(c / 127.0, -1.0)
+                                                v / 127.0
+                                            } else {
+                                                v
+                                            }
+                                        }
+                                        0x1401 => {
+                                            // GL_UNSIGNED_BYTE
+                                            let v = buffer.data[src_off] as f32;
+                                            if attr.normalized {
+                                                v / 255.0
+                                            } else {
+                                                v
+                                            }
+                                        }
+                                        0x1402 => {
+                                            // GL_SHORT
+                                            let v = i16::from_le_bytes(
+                                                buffer.data[src_off..src_off + 2]
+                                                    .try_into()
+                                                    .unwrap(),
+                                            )
+                                                as f32;
+                                            if attr.normalized {
+                                                v / 32767.0
+                                            } else {
+                                                v
+                                            }
+                                        }
+                                        0x1403 => {
+                                            // GL_UNSIGNED_SHORT
+                                            let v = u16::from_le_bytes(
+                                                buffer.data[src_off..src_off + 2]
+                                                    .try_into()
+                                                    .unwrap(),
+                                            )
+                                                as f32;
+                                            if attr.normalized {
+                                                v / 65535.0
+                                            } else {
+                                                v
+                                            }
+                                        }
+                                        0x1404 => {
+                                            // GL_INT
+                                            let v = i32::from_le_bytes(
+                                                buffer.data[src_off..src_off + 4]
+                                                    .try_into()
+                                                    .unwrap(),
+                                            )
+                                                as f32;
+                                            if attr.normalized {
+                                                v / 2147483647.0
+                                            } else {
+                                                v
+                                            }
+                                        }
+                                        0x1405 => {
+                                            // GL_UNSIGNED_INT
+                                            let v = u32::from_le_bytes(
+                                                buffer.data[src_off..src_off + 4]
+                                                    .try_into()
+                                                    .unwrap(),
+                                            )
+                                                as f32;
+                                            if attr.normalized {
+                                                v / 4294967295.0
+                                            } else {
+                                                v
+                                            }
+                                        }
+                                        _ => 0.0,
+                                    };
+                                    val.to_bits()
                                 };
-                                dest[base_idx + component] = val;
+                                dest[base_idx + component] = bits;
                             } else {
-                                dest[base_idx + component] = 0.0;
+                                dest[base_idx + component] = 0;
                             }
                         } else {
                             // Fill remaining components with default (0,0,0,1)
-                            dest[base_idx + component] = if component == 3 { 1.0 } else { 0.0 };
+                            // For integer attributes, default is (0, 0, 0, 1)
+                            // For float attributes, default is (0.0, 0.0, 0.0, 1.0)
+                            // We store defaults in attr.default_value which are already bits
+                            // But wait, default_value is [u32; 4].
+                            // If we are filling from buffer, we should use 0/1 appropriate for the type?
+                            // Actually, if size < 4, we should use defaults.
+                            // But usually defaults are (0,0,0,1).
+                            // Let's use the default_value from the attribute if we want to be correct,
+                            // but standard says (0,0,0,1).
+                            // The attr.default_value is used when !enabled.
+                            // When enabled but component missing, it's (0,0,0,1).
+                            if component == 3 {
+                                dest[base_idx + component] =
+                                    if attr.is_integer { 1 } else { 1.0f32.to_bits() };
+                            } else {
+                                dest[base_idx + component] = 0;
+                            }
                         }
                     }
                 } else {

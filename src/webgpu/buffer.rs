@@ -70,9 +70,11 @@ pub fn buffer_map_async(
             None => return super::WEBGPU_ERROR_INVALID_HANDLE,
         };
 
-        let host = if mode == 1 { // Read
+        let host = if mode == 1 {
+            // Read
             wgpu_core::device::HostMap::Read
-        } else { // Write
+        } else {
+            // Write
             wgpu_core::device::HostMap::Write
         };
 
@@ -81,7 +83,10 @@ pub fn buffer_map_async(
             callback: None,
         };
 
-        match ctx.global.buffer_map_async(buffer_id, offset, Some(size), op) {
+        match ctx
+            .global
+            .buffer_map_async(buffer_id, offset, Some(size), op)
+        {
             Ok(_) => {
                 // In a single-threaded WASM environment, we must manually poll the device
                 // to process the mapping operation. wgpu-core is lazy and won't transition
@@ -115,10 +120,11 @@ pub fn buffer_get_mapped_range(
             None => return std::ptr::null_mut(),
         };
 
-        match ctx.global.buffer_get_mapped_range(buffer_id, offset, Some(size)) {
-            Ok((ptr, _len)) => {
-                ptr.as_ptr()
-            },
+        match ctx
+            .global
+            .buffer_get_mapped_range(buffer_id, offset, Some(size))
+        {
+            Ok((ptr, _len)) => ptr.as_ptr(),
             Err(e) => {
                 crate::js_log(0, &format!("Failed to get mapped range: {:?}", e));
                 std::ptr::null_mut()

@@ -92,6 +92,29 @@ pub fn translate_statement(
             }
             ctx.wasm_func.instruction(&Instruction::Return);
         }
+        naga::Statement::If {
+            condition,
+            accept,
+            reject,
+        } => {
+            // Evaluate condition
+            // We assume translate_expression puts an F32 (bits of I32 bool) on the stack
+            super::expressions::translate_expression(*condition, ctx)?;
+            ctx.wasm_func.instruction(&Instruction::I32ReinterpretF32);
+
+            ctx.wasm_func
+                .instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+            for s in accept {
+                translate_statement(s, ctx)?;
+            }
+            if !reject.is_empty() {
+                ctx.wasm_func.instruction(&Instruction::Else);
+                for s in reject {
+                    translate_statement(s, ctx)?;
+                }
+            }
+            ctx.wasm_func.instruction(&Instruction::End);
+        }
         _ => {}
     }
     Ok(())

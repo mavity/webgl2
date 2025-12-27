@@ -31,7 +31,7 @@ pub fn create_texture(
 
         // TODO: Map integer format to wgt::TextureFormat
         // For now, assume Rgba8Unorm (17) if format is 17, else panic or default
-        let format = wgt::TextureFormat::Rgba8Unorm; 
+        let format = wgt::TextureFormat::Rgba8Unorm;
 
         let desc = wgt::TextureDescriptor {
             label: None,
@@ -66,7 +66,7 @@ pub fn create_texture(
 pub fn create_texture_view(
     ctx_handle: u32,
     texture_handle: u32,
-    format: u32, // 0 = undefined/inherit
+    format: u32,    // 0 = undefined/inherit
     dimension: u32, // 0 = undefined/inherit
     base_mip_level: u32,
     mip_level_count: u32,
@@ -111,9 +111,17 @@ pub fn create_texture_view(
             range: wgt::ImageSubresourceRange {
                 aspect,
                 base_mip_level,
-                mip_level_count: if mip_level_count == 0 { None } else { Some(mip_level_count) },
+                mip_level_count: if mip_level_count == 0 {
+                    None
+                } else {
+                    Some(mip_level_count)
+                },
                 base_array_layer,
-                array_layer_count: if array_layer_count == 0 { None } else { Some(array_layer_count) },
+                array_layer_count: if array_layer_count == 0 {
+                    None
+                } else {
+                    Some(array_layer_count)
+                },
             },
         };
 
@@ -132,10 +140,7 @@ pub fn create_texture_view(
 }
 
 /// Create a sampler
-pub fn create_sampler(
-    ctx_handle: u32,
-    device_handle: u32,
-) -> u32 {
+pub fn create_sampler(ctx_handle: u32, device_handle: u32) -> u32 {
     with_context(ctx_handle, |ctx| {
         let device_id = match ctx.devices.get(&device_handle) {
             Some(id) => *id,
@@ -159,10 +164,8 @@ pub fn create_sampler(
             border_color: None,
         };
 
-        let (sampler_id, error) = ctx
-            .global
-            .device_create_sampler(device_id, &desc, None);
-            
+        let (sampler_id, error) = ctx.global.device_create_sampler(device_id, &desc, None);
+
         if let Some(e) = error {
             crate::js_log(0, &format!("Failed to create sampler: {:?}", e));
             return super::NULL_HANDLE;

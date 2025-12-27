@@ -164,6 +164,8 @@ async function initWASM({ debug } = {}) {
         const gl = WasmWebGL2RenderingContext._contexts.get(ctx);
         if (gl) {
           gl._executeShader(type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
+        } else {
+            // console.log(`DEBUG: wasm_execute_shader: ctx ${ctx} not found in _contexts`);
         }
       }
     }

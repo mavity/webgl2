@@ -5,11 +5,7 @@ use std::num::NonZero;
 use wgpu_types as wgt;
 
 /// Create a bind group layout
-pub fn create_bind_group_layout(
-    ctx_handle: u32,
-    device_handle: u32,
-    entries_data: &[u32],
-) -> u32 {
+pub fn create_bind_group_layout(ctx_handle: u32, device_handle: u32, entries_data: &[u32]) -> u32 {
     with_context(ctx_handle, |ctx| {
         let device_id = match ctx.devices.get(&device_handle) {
             Some(id) => *id,
@@ -18,21 +14,24 @@ pub fn create_bind_group_layout(
 
         let mut entries = Vec::new();
         let mut cursor = 0;
-        
+
         // Format: [count, binding, visibility, type, ...]
         if cursor < entries_data.len() {
             let count = entries_data[cursor];
             cursor += 1;
-            
+
             for _ in 0..count {
-                if cursor + 3 > entries_data.len() { break; }
+                if cursor + 3 > entries_data.len() {
+                    break;
+                }
                 let binding = entries_data[cursor];
-                let visibility = wgt::ShaderStages::from_bits_truncate(entries_data[cursor+1]);
-                let ty_id = entries_data[cursor+2];
+                let visibility = wgt::ShaderStages::from_bits_truncate(entries_data[cursor + 1]);
+                let ty_id = entries_data[cursor + 2];
                 cursor += 3;
-                
+
                 let ty = match ty_id {
-                    0 => wgt::BindingType::Buffer { // Uniform
+                    0 => wgt::BindingType::Buffer {
+                        // Uniform
                         ty: wgt::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
@@ -49,7 +48,7 @@ pub fn create_bind_group_layout(
                         min_binding_size: None,
                     },
                 };
-                
+
                 entries.push(wgt::BindGroupLayoutEntry {
                     binding,
                     visibility,
@@ -67,7 +66,7 @@ pub fn create_bind_group_layout(
         let (layout_id, error) = ctx
             .global
             .device_create_bind_group_layout(device_id, &desc, None);
-            
+
         if let Some(e) = error {
             crate::js_log(0, &format!("Failed to create bind group layout: {:?}", e));
             return super::NULL_HANDLE;
@@ -93,7 +92,7 @@ pub fn create_bind_group(
             Some(id) => *id,
             None => return super::NULL_HANDLE,
         };
-        
+
         let layout_id = match ctx.bind_group_layouts.get(&layout_handle) {
             Some(id) => *id,
             None => return super::NULL_HANDLE,
@@ -101,39 +100,46 @@ pub fn create_bind_group(
 
         let mut entries = Vec::new();
         let mut cursor = 0;
-        
+
         // Format: [count, binding, resource_type, resource_handle, ...]
         if cursor < entries_data.len() {
             let count = entries_data[cursor];
             cursor += 1;
-            
+
             for _ in 0..count {
-                if cursor + 3 > entries_data.len() { break; }
+                if cursor + 3 > entries_data.len() {
+                    break;
+                }
                 let binding = entries_data[cursor];
-                let res_type = entries_data[cursor+1];
-                let res_handle = entries_data[cursor+2];
+                let res_type = entries_data[cursor + 1];
+                let res_handle = entries_data[cursor + 2];
                 cursor += 3;
-                
+
                 let resource = match res_type {
-                    0 => { // Buffer
+                    0 => {
+                        // Buffer
                         if let Some(id) = ctx.buffers.get(&res_handle) {
-                            wgpu_core::binding_model::BindingResource::Buffer(wgpu_core::binding_model::BufferBinding {
-                                buffer: *id,
-                                offset: 0,
-                                size: None,
-                            })
+                            wgpu_core::binding_model::BindingResource::Buffer(
+                                wgpu_core::binding_model::BufferBinding {
+                                    buffer: *id,
+                                    offset: 0,
+                                    size: None,
+                                },
+                            )
                         } else {
                             continue;
                         }
-                    },
-                    1 => { // TextureView
+                    }
+                    1 => {
+                        // TextureView
                         if let Some(id) = ctx.texture_views.get(&res_handle) {
                             wgpu_core::binding_model::BindingResource::TextureView(*id)
                         } else {
                             continue;
                         }
-                    },
-                    2 => { // Sampler
+                    }
+                    2 => {
+                        // Sampler
                         if let Some(id) = ctx.samplers.get(&res_handle) {
                             wgpu_core::binding_model::BindingResource::Sampler(*id)
                         } else {
@@ -143,14 +149,11 @@ pub fn create_bind_group(
                             // Let's assume handle 0 is a default sampler if needed, or fail.
                             continue;
                         }
-                    },
+                    }
                     _ => continue,
                 };
-                
-                entries.push(wgpu_core::binding_model::BindGroupEntry {
-                    binding,
-                    resource,
-                });
+
+                entries.push(wgpu_core::binding_model::BindGroupEntry { binding, resource });
             }
         }
 
@@ -160,10 +163,8 @@ pub fn create_bind_group(
             entries: std::borrow::Cow::Owned(entries),
         };
 
-        let (bg_id, error) = ctx
-            .global
-            .device_create_bind_group(device_id, &desc, None);
-            
+        let (bg_id, error) = ctx.global.device_create_bind_group(device_id, &desc, None);
+
         if let Some(e) = error {
             crate::js_log(0, &format!("Failed to create bind group: {:?}", e));
             return super::NULL_HANDLE;

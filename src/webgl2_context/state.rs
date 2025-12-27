@@ -128,6 +128,10 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
                     ctx_obj.default_framebuffer.color[i + 3] = a;
                 }
             }
+            // Verify
+            if !ctx_obj.default_framebuffer.color.is_empty() {
+                let _first_alpha = ctx_obj.default_framebuffer.color[3];
+            }
         }
     }
 

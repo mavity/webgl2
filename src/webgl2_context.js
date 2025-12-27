@@ -35,9 +35,13 @@ export class WasmWebGL2RenderingContext {
   ARRAY_BUFFER = 0x8892;
   ELEMENT_ARRAY_BUFFER = 0x8893;
   STATIC_DRAW = 0x88E4;
-  FLOAT = 0x1406;
-  UNSIGNED_SHORT = 0x1403;
+  BYTE = 0x1400;
   UNSIGNED_BYTE = 0x1401;
+  SHORT = 0x1402;
+  UNSIGNED_SHORT = 0x1403;
+  INT = 0x1404;
+  UNSIGNED_INT = 0x1405;
+  FLOAT = 0x1406;
   RGBA = 0x1908;
   VIEWPORT = 0x0BA2;
   COLOR_CLEAR_VALUE = 0x0C22;
@@ -115,7 +119,6 @@ export class WasmWebGL2RenderingContext {
 
   _executeShader(type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr) {
     if (!this._currentProgram) {
-      console.log("DEBUG: No current program");
       return;
     }
     const shaderInstance = type === this.VERTEX_SHADER ? this._currentProgram._vsInstance : this._currentProgram._fsInstance;
@@ -128,6 +131,8 @@ export class WasmWebGL2RenderingContext {
         console.error(`  attrPtr: ${attrPtr}, uniformPtr: ${uniformPtr}, varyingPtr: ${varyingPtr}, privatePtr: ${privatePtr}, texturePtr: ${texturePtr}`);
         throw e;
       }
+    } else {
+        // console.log(`DEBUG: Shader instance or main missing for type ${type}. Instance: ${!!shaderInstance}`);
     }
   }
 
@@ -501,7 +506,7 @@ export class WasmWebGL2RenderingContext {
           }
         });
       } catch (e) {
-        console.log(`DEBUG: VS Instance creation failed: ${e}`);
+        // console.log(`DEBUG: VS Instance creation failed: ${e}`);
       }
     }
     if (fsWasm) {
@@ -513,7 +518,7 @@ export class WasmWebGL2RenderingContext {
           }
         });
       } catch (e) {
-        console.log(`DEBUG: FS Instance creation failed: ${e}`);
+        // console.log(`DEBUG: FS Instance creation failed: ${e}`);
       }
     }
   }
@@ -725,6 +730,23 @@ export class WasmWebGL2RenderingContext {
     _checkErr(code, this._instance);
   }
 
+  vertexAttribIPointer(index, size, type, stride, offset) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_vertex_attrib_ipointer !== 'function') {
+      throw new Error('wasm_ctx_vertex_attrib_ipointer not found');
+    }
+    const code = ex.wasm_ctx_vertex_attrib_ipointer(
+      this._ctxHandle,
+      index >>> 0,
+      size >>> 0,
+      type >>> 0,
+      stride >>> 0,
+      offset >>> 0
+    );
+    _checkErr(code, this._instance);
+  }
+
   vertexAttrib1f(index, v0) {
     this._assertNotDestroyed();
     const ex = this._instance.exports;
@@ -760,6 +782,38 @@ export class WasmWebGL2RenderingContext {
     }
     const code = ex.wasm_ctx_vertex_attrib4f(this._ctxHandle, index >>> 0, +v0, +v1, +v2, +v3);
     _checkErr(code, this._instance);
+  }
+
+  vertexAttribI4i(index, v0, v1, v2, v3) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_vertex_attrib_i4i !== 'function') {
+      throw new Error('wasm_ctx_vertex_attrib_i4i not found');
+    }
+    const code = ex.wasm_ctx_vertex_attrib_i4i(this._ctxHandle, index >>> 0, v0 | 0, v1 | 0, v2 | 0, v3 | 0);
+    _checkErr(code, this._instance);
+  }
+
+  vertexAttribI4ui(index, v0, v1, v2, v3) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_vertex_attrib_i4ui !== 'function') {
+      throw new Error('wasm_ctx_vertex_attrib_i4ui not found');
+    }
+    const code = ex.wasm_ctx_vertex_attrib_i4ui(this._ctxHandle, index >>> 0, v0 >>> 0, v1 >>> 0, v2 >>> 0, v3 >>> 0);
+    _checkErr(code, this._instance);
+  }
+
+  vertexAttribI4iv(index, v) {
+    if (v && v.length >= 4) {
+      this.vertexAttribI4i(index, v[0], v[1], v[2], v[3]);
+    }
+  }
+
+  vertexAttribI4uiv(index, v) {
+    if (v && v.length >= 4) {
+      this.vertexAttribI4ui(index, v[0], v[1], v[2], v[3]);
+    }
   }
 
   vertexAttribDivisor(index, divisor) {

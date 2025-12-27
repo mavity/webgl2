@@ -23,13 +23,16 @@ pub fn translate_expression_component(
                     }
                     Literal::I32(i) => {
                         ctx.wasm_func.instruction(&Instruction::I32Const(*i));
+                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
                     }
                     Literal::U32(u) => {
                         ctx.wasm_func.instruction(&Instruction::I32Const(*u as i32));
+                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
                     }
                     Literal::Bool(b) => {
                         ctx.wasm_func
                             .instruction(&Instruction::I32Const(if *b { 1 } else { 0 }));
+                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
                     }
                     _ => {
                         return Err(BackendError::UnsupportedFeature(format!(
@@ -73,6 +76,12 @@ pub fn translate_expression_component(
             let left_ty = ctx.typifier.get(*left, &ctx.module.types);
             let right_ty = ctx.typifier.get(*right, &ctx.module.types);
 
+            let left_scalar_kind = match left_ty {
+                naga::TypeInner::Scalar(scalar) => scalar.kind,
+                naga::TypeInner::Vector { scalar, .. } => scalar.kind,
+                _ => naga::ScalarKind::Float,
+            };
+
             // Handle Matrix * Vector
             if let (naga::TypeInner::Matrix { columns, rows, .. }, naga::TypeInner::Vector { .. }) =
                 (left_ty, right_ty)
@@ -103,20 +112,93 @@ pub fn translate_expression_component(
             let right_idx = if right_count > 1 { component_idx } else { 0 };
 
             translate_expression_component(*left, left_idx, ctx)?;
+            if matches!(
+                left_scalar_kind,
+                naga::ScalarKind::Sint | naga::ScalarKind::Uint | naga::ScalarKind::Bool
+            ) {
+                ctx.wasm_func.instruction(&Instruction::I32ReinterpretF32);
+            }
+
             translate_expression_component(*right, right_idx, ctx)?;
+            if matches!(
+                left_scalar_kind,
+                naga::ScalarKind::Sint | naga::ScalarKind::Uint | naga::ScalarKind::Bool
+            ) {
+                ctx.wasm_func.instruction(&Instruction::I32ReinterpretF32);
+            }
 
             match op {
-                BinaryOperator::Add => {
-                    ctx.wasm_func.instruction(&Instruction::F32Add);
+                BinaryOperator::Add => match left_scalar_kind {
+                    naga::ScalarKind::Float => {
+                        ctx.wasm_func.instruction(&Instruction::F32Add);
+                    }
+                    naga::ScalarKind::Sint | naga::ScalarKind::Uint => {
+                        ctx.wasm_func.instruction(&Instruction::I32Add);
+                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
+                    }
+                    _ => {}
+                },
+                BinaryOperator::Subtract => match left_scalar_kind {
+                    naga::ScalarKind::Float => {
+                        ctx.wasm_func.instruction(&Instruction::F32Sub);
+                    }
+                    naga::ScalarKind::Sint | naga::ScalarKind::Uint => {
+                        ctx.wasm_func.instruction(&Instruction::I32Sub);
+                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
+                    }
+                    _ => {}
+                },
+                BinaryOperator::Multiply => match left_scalar_kind {
+                    naga::ScalarKind::Float => {
+                        ctx.wasm_func.instruction(&Instruction::F32Mul);
+                    }
+                    naga::ScalarKind::Sint | naga::ScalarKind::Uint => {
+                        ctx.wasm_func.instruction(&Instruction::I32Mul);
+                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
+                    }
+                    _ => {}
+                },
+                BinaryOperator::Divide => match left_scalar_kind {
+                    naga::ScalarKind::Float => {
+                        ctx.wasm_func.instruction(&Instruction::F32Div);
+                    }
+                    naga::ScalarKind::Sint => {
+                        ctx.wasm_func.instruction(&Instruction::I32DivS);
+                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
+                    }
+                    naga::ScalarKind::Uint => {
+                        ctx.wasm_func.instruction(&Instruction::I32DivU);
+                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
+                    }
+                    _ => {}
+                },
+                BinaryOperator::Equal => {
+                    match left_scalar_kind {
+                        naga::ScalarKind::Float => {
+                            ctx.wasm_func.instruction(&Instruction::F32Eq);
+                        }
+                        naga::ScalarKind::Sint
+                        | naga::ScalarKind::Uint
+                        | naga::ScalarKind::Bool => {
+                            ctx.wasm_func.instruction(&Instruction::I32Eq);
+                        }
+                        _ => {}
+                    }
+                    ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
                 }
-                BinaryOperator::Subtract => {
-                    ctx.wasm_func.instruction(&Instruction::F32Sub);
-                }
-                BinaryOperator::Multiply => {
-                    ctx.wasm_func.instruction(&Instruction::F32Mul);
-                }
-                BinaryOperator::Divide => {
-                    ctx.wasm_func.instruction(&Instruction::F32Div);
+                BinaryOperator::NotEqual => {
+                    match left_scalar_kind {
+                        naga::ScalarKind::Float => {
+                            ctx.wasm_func.instruction(&Instruction::F32Ne);
+                        }
+                        naga::ScalarKind::Sint
+                        | naga::ScalarKind::Uint
+                        | naga::ScalarKind::Bool => {
+                            ctx.wasm_func.instruction(&Instruction::I32Ne);
+                        }
+                        _ => {}
+                    }
+                    ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
                 }
                 _ => {
                     return Err(BackendError::UnsupportedFeature(format!(

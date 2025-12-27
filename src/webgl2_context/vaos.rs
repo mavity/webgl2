@@ -164,6 +164,46 @@ pub fn ctx_vertex_attrib_pointer(
             attr.stride = stride;
             attr.offset = offset;
             attr.buffer = bound_buffer;
+            attr.is_integer = false;
+            ERR_OK
+        } else {
+            set_last_error("index out of range");
+            ERR_INVALID_ARGS
+        }
+    } else {
+        set_last_error("current vertex array not found");
+        ERR_INVALID_OPERATION
+    }
+}
+
+/// Vertex attribute integer pointer.
+pub fn ctx_vertex_attrib_ipointer(
+    ctx: u32,
+    index: u32,
+    size: i32,
+    type_: u32,
+    stride: i32,
+    offset: u32,
+) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => return ERR_INVALID_HANDLE,
+    };
+
+    let bound_buffer = ctx_obj.bound_array_buffer;
+
+    if let Some(vao) = ctx_obj.vertex_arrays.get_mut(&ctx_obj.bound_vertex_array) {
+        if (index as usize) < vao.attributes.len() {
+            let attr = &mut vao.attributes[index as usize];
+            attr.size = size;
+            attr.type_ = type_;
+            attr.normalized = false; // Integer attributes are never normalized
+            attr.stride = stride;
+            attr.offset = offset;
+            attr.buffer = bound_buffer;
+            attr.is_integer = true;
             ERR_OK
         } else {
             set_last_error("index out of range");
@@ -225,7 +265,58 @@ pub fn ctx_vertex_attrib4f(ctx: u32, index: u32, v0: f32, v1: f32, v2: f32, v3: 
 
     if let Some(vao) = ctx_obj.vertex_arrays.get_mut(&ctx_obj.bound_vertex_array) {
         if (index as usize) < vao.attributes.len() {
+            vao.attributes[index as usize].default_value =
+                [v0.to_bits(), v1.to_bits(), v2.to_bits(), v3.to_bits()];
+            vao.attributes[index as usize].is_integer = false;
+            ERR_OK
+        } else {
+            set_last_error("index out of range");
+            ERR_INVALID_ARGS
+        }
+    } else {
+        set_last_error("current vertex array not found");
+        ERR_INVALID_OPERATION
+    }
+}
+
+/// Set vertex attribute default value (I4i).
+pub fn ctx_vertex_attrib_i4i(ctx: u32, index: u32, v0: i32, v1: i32, v2: i32, v3: i32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => return ERR_INVALID_HANDLE,
+    };
+
+    if let Some(vao) = ctx_obj.vertex_arrays.get_mut(&ctx_obj.bound_vertex_array) {
+        if (index as usize) < vao.attributes.len() {
+            vao.attributes[index as usize].default_value =
+                [v0 as u32, v1 as u32, v2 as u32, v3 as u32];
+            vao.attributes[index as usize].is_integer = true;
+            ERR_OK
+        } else {
+            set_last_error("index out of range");
+            ERR_INVALID_ARGS
+        }
+    } else {
+        set_last_error("current vertex array not found");
+        ERR_INVALID_OPERATION
+    }
+}
+
+/// Set vertex attribute default value (I4ui).
+pub fn ctx_vertex_attrib_i4ui(ctx: u32, index: u32, v0: u32, v1: u32, v2: u32, v3: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => return ERR_INVALID_HANDLE,
+    };
+
+    if let Some(vao) = ctx_obj.vertex_arrays.get_mut(&ctx_obj.bound_vertex_array) {
+        if (index as usize) < vao.attributes.len() {
             vao.attributes[index as usize].default_value = [v0, v1, v2, v3];
+            vao.attributes[index as usize].is_integer = true;
             ERR_OK
         } else {
             set_last_error("index out of range");

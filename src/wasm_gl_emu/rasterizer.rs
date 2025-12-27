@@ -71,6 +71,8 @@ pub struct RasterPipeline {
     pub fragment_shader_type: u32,
     /// Memory layout for this pipeline
     pub memory: ShaderMemoryLayout,
+    /// Bitmask of flat varyings (1 = flat, 0 = smooth)
+    pub flat_varyings_mask: u64,
 }
 
 impl Default for RasterPipeline {
@@ -79,6 +81,7 @@ impl Default for RasterPipeline {
             vertex_shader_type: 0x8B31,   // GL_VERTEX_SHADER
             fragment_shader_type: 0x8B30, // GL_FRAGMENT_SHADER
             memory: ShaderMemoryLayout::default(),
+            flat_varyings_mask: 0,
         }
     }
 }
@@ -193,10 +196,15 @@ impl Rasterizer {
                         let w_interp = 1.0 / w_interp_inv;
 
                         for (k, varying) in interp_varyings.iter_mut().enumerate() {
-                            *varying = (u * v0.varyings[k] * w0_inv
-                                + v * v1.varyings[k] * w1_inv
-                                + w * v2.varyings[k] * w2_inv)
-                                * w_interp;
+                            if (pipeline.flat_varyings_mask & (1 << k)) != 0 {
+                                // Flat shading: use value from provoking vertex (v2)
+                                *varying = v2.varyings[k];
+                            } else {
+                                *varying = (u * v0.varyings[k] * w0_inv
+                                    + v * v1.varyings[k] * w1_inv
+                                    + w * v2.varyings[k] * w2_inv)
+                                    * w_interp;
+                            }
                         }
 
                         // Execute fragment shader and get color
@@ -251,6 +259,14 @@ impl Rasterizer {
         }
 
         let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
+
+        // Debug log (only once per frame/draw to avoid spam, or just first pixel)
+        // But we don't have easy access to "first pixel" state here.
+        // We can check if it's 0,0,0,0 which is suspicious.
+        if c[3] == 0.0 {
+            // crate::js_log(3, &format!("FS Output 0 alpha! varyings[0]={}", varyings[0]));
+        }
+
         [
             (c[0].clamp(0.0, 1.0) * 255.0) as u8,
             (c[1].clamp(0.0, 1.0) * 255.0) as u8,
@@ -343,11 +359,11 @@ impl Rasterizer {
                     );
                 }
                 let pos: [f32; 4] = unsafe { std::mem::transmute(pos_bytes) };
-                
+
                 // Convert varyings to f32 for interpolation
-                let varyings_f32: Vec<f32> = unsafe {
-                    std::slice::from_raw_parts(varying_bytes.as_ptr() as *const f32, 64)
-                }.to_vec();
+                let varyings_f32: Vec<f32> =
+                    unsafe { std::slice::from_raw_parts(varying_bytes.as_ptr() as *const f32, 64) }
+                        .to_vec();
 
                 vertices.push(ProcessedVertex {
                     position: pos,
@@ -359,8 +375,10 @@ impl Rasterizer {
             if mode == 0x0000 {
                 // GL_POINTS
                 for v in &vertices {
-                    let screen_x = vx as f32 + (v.position[0] / v.position[3] + 1.0) * 0.5 * vw as f32;
-                    let screen_y = vy as f32 + (v.position[1] / v.position[3] + 1.0) * 0.5 * vh as f32;
+                    let screen_x =
+                        vx as f32 + (v.position[0] / v.position[3] + 1.0) * 0.5 * vw as f32;
+                    let screen_y =
+                        vy as f32 + (v.position[1] / v.position[3] + 1.0) * 0.5 * vh as f32;
 
                     // Run FS
                     let color = self.execute_fragment_shader(&v.varyings, pipeline, state);

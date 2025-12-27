@@ -1,10 +1,10 @@
-use std::sync::{Arc, Mutex};
-use std::num::NonZero;
-use std::time::Duration;
+use crate::wasm_gl_emu;
 use std::any::Any;
+use std::num::NonZero;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use wgpu_hal as hal;
 use wgpu_types as wgt;
-use crate::wasm_gl_emu;
 
 macro_rules! impl_dyn_resource {
     ($($type:ty),*) => {
@@ -69,11 +69,14 @@ impl hal::Instance for SoftInstance {
         Ok(SoftSurface)
     }
 
-    unsafe fn enumerate_adapters(&self, _surface_hint: Option<&SoftSurface>) -> Vec<hal::ExposedAdapter<SoftApi>> {
+    unsafe fn enumerate_adapters(
+        &self,
+        _surface_hint: Option<&SoftSurface>,
+    ) -> Vec<hal::ExposedAdapter<SoftApi>> {
         let adapter = SoftAdapter {
             handle: 0, // Dummy handle
         };
-        
+
         let info = wgt::AdapterInfo {
             name: "WASM Soft-GPU".to_string(),
             vendor: 0,
@@ -122,8 +125,7 @@ impl hal::Surface for SoftSurface {
         Ok(())
     }
 
-    unsafe fn unconfigure(&self, _device: &SoftDevice) {
-    }
+    unsafe fn unconfigure(&self, _device: &SoftDevice) {}
 
     unsafe fn acquire_texture(
         &self,
@@ -134,8 +136,7 @@ impl hal::Surface for SoftSurface {
         Ok(None)
     }
 
-    unsafe fn discard_texture(&self, _texture: SoftTexture) {
-    }
+    unsafe fn discard_texture(&self, _texture: SoftTexture) {}
 }
 
 #[derive(Debug)]
@@ -166,7 +167,10 @@ impl hal::Adapter for SoftAdapter {
         hal::TextureFormatCapabilities::all()
     }
 
-    unsafe fn surface_capabilities(&self, _surface: &SoftSurface) -> Option<hal::SurfaceCapabilities> {
+    unsafe fn surface_capabilities(
+        &self,
+        _surface: &SoftSurface,
+    ) -> Option<hal::SurfaceCapabilities> {
         Some(hal::SurfaceCapabilities {
             formats: vec![wgt::TextureFormat::Rgba8Unorm],
             present_modes: vec![wgt::PresentMode::Fifo],
@@ -176,7 +180,7 @@ impl hal::Adapter for SoftAdapter {
             usage: wgt::TextureUses::COLOR_TARGET,
         })
     }
-    
+
     unsafe fn get_presentation_timestamp(&self) -> wgt::PresentationTimestamp {
         wgt::PresentationTimestamp::INVALID_TIMESTAMP
     }
@@ -218,15 +222,14 @@ impl hal::Device for SoftDevice {
     ) -> Result<hal::BufferMapping, hal::DeviceError> {
         let mut data = buffer.data.lock().unwrap();
         let ptr = data.as_mut_ptr().add(range.start as usize);
-        
+
         Ok(hal::BufferMapping {
             ptr: std::ptr::NonNull::new(ptr).unwrap(),
             is_coherent: true,
         })
     }
 
-    unsafe fn unmap_buffer(&self, _buffer: &SoftBuffer) {
-    }
+    unsafe fn unmap_buffer(&self, _buffer: &SoftBuffer) {}
 
     unsafe fn flush_mapped_ranges<I>(&self, _buffer: &SoftBuffer, _ranges: I)
     where
@@ -276,16 +279,21 @@ impl hal::Device for SoftDevice {
 
     unsafe fn create_render_pipeline(
         &self,
-        desc: &hal::RenderPipelineDescriptor<SoftPipelineLayout, SoftShaderModule, SoftPipelineLayout>,
+        desc: &hal::RenderPipelineDescriptor<
+            SoftPipelineLayout,
+            SoftShaderModule,
+            SoftPipelineLayout,
+        >,
     ) -> Result<SoftRenderPipeline, hal::PipelineError> {
         let vertex_layouts = match &desc.vertex_processor {
-            hal::VertexProcessor::Standard { vertex_buffers, .. } => {
-                vertex_buffers.iter().map(|vb| SoftVertexBufferLayout {
+            hal::VertexProcessor::Standard { vertex_buffers, .. } => vertex_buffers
+                .iter()
+                .map(|vb| SoftVertexBufferLayout {
                     array_stride: vb.array_stride,
                     step_mode: vb.step_mode,
                     attributes: vb.attributes.to_vec(),
-                }).collect()
-            }
+                })
+                .collect(),
             _ => vec![], // Mesh shaders not supported
         };
 
@@ -297,14 +305,24 @@ impl hal::Device for SoftDevice {
 
     unsafe fn create_compute_pipeline(
         &self,
-        _desc: &hal::ComputePipelineDescriptor<SoftPipelineLayout, SoftShaderModule, SoftPipelineLayout>,
+        _desc: &hal::ComputePipelineDescriptor<
+            SoftPipelineLayout,
+            SoftShaderModule,
+            SoftPipelineLayout,
+        >,
     ) -> Result<SoftComputePipeline, hal::PipelineError> {
         Ok(SoftComputePipeline)
     }
 
     unsafe fn create_bind_group(
         &self,
-        _desc: &hal::BindGroupDescriptor<SoftBindGroupLayout, SoftBuffer, SoftSampler, SoftTextureView, SoftAccelerationStructure>,
+        _desc: &hal::BindGroupDescriptor<
+            SoftBindGroupLayout,
+            SoftBuffer,
+            SoftSampler,
+            SoftTextureView,
+            SoftAccelerationStructure,
+        >,
     ) -> Result<SoftBindGroup, hal::DeviceError> {
         Ok(SoftBindGroup)
     }
@@ -314,9 +332,11 @@ impl hal::Device for SoftDevice {
         desc: &hal::TextureDescriptor,
     ) -> Result<SoftTexture, hal::DeviceError> {
         let block_size = desc.format.block_copy_size(None).unwrap_or(4);
-        let size = (desc.size.width * desc.size.height * desc.size.depth_or_array_layers * block_size) as usize;
+        let size =
+            (desc.size.width * desc.size.height * desc.size.depth_or_array_layers * block_size)
+                as usize;
         let data = vec![0; size];
-        
+
         Ok(SoftTexture {
             data: Arc::new(Mutex::new(data)),
             desc: desc.into(),
@@ -375,7 +395,10 @@ impl hal::Device for SoftDevice {
         })
     }
 
-    unsafe fn get_fence_value(&self, fence: &SoftFence) -> Result<hal::FenceValue, hal::DeviceError> {
+    unsafe fn get_fence_value(
+        &self,
+        fence: &SoftFence,
+    ) -> Result<hal::FenceValue, hal::DeviceError> {
         Ok(*fence.value.lock().unwrap())
     }
 
@@ -388,10 +411,13 @@ impl hal::Device for SoftDevice {
         Ok(*fence.value.lock().unwrap() >= value)
     }
 
-
     // Missing methods implementation
-    unsafe fn add_raw_buffer(&self, _buffer: &SoftBuffer) { todo!() }
-    unsafe fn add_raw_texture(&self, _texture: &SoftTexture) { todo!() }
+    unsafe fn add_raw_buffer(&self, _buffer: &SoftBuffer) {
+        todo!()
+    }
+    unsafe fn add_raw_texture(&self, _texture: &SoftTexture) {
+        todo!()
+    }
     unsafe fn destroy_texture_view(&self, _view: SoftTextureView) {}
     unsafe fn destroy_sampler(&self, _sampler: SoftSampler) {}
     unsafe fn destroy_bind_group_layout(&self, _bg_layout: SoftBindGroupLayout) {}
@@ -400,19 +426,47 @@ impl hal::Device for SoftDevice {
     unsafe fn destroy_shader_module(&self, _module: SoftShaderModule) {}
     unsafe fn destroy_render_pipeline(&self, _pipeline: SoftRenderPipeline) {}
     unsafe fn destroy_compute_pipeline(&self, _pipeline: SoftComputePipeline) {}
-    unsafe fn create_pipeline_cache(&self, _desc: &hal::PipelineCacheDescriptor) -> Result<SoftPipelineLayout, hal::PipelineCacheError> { Ok(SoftPipelineLayout) }
+    unsafe fn create_pipeline_cache(
+        &self,
+        _desc: &hal::PipelineCacheDescriptor,
+    ) -> Result<SoftPipelineLayout, hal::PipelineCacheError> {
+        Ok(SoftPipelineLayout)
+    }
     unsafe fn destroy_pipeline_cache(&self, _cache: SoftPipelineLayout) {}
     unsafe fn destroy_query_set(&self, _set: SoftQuerySet) {}
     unsafe fn destroy_fence(&self, _fence: SoftFence) {}
-    unsafe fn start_graphics_debugger_capture(&self) -> bool { false }
+    unsafe fn start_graphics_debugger_capture(&self) -> bool {
+        false
+    }
     unsafe fn stop_graphics_debugger_capture(&self) {}
-    unsafe fn create_acceleration_structure(&self, _desc: &hal::AccelerationStructureDescriptor) -> Result<SoftAccelerationStructure, hal::DeviceError> { Ok(SoftAccelerationStructure) }
-    unsafe fn get_acceleration_structure_build_sizes(&self, _desc: &hal::GetAccelerationStructureBuildSizesDescriptor<SoftBuffer>) -> hal::AccelerationStructureBuildSizes { hal::AccelerationStructureBuildSizes::default() }
-    unsafe fn get_acceleration_structure_device_address(&self, _as: &SoftAccelerationStructure) -> wgt::BufferAddress { 0 }
+    unsafe fn create_acceleration_structure(
+        &self,
+        _desc: &hal::AccelerationStructureDescriptor,
+    ) -> Result<SoftAccelerationStructure, hal::DeviceError> {
+        Ok(SoftAccelerationStructure)
+    }
+    unsafe fn get_acceleration_structure_build_sizes(
+        &self,
+        _desc: &hal::GetAccelerationStructureBuildSizesDescriptor<SoftBuffer>,
+    ) -> hal::AccelerationStructureBuildSizes {
+        hal::AccelerationStructureBuildSizes::default()
+    }
+    unsafe fn get_acceleration_structure_device_address(
+        &self,
+        _as: &SoftAccelerationStructure,
+    ) -> wgt::BufferAddress {
+        0
+    }
     unsafe fn destroy_acceleration_structure(&self, _as: SoftAccelerationStructure) {}
-    fn tlas_instance_to_bytes(&self, _instance: hal::TlasInstance) -> Vec<u8> { vec![] }
-    fn get_internal_counters(&self) -> wgt::HalCounters { wgt::HalCounters::default() }
-    fn check_if_oom(&self) -> Result<(), hal::DeviceError> { Ok(()) }
+    fn tlas_instance_to_bytes(&self, _instance: hal::TlasInstance) -> Vec<u8> {
+        vec![]
+    }
+    fn get_internal_counters(&self) -> wgt::HalCounters {
+        wgt::HalCounters::default()
+    }
+    fn check_if_oom(&self) -> Result<(), hal::DeviceError> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -518,49 +572,67 @@ impl hal::Queue for SoftQueue {
                             let dst_start = region.dst_offset as usize;
                             let size = region.size.get() as usize;
                             // Ensure bounds
-                            if src_start + size <= src_data.len() && dst_start + size <= dst_data.len() {
-                                dst_data[dst_start..dst_start + size].copy_from_slice(&src_data[src_start..src_start + size]);
+                            if src_start + size <= src_data.len()
+                                && dst_start + size <= dst_data.len()
+                            {
+                                dst_data[dst_start..dst_start + size]
+                                    .copy_from_slice(&src_data[src_start..src_start + size]);
                             } else {
                                 // Log error or panic in debug?
                                 eprintln!("SoftGPU: CopyBufferToBuffer out of bounds");
                             }
                         }
                     }
-                    SoftCommand::CopyTextureToBuffer { src, dst, regions, texture_desc } => {
+                    SoftCommand::CopyTextureToBuffer {
+                        src,
+                        dst,
+                        regions,
+                        texture_desc,
+                    } => {
                         let src_data = src.lock().unwrap();
                         let mut dst_data = dst.lock().unwrap();
-                        
+
                         for region in regions {
                             // Simplified implementation: assumes tightly packed RGBA8
                             // TODO: Handle strides, offsets, and other formats correctly
-                            
+
                             let bytes_per_pixel = 4; // Assume RGBA8
                             let width = region.size.width;
                             let height = region.size.height;
                             let depth = region.size.depth;
-                            
+
                             let row_pitch = width * bytes_per_pixel;
                             let slice_pitch = row_pitch * height;
-                            
+
                             // Calculate source offset
                             // Assumes 2D texture for now
                             let src_origin = region.texture_base.origin;
-                            let src_offset = (src_origin.z * texture_desc.size.height * texture_desc.size.width 
-                                            + src_origin.y * texture_desc.size.width 
-                                            + src_origin.x) * bytes_per_pixel;
-                                            
+                            let src_offset =
+                                (src_origin.z * texture_desc.size.height * texture_desc.size.width
+                                    + src_origin.y * texture_desc.size.width
+                                    + src_origin.x)
+                                    * bytes_per_pixel;
+
                             // Calculate dest offset
                             let dst_offset = region.buffer_layout.offset;
-                            
+
                             // Copy row by row
                             for z in 0..depth {
                                 for y in 0..height {
-                                    let src_idx = (src_offset as u32 + (z * slice_pitch) + (y * row_pitch)) as usize;
-                                    let dst_idx = (dst_offset + (z as u64 * slice_pitch as u64) + (y as u64 * row_pitch as u64)) as usize;
-                                    
+                                    let src_idx =
+                                        (src_offset as u32 + (z * slice_pitch) + (y * row_pitch))
+                                            as usize;
+                                    let dst_idx = (dst_offset
+                                        + (z as u64 * slice_pitch as u64)
+                                        + (y as u64 * row_pitch as u64))
+                                        as usize;
+
                                     let len = row_pitch as usize;
-                                    if src_idx + len <= src_data.len() && dst_idx + len <= dst_data.len() {
-                                        dst_data[dst_idx..dst_idx + len].copy_from_slice(&src_data[src_idx..src_idx + len]);
+                                    if src_idx + len <= src_data.len()
+                                        && dst_idx + len <= dst_data.len()
+                                    {
+                                        dst_data[dst_idx..dst_idx + len]
+                                            .copy_from_slice(&src_data[src_idx..src_idx + len]);
                                     }
                                 }
                             }
@@ -573,16 +645,17 @@ impl hal::Queue for SoftQueue {
                                 if let wgt::LoadOp::Clear(color) = att.load_op {
                                     let mut data = att.view.texture.lock().unwrap();
                                     let format = att.view.texture_desc.format;
-                                    
+
                                     // TODO: Handle other formats properly
                                     match format {
-                                        wgt::TextureFormat::Rgba8Unorm | wgt::TextureFormat::Bgra8Unorm => {
+                                        wgt::TextureFormat::Rgba8Unorm
+                                        | wgt::TextureFormat::Bgra8Unorm => {
                                             let r = (color.r * 255.0) as u8;
                                             let g = (color.g * 255.0) as u8;
                                             let b = (color.b * 255.0) as u8;
                                             let a = (color.a * 255.0) as u8;
                                             let pixel = [r, g, b, a];
-                                            
+
                                             for chunk in data.chunks_mut(4) {
                                                 if chunk.len() == 4 {
                                                     chunk.copy_from_slice(&pixel);
@@ -590,7 +663,10 @@ impl hal::Queue for SoftQueue {
                                             }
                                         }
                                         _ => {
-                                            eprintln!("SoftGPU: Unsupported format for clear: {:?}", format);
+                                            eprintln!(
+                                                "SoftGPU: Unsupported format for clear: {:?}",
+                                                format
+                                            );
                                         }
                                     }
                                 }
@@ -605,8 +681,14 @@ impl hal::Queue for SoftQueue {
 
                         // 2. Execute commands
                         let mut current_pipeline: Option<&SoftRenderPipeline> = None;
-                        let mut vertex_buffers: Vec<Option<(Arc<Mutex<Vec<u8>>>, wgt::BufferAddress)>> = vec![None; 16];
-                        let mut index_buffer: Option<(Arc<Mutex<Vec<u8>>>, wgt::BufferAddress, wgt::IndexFormat)> = None;
+                        let mut vertex_buffers: Vec<
+                            Option<(Arc<Mutex<Vec<u8>>>, wgt::BufferAddress)>,
+                        > = vec![None; 16];
+                        let mut index_buffer: Option<(
+                            Arc<Mutex<Vec<u8>>>,
+                            wgt::BufferAddress,
+                            wgt::IndexFormat,
+                        )> = None;
 
                         for command in commands {
                             match command {
@@ -616,50 +698,68 @@ impl hal::Queue for SoftQueue {
                                 SoftRenderCommand::SetBindGroup { .. } => {
                                     // TODO: Handle bind groups
                                 }
-                                SoftRenderCommand::SetVertexBuffer { index, buffer, offset, size: _ } => {
+                                SoftRenderCommand::SetVertexBuffer {
+                                    index,
+                                    buffer,
+                                    offset,
+                                    size: _,
+                                } => {
                                     if (*index as usize) < vertex_buffers.len() {
-                                        vertex_buffers[*index as usize] = Some((buffer.data.clone(), *offset));
+                                        vertex_buffers[*index as usize] =
+                                            Some((buffer.data.clone(), *offset));
                                     }
                                 }
-                                SoftRenderCommand::SetIndexBuffer { buffer, offset, size: _, format } => {
+                                SoftRenderCommand::SetIndexBuffer {
+                                    buffer,
+                                    offset,
+                                    size: _,
+                                    format,
+                                } => {
                                     index_buffer = Some((buffer.data.clone(), *offset, *format));
                                 }
-                                SoftRenderCommand::Draw { vertex_count, instance_count, first_vertex, first_instance } => {
+                                SoftRenderCommand::Draw {
+                                    vertex_count,
+                                    instance_count,
+                                    first_vertex,
+                                    first_instance,
+                                } => {
                                     if let Some(pipeline) = current_pipeline {
                                         // Only handle the first color attachment for now
                                         if let Some(Some(att)) = desc.color_attachments.first() {
                                             let mut data = att.view.texture.lock().unwrap();
                                             let width = att.view.texture_desc.size.width;
                                             let height = att.view.texture_desc.size.height;
-                                            
+
                                             // Dummy depth buffer if not present
                                             // TODO: Handle actual depth attachment
-                                            let mut dummy_depth = vec![1.0; (width * height) as usize];
-                                            
+                                            let mut dummy_depth =
+                                                vec![1.0; (width * height) as usize];
+
                                             let mut fb = wasm_gl_emu::Framebuffer::new(
-                                                width, 
-                                                height, 
-                                                &mut data, 
-                                                &mut dummy_depth
+                                                width,
+                                                height,
+                                                &mut data,
+                                                &mut dummy_depth,
                                             );
-                                            
+
                                             let rasterizer = wasm_gl_emu::Rasterizer::default();
-                                            
+
                                             let fetcher = SoftVertexFetcher {
                                                 vertex_buffers: &vertex_buffers,
                                                 vertex_layouts: &pipeline.vertex_layouts,
                                             };
-                                            
+
                                             let state = wasm_gl_emu::RenderState {
                                                 ctx_handle: 0, // TODO: Pass context handle
                                                 memory: wasm_gl_emu::ShaderMemoryLayout::default(),
                                                 viewport: (0, 0, width, height), // TODO: SetViewport command
-                                                uniform_data: &[], // TODO: BindGroups
+                                                uniform_data: &[],               // TODO: BindGroups
                                                 prepare_textures: None,
                                             };
-                                            
-                                            let raster_pipeline = wasm_gl_emu::RasterPipeline::default(); // TODO: Map from SoftRenderPipeline
-                                            
+
+                                            let raster_pipeline =
+                                                wasm_gl_emu::RasterPipeline::default(); // TODO: Map from SoftRenderPipeline
+
                                             rasterizer.draw(
                                                 &mut fb,
                                                 &raster_pipeline,
@@ -667,35 +767,42 @@ impl hal::Queue for SoftQueue {
                                                 &fetcher,
                                                 *vertex_count as usize,
                                                 *instance_count as usize,
-                                                None, // indices
+                                                None,   // indices
                                                 0x0004, // TRIANGLES
                                             );
                                         }
                                     }
                                 }
-                                SoftRenderCommand::DrawIndexed { index_count, instance_count, first_index, base_vertex, first_instance } => {
+                                SoftRenderCommand::DrawIndexed {
+                                    index_count,
+                                    instance_count,
+                                    first_index,
+                                    base_vertex,
+                                    first_instance,
+                                } => {
                                     if let Some(pipeline) = current_pipeline {
                                         if let Some(Some(att)) = desc.color_attachments.first() {
                                             let mut data = att.view.texture.lock().unwrap();
                                             let width = att.view.texture_desc.size.width;
                                             let height = att.view.texture_desc.size.height;
-                                            
-                                            let mut dummy_depth = vec![1.0; (width * height) as usize];
-                                            
+
+                                            let mut dummy_depth =
+                                                vec![1.0; (width * height) as usize];
+
                                             let mut fb = wasm_gl_emu::Framebuffer::new(
-                                                width, 
-                                                height, 
-                                                &mut data, 
-                                                &mut dummy_depth
+                                                width,
+                                                height,
+                                                &mut data,
+                                                &mut dummy_depth,
                                             );
-                                            
+
                                             let rasterizer = wasm_gl_emu::Rasterizer::default();
-                                            
+
                                             let fetcher = SoftVertexFetcher {
                                                 vertex_buffers: &vertex_buffers,
                                                 vertex_layouts: &pipeline.vertex_layouts,
                                             };
-                                            
+
                                             let state = wasm_gl_emu::RenderState {
                                                 ctx_handle: 0,
                                                 memory: wasm_gl_emu::ShaderMemoryLayout::default(),
@@ -703,22 +810,28 @@ impl hal::Queue for SoftQueue {
                                                 uniform_data: &[],
                                                 prepare_textures: None,
                                             };
-                                            
-                                            let raster_pipeline = wasm_gl_emu::RasterPipeline::default();
-                                            
+
+                                            let raster_pipeline =
+                                                wasm_gl_emu::RasterPipeline::default();
+
                                             // Fetch indices
-                                            let indices = if let Some((buffer, offset, format)) = &index_buffer {
+                                            let indices = if let Some((buffer, offset, format)) =
+                                                &index_buffer
+                                            {
                                                 let data = buffer.lock().unwrap();
                                                 let start = *offset as usize;
                                                 let count = *index_count as usize;
                                                 let mut idxs = Vec::with_capacity(count);
-                                                
+
                                                 match format {
                                                     wgt::IndexFormat::Uint16 => {
                                                         for i in 0..count {
                                                             let pos = start + i * 2;
                                                             if pos + 2 <= data.len() {
-                                                                let val = u16::from_le_bytes([data[pos], data[pos+1]]);
+                                                                let val = u16::from_le_bytes([
+                                                                    data[pos],
+                                                                    data[pos + 1],
+                                                                ]);
                                                                 idxs.push(val as u32);
                                                             }
                                                         }
@@ -727,7 +840,12 @@ impl hal::Queue for SoftQueue {
                                                         for i in 0..count {
                                                             let pos = start + i * 4;
                                                             if pos + 4 <= data.len() {
-                                                                let val = u32::from_le_bytes([data[pos], data[pos+1], data[pos+2], data[pos+3]]);
+                                                                let val = u32::from_le_bytes([
+                                                                    data[pos],
+                                                                    data[pos + 1],
+                                                                    data[pos + 2],
+                                                                    data[pos + 3],
+                                                                ]);
                                                                 idxs.push(val);
                                                             }
                                                         }
@@ -737,7 +855,7 @@ impl hal::Queue for SoftQueue {
                                             } else {
                                                 None
                                             };
-                                            
+
                                             if let Some(idxs) = indices {
                                                 rasterizer.draw(
                                                     &mut fb,
@@ -755,7 +873,7 @@ impl hal::Queue for SoftQueue {
                                 }
                             }
                         }
-                        
+
                         // 3. Handle StoreOps (Resolve)
                         // Currently we write directly to the texture, so StoreOp::Store is implicit.
                         // StoreOp::Discard would mean we don't care, but we already wrote it.
@@ -820,12 +938,26 @@ impl hal::CommandEncoder for SoftCommandEncoder {
     }
 
     // Missing methods implementation
-    unsafe fn transition_buffers<'a, T>(&mut self, _barriers: T) where T: Iterator<Item = hal::BufferBarrier<'a, SoftBuffer>> {}
-    unsafe fn transition_textures<'a, T>(&mut self, _barriers: T) where T: Iterator<Item = hal::TextureBarrier<'a, SoftTexture>> {}
-    unsafe fn clear_buffer(&mut self, _buffer: &SoftBuffer, _range: std::ops::Range<wgt::BufferAddress>) {}
-    
-    unsafe fn copy_buffer_to_buffer<T>(&mut self, src: &SoftBuffer, dst: &SoftBuffer, regions: T) 
-    where T: Iterator<Item = hal::BufferCopy> 
+    unsafe fn transition_buffers<'a, T>(&mut self, _barriers: T)
+    where
+        T: Iterator<Item = hal::BufferBarrier<'a, SoftBuffer>>,
+    {
+    }
+    unsafe fn transition_textures<'a, T>(&mut self, _barriers: T)
+    where
+        T: Iterator<Item = hal::TextureBarrier<'a, SoftTexture>>,
+    {
+    }
+    unsafe fn clear_buffer(
+        &mut self,
+        _buffer: &SoftBuffer,
+        _range: std::ops::Range<wgt::BufferAddress>,
+    ) {
+    }
+
+    unsafe fn copy_buffer_to_buffer<T>(&mut self, src: &SoftBuffer, dst: &SoftBuffer, regions: T)
+    where
+        T: Iterator<Item = hal::BufferCopy>,
     {
         let regions_vec: Vec<hal::BufferCopy> = regions.collect();
         self.commands.push(SoftCommand::CopyBufferToBuffer {
@@ -835,9 +967,34 @@ impl hal::CommandEncoder for SoftCommandEncoder {
         });
     }
 
-    unsafe fn copy_texture_to_texture<T>(&mut self, _src: &SoftTexture, _src_usage: wgt::TextureUses, _dst: &SoftTexture, _regions: T) where T: Iterator<Item = hal::TextureCopy> {}
-    unsafe fn copy_buffer_to_texture<T>(&mut self, _src: &SoftBuffer, _dst: &SoftTexture, _regions: T) where T: Iterator<Item = hal::BufferTextureCopy> {}
-    unsafe fn copy_texture_to_buffer<T>(&mut self, src: &SoftTexture, _src_usage: wgt::TextureUses, dst: &SoftBuffer, regions: T) where T: Iterator<Item = hal::BufferTextureCopy> {
+    unsafe fn copy_texture_to_texture<T>(
+        &mut self,
+        _src: &SoftTexture,
+        _src_usage: wgt::TextureUses,
+        _dst: &SoftTexture,
+        _regions: T,
+    ) where
+        T: Iterator<Item = hal::TextureCopy>,
+    {
+    }
+    unsafe fn copy_buffer_to_texture<T>(
+        &mut self,
+        _src: &SoftBuffer,
+        _dst: &SoftTexture,
+        _regions: T,
+    ) where
+        T: Iterator<Item = hal::BufferTextureCopy>,
+    {
+    }
+    unsafe fn copy_texture_to_buffer<T>(
+        &mut self,
+        src: &SoftTexture,
+        _src_usage: wgt::TextureUses,
+        dst: &SoftBuffer,
+        regions: T,
+    ) where
+        T: Iterator<Item = hal::BufferTextureCopy>,
+    {
         let regions_vec: Vec<hal::BufferTextureCopy> = regions.collect();
         self.commands.push(SoftCommand::CopyTextureToBuffer {
             src: src.data.clone(),
@@ -846,8 +1003,20 @@ impl hal::CommandEncoder for SoftCommandEncoder {
             texture_desc: src.desc.clone(),
         });
     }
-    unsafe fn copy_acceleration_structure_to_acceleration_structure(&mut self, _src: &SoftAccelerationStructure, _dst: &SoftAccelerationStructure, _copy: wgt::AccelerationStructureCopy) {}
-    unsafe fn set_bind_group(&mut self, _layout: &SoftPipelineLayout, index: u32, group: &SoftBindGroup, dynamic_offsets: &[u32]) {
+    unsafe fn copy_acceleration_structure_to_acceleration_structure(
+        &mut self,
+        _src: &SoftAccelerationStructure,
+        _dst: &SoftAccelerationStructure,
+        _copy: wgt::AccelerationStructureCopy,
+    ) {
+    }
+    unsafe fn set_bind_group(
+        &mut self,
+        _layout: &SoftPipelineLayout,
+        index: u32,
+        group: &SoftBindGroup,
+        dynamic_offsets: &[u32],
+    ) {
         if let Some((_, commands)) = &mut self.current_render_pass {
             commands.push(SoftRenderCommand::SetBindGroup {
                 index,
@@ -864,34 +1033,49 @@ impl hal::CommandEncoder for SoftCommandEncoder {
     unsafe fn end_query(&mut self, _set: &SoftQuerySet, _index: u32) {}
     unsafe fn write_timestamp(&mut self, _set: &SoftQuerySet, _index: u32) {}
     unsafe fn reset_queries(&mut self, _set: &SoftQuerySet, _range: std::ops::Range<u32>) {}
-    unsafe fn copy_query_results(&mut self, _set: &SoftQuerySet, _range: std::ops::Range<u32>, _buffer: &SoftBuffer, _offset: wgt::BufferAddress, _stride: NonZero<wgt::BufferAddress>) {}
-    
-    unsafe fn begin_render_pass(&mut self, desc: &hal::RenderPassDescriptor<SoftQuerySet, SoftTextureView>) -> Result<(), hal::DeviceError> {
-        let color_attachments = desc.color_attachments.iter().map(|att| {
-            att.as_ref().map(|a| {
-                let load_op = if a.ops.contains(hal::AttachmentOps::LOAD) {
-                    wgt::LoadOp::Load
-                } else if a.ops.contains(hal::AttachmentOps::LOAD_CLEAR) {
-                    wgt::LoadOp::Clear(a.clear_value)
-                } else {
-                    wgt::LoadOp::Clear(a.clear_value)
-                };
+    unsafe fn copy_query_results(
+        &mut self,
+        _set: &SoftQuerySet,
+        _range: std::ops::Range<u32>,
+        _buffer: &SoftBuffer,
+        _offset: wgt::BufferAddress,
+        _stride: NonZero<wgt::BufferAddress>,
+    ) {
+    }
 
-                let store_op = if a.ops.contains(hal::AttachmentOps::STORE) {
-                    wgt::StoreOp::Store
-                } else {
-                    wgt::StoreOp::Discard
-                };
+    unsafe fn begin_render_pass(
+        &mut self,
+        desc: &hal::RenderPassDescriptor<SoftQuerySet, SoftTextureView>,
+    ) -> Result<(), hal::DeviceError> {
+        let color_attachments = desc
+            .color_attachments
+            .iter()
+            .map(|att| {
+                att.as_ref().map(|a| {
+                    let load_op = if a.ops.contains(hal::AttachmentOps::LOAD) {
+                        wgt::LoadOp::Load
+                    } else if a.ops.contains(hal::AttachmentOps::LOAD_CLEAR) {
+                        wgt::LoadOp::Clear(a.clear_value)
+                    } else {
+                        wgt::LoadOp::Clear(a.clear_value)
+                    };
 
-                SoftRenderPassColorAttachment {
-                    view: a.target.view.clone(),
-                    resolve_target: a.resolve_target.as_ref().map(|r| r.view.clone()),
-                    load_op,
-                    store_op,
-                    clear_value: a.clear_value,
-                }
+                    let store_op = if a.ops.contains(hal::AttachmentOps::STORE) {
+                        wgt::StoreOp::Store
+                    } else {
+                        wgt::StoreOp::Discard
+                    };
+
+                    SoftRenderPassColorAttachment {
+                        view: a.target.view.clone(),
+                        resolve_target: a.resolve_target.as_ref().map(|r| r.view.clone()),
+                        load_op,
+                        store_op,
+                        clear_value: a.clear_value,
+                    }
+                })
             })
-        }).collect();
+            .collect();
 
         let depth_stencil_attachment = desc.depth_stencil_attachment.as_ref().map(|a| {
             let depth_load_op = if a.depth_ops.contains(hal::AttachmentOps::LOAD) {
@@ -948,7 +1132,8 @@ impl hal::CommandEncoder for SoftCommandEncoder {
 
     unsafe fn end_render_pass(&mut self) {
         if let Some((desc, commands)) = self.current_render_pass.take() {
-            self.commands.push(SoftCommand::RenderPass { desc, commands });
+            self.commands
+                .push(SoftCommand::RenderPass { desc, commands });
         }
     }
 
@@ -958,7 +1143,11 @@ impl hal::CommandEncoder for SoftCommandEncoder {
         }
     }
 
-    unsafe fn set_index_buffer(&mut self, binding: hal::BufferBinding<SoftBuffer>, format: wgt::IndexFormat) {
+    unsafe fn set_index_buffer(
+        &mut self,
+        binding: hal::BufferBinding<SoftBuffer>,
+        format: wgt::IndexFormat,
+    ) {
         if let Some((_, commands)) = &mut self.current_render_pass {
             commands.push(SoftRenderCommand::SetIndexBuffer {
                 buffer: binding.buffer.clone(),
@@ -984,8 +1173,14 @@ impl hal::CommandEncoder for SoftCommandEncoder {
     unsafe fn set_scissor_rect(&mut self, _rect: &hal::Rect<u32>) {}
     unsafe fn set_stencil_reference(&mut self, _reference: u32) {}
     unsafe fn set_blend_constants(&mut self, _color: &[f32; 4]) {}
-    
-    unsafe fn draw(&mut self, start_vertex: u32, vertex_count: u32, start_instance: u32, instance_count: u32) {
+
+    unsafe fn draw(
+        &mut self,
+        start_vertex: u32,
+        vertex_count: u32,
+        start_instance: u32,
+        instance_count: u32,
+    ) {
         if let Some((_, commands)) = &mut self.current_render_pass {
             commands.push(SoftRenderCommand::Draw {
                 vertex_count,
@@ -996,7 +1191,14 @@ impl hal::CommandEncoder for SoftCommandEncoder {
         }
     }
 
-    unsafe fn draw_indexed(&mut self, start_index: u32, index_count: u32, base_vertex: i32, start_instance: u32, instance_count: u32) {
+    unsafe fn draw_indexed(
+        &mut self,
+        start_index: u32,
+        index_count: u32,
+        base_vertex: i32,
+        start_instance: u32,
+        instance_count: u32,
+    ) {
         if let Some((_, commands)) = &mut self.current_render_pass {
             commands.push(SoftRenderCommand::DrawIndexed {
                 index_count,
@@ -1008,21 +1210,91 @@ impl hal::CommandEncoder for SoftCommandEncoder {
         }
     }
 
-    unsafe fn draw_indirect(&mut self, _buffer: &SoftBuffer, _offset: wgt::BufferAddress, _draw_count: u32) {}
-    unsafe fn draw_indexed_indirect(&mut self, _buffer: &SoftBuffer, _offset: wgt::BufferAddress, _draw_count: u32) {}
-    unsafe fn draw_indirect_count(&mut self, _buffer: &SoftBuffer, _offset: wgt::BufferAddress, _count_buffer: &SoftBuffer, _count_offset: wgt::BufferAddress, _max_draw_count: u32) {}
-    unsafe fn draw_indexed_indirect_count(&mut self, _buffer: &SoftBuffer, _offset: wgt::BufferAddress, _count_buffer: &SoftBuffer, _count_offset: wgt::BufferAddress, _max_draw_count: u32) {}
-    unsafe fn draw_mesh_tasks(&mut self, _group_count_x: u32, _group_count_y: u32, _group_count_z: u32) {}
-    unsafe fn draw_mesh_tasks_indirect(&mut self, _buffer: &SoftBuffer, _offset: wgt::BufferAddress, _draw_count: u32) {}
-    unsafe fn draw_mesh_tasks_indirect_count(&mut self, _buffer: &SoftBuffer, _offset: wgt::BufferAddress, _count_buffer: &SoftBuffer, _count_offset: wgt::BufferAddress, _max_draw_count: u32) {}
+    unsafe fn draw_indirect(
+        &mut self,
+        _buffer: &SoftBuffer,
+        _offset: wgt::BufferAddress,
+        _draw_count: u32,
+    ) {
+    }
+    unsafe fn draw_indexed_indirect(
+        &mut self,
+        _buffer: &SoftBuffer,
+        _offset: wgt::BufferAddress,
+        _draw_count: u32,
+    ) {
+    }
+    unsafe fn draw_indirect_count(
+        &mut self,
+        _buffer: &SoftBuffer,
+        _offset: wgt::BufferAddress,
+        _count_buffer: &SoftBuffer,
+        _count_offset: wgt::BufferAddress,
+        _max_draw_count: u32,
+    ) {
+    }
+    unsafe fn draw_indexed_indirect_count(
+        &mut self,
+        _buffer: &SoftBuffer,
+        _offset: wgt::BufferAddress,
+        _count_buffer: &SoftBuffer,
+        _count_offset: wgt::BufferAddress,
+        _max_draw_count: u32,
+    ) {
+    }
+    unsafe fn draw_mesh_tasks(
+        &mut self,
+        _group_count_x: u32,
+        _group_count_y: u32,
+        _group_count_z: u32,
+    ) {
+    }
+    unsafe fn draw_mesh_tasks_indirect(
+        &mut self,
+        _buffer: &SoftBuffer,
+        _offset: wgt::BufferAddress,
+        _draw_count: u32,
+    ) {
+    }
+    unsafe fn draw_mesh_tasks_indirect_count(
+        &mut self,
+        _buffer: &SoftBuffer,
+        _offset: wgt::BufferAddress,
+        _count_buffer: &SoftBuffer,
+        _count_offset: wgt::BufferAddress,
+        _max_draw_count: u32,
+    ) {
+    }
     unsafe fn begin_compute_pass(&mut self, _desc: &hal::ComputePassDescriptor<SoftQuerySet>) {}
     unsafe fn end_compute_pass(&mut self) {}
     unsafe fn set_compute_pipeline(&mut self, _pipeline: &SoftComputePipeline) {}
     unsafe fn dispatch(&mut self, _count: [u32; 3]) {}
     unsafe fn dispatch_indirect(&mut self, _buffer: &SoftBuffer, _offset: wgt::BufferAddress) {}
-    unsafe fn build_acceleration_structures<'a, T>(&mut self, _descriptor_count: u32, _descriptors: T) where T: IntoIterator<Item = hal::BuildAccelerationStructureDescriptor<'a, SoftBuffer, SoftAccelerationStructure>> {}
-    unsafe fn place_acceleration_structure_barrier(&mut self, _barrier: hal::AccelerationStructureBarrier) {}
-    unsafe fn read_acceleration_structure_compact_size(&mut self, _as: &SoftAccelerationStructure, _buffer: &SoftBuffer) {}
+    unsafe fn build_acceleration_structures<'a, T>(
+        &mut self,
+        _descriptor_count: u32,
+        _descriptors: T,
+    ) where
+        T: IntoIterator<
+            Item = hal::BuildAccelerationStructureDescriptor<
+                'a,
+                SoftBuffer,
+                SoftAccelerationStructure,
+            >,
+        >,
+    {
+    }
+    unsafe fn place_acceleration_structure_barrier(
+        &mut self,
+        _barrier: hal::AccelerationStructureBarrier,
+    ) {
+    }
+    unsafe fn read_acceleration_structure_compact_size(
+        &mut self,
+        _as: &SoftAccelerationStructure,
+        _buffer: &SoftBuffer,
+    ) {
+    }
 }
 
 struct SoftVertexFetcher<'a> {
@@ -1036,32 +1308,32 @@ impl<'a> wasm_gl_emu::VertexFetcher for SoftVertexFetcher<'a> {
             if i >= self.vertex_buffers.len() {
                 continue;
             }
-            
+
             if let Some((buffer_data, buffer_offset)) = &self.vertex_buffers[i] {
                 let data = buffer_data.lock().unwrap();
                 let stride = layout.array_stride as usize;
-                
+
                 let index = match layout.step_mode {
                     wgt::VertexStepMode::Vertex => vertex_index,
                     wgt::VertexStepMode::Instance => instance_index,
                 } as usize;
-                
+
                 let start = *buffer_offset as usize + index * stride;
-                
+
                 for attribute in &layout.attributes {
                     let location = attribute.shader_location as usize;
                     let dest_offset = location * 16; // Assumption: 16 bytes per location
-                    
+
                     if dest_offset + 16 > dest.len() {
                         continue;
                     }
-                    
+
                     let attr_offset = attribute.offset as usize;
                     let attr_format = attribute.format;
-                    
+
                     // Read from data[start + attr_offset]
                     let src_start = start + attr_offset;
-                    
+
                     // Simple size mapping
                     let size = match attr_format {
                         wgt::VertexFormat::Float32x4 => 16,
@@ -1071,7 +1343,7 @@ impl<'a> wasm_gl_emu::VertexFetcher for SoftVertexFetcher<'a> {
                         // TODO: Handle other formats
                         _ => 16,
                     };
-                    
+
                     if src_start + size <= data.len() {
                         let src_slice = &data[src_start..src_start + size];
                         let dst_slice = &mut dest[dest_offset..dest_offset + size];
@@ -1221,4 +1493,3 @@ impl std::borrow::Borrow<dyn hal::DynTexture> for SoftTexture {
 }
 
 impl hal::DynSurfaceTexture for SoftTexture {}
-

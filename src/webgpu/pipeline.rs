@@ -36,7 +36,10 @@ pub fn create_render_pipeline(
             match ctx.pipeline_layouts.get(&pipeline_layout_handle) {
                 Some(id) => Some(*id),
                 None => {
-                    crate::js_log(0, &format!("Invalid pipeline layout handle: {}", pipeline_layout_handle));
+                    crate::js_log(
+                        0,
+                        &format!("Invalid pipeline layout handle: {}", pipeline_layout_handle),
+                    );
                     return super::NULL_HANDLE;
                 }
             }
@@ -50,36 +53,44 @@ pub fn create_render_pipeline(
         if cursor < layout_data.len() {
             let count = layout_data[cursor];
             cursor += 1;
-            
+
             for _ in 0..count {
-                if cursor + 3 > layout_data.len() { break; }
+                if cursor + 3 > layout_data.len() {
+                    break;
+                }
                 let array_stride = layout_data[cursor] as u64;
-                let step_mode = if layout_data[cursor+1] == 1 { wgt::VertexStepMode::Instance } else { wgt::VertexStepMode::Vertex };
-                let attr_count = layout_data[cursor+2];
+                let step_mode = if layout_data[cursor + 1] == 1 {
+                    wgt::VertexStepMode::Instance
+                } else {
+                    wgt::VertexStepMode::Vertex
+                };
+                let attr_count = layout_data[cursor + 2];
                 cursor += 3;
-                
+
                 let mut attributes = Vec::new();
                 for _ in 0..attr_count {
-                    if cursor + 3 > layout_data.len() { break; }
+                    if cursor + 3 > layout_data.len() {
+                        break;
+                    }
                     let format_id = layout_data[cursor];
-                    let offset = layout_data[cursor+1] as u64;
-                    let shader_location = layout_data[cursor+2];
+                    let offset = layout_data[cursor + 1] as u64;
+                    let shader_location = layout_data[cursor + 2];
                     cursor += 3;
-                    
+
                     let format = match format_id {
                         1 => wgt::VertexFormat::Float32x3,
                         2 => wgt::VertexFormat::Float32x2,
                         3 => wgt::VertexFormat::Float32x4,
                         _ => wgt::VertexFormat::Float32x3, // Default/Fallback
                     };
-                    
+
                     attributes.push(wgt::VertexAttribute {
                         format,
                         offset,
                         shader_location,
                     });
                 }
-                
+
                 vertex_buffers.push(wgpu_core::pipeline::VertexBufferLayout {
                     array_stride,
                     step_mode,
@@ -167,7 +178,9 @@ pub unsafe fn create_pipeline_layout(
             immediate_size: 0,
         };
 
-        let (layout_id, error) = ctx.global.device_create_pipeline_layout(device_id, &desc, None);
+        let (layout_id, error) = ctx
+            .global
+            .device_create_pipeline_layout(device_id, &desc, None);
         if let Some(e) = error {
             crate::js_log(0, &format!("Failed to create pipeline layout: {:?}", e));
             return super::NULL_HANDLE;

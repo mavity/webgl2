@@ -6,6 +6,49 @@ use crate::wasm_gl_emu::rasterizer::{
 
 use std::collections::HashMap;
 
+fn get_flat_varyings_mask(ctx: &Context) -> u64 {
+    let mut mask = 0u64;
+    if let Some(program_id) = ctx.current_program {
+        if let Some(program) = ctx.programs.get(&program_id) {
+            if let Some(ref fs_module) = program.fs_module {
+                // Check entry point arguments
+                for ep in fs_module.entry_points.iter() {
+                    if ep.stage == naga::ShaderStage::Fragment {
+                        for arg in &ep.function.arguments {
+                            if let Some(naga::Binding::Location {
+                                location,
+                                interpolation,
+                                ..
+                            }) = &arg.binding
+                            {
+                                if let Some(interp) = interpolation {
+                                    if *interp == naga::Interpolation::Flat {
+                                        let start_bit = location * 4;
+                                        let ty = &fs_module.types[arg.ty];
+                                        let count = match ty.inner {
+                                            naga::TypeInner::Vector { size, .. } => size as u32,
+                                            naga::TypeInner::Matrix { columns, rows, .. } => {
+                                                columns as u32 * rows as u32
+                                            }
+                                            _ => 1,
+                                        };
+                                        for i in 0..count {
+                                            if start_bit + i < 64 {
+                                                mask |= 1 << (start_bit + i);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    mask
+}
+
 struct WebGLVertexFetcher<'a> {
     vertex_arrays: &'a HashMap<u32, VertexArray>,
     bound_vertex_array: u32,
@@ -14,7 +57,7 @@ struct WebGLVertexFetcher<'a> {
 
 impl<'a> VertexFetcher for WebGLVertexFetcher<'a> {
     fn fetch(&self, vertex_index: u32, instance_index: u32, dest: &mut [u8]) {
-        let mut attr_data = vec![0.0f32; 16 * 4];
+        let mut attr_data = vec![0u32; 16 * 4];
         Context::fetch_vertex_attributes_static(
             self.vertex_arrays,
             self.bound_vertex_array,
@@ -27,12 +70,18 @@ impl<'a> VertexFetcher for WebGLVertexFetcher<'a> {
         // Clear dest
         dest.fill(0);
 
-        // Alignment logic: 16 locations, each 64 bytes (16 floats)
+        // Alignment logic: 16 locations, each 64 bytes (16 floats/ints)
+        // Wait, 16 locations * 4 components * 4 bytes = 256 bytes?
+        // No, shader memory layout usually allocates 64 bytes per location (vec4 is 16 bytes, but maybe alignment/padding?)
+        // In rasterizer.rs: let mut attr_buffer = vec![0u8; 1024]; (16 * 64 = 1024)
+        // So each location gets 64 bytes.
+        // But we only have 4 components (16 bytes).
+        // So we copy 16 bytes to offset loc * 64.
+
         for (loc, chunk) in attr_data.chunks(4).enumerate() {
             let dest_offset = loc * 64;
             if dest_offset + 16 <= dest.len() {
-                let bytes =
-                    unsafe { std::slice::from_raw_parts(chunk.as_ptr() as *const u8, 16) };
+                let bytes = unsafe { std::slice::from_raw_parts(chunk.as_ptr() as *const u8, 16) };
                 dest[dest_offset..dest_offset + 16].copy_from_slice(bytes);
             }
         }
@@ -72,8 +121,9 @@ pub fn ctx_draw_arrays_instanced(
     let (vx, vy, vw, vh) = ctx_obj.viewport;
 
     // Create pipeline configuration
-    let pipeline = RasterPipeline::default();
-    
+    let mut pipeline = RasterPipeline::default();
+    pipeline.flat_varyings_mask = get_flat_varyings_mask(ctx_obj);
+
     // Prepare textures once
     unsafe {
         ctx_obj.prepare_texture_metadata(pipeline.memory.texture_ptr);
@@ -101,9 +151,9 @@ pub fn ctx_draw_arrays_instanced(
     // Rasterizer::draw iterates 0..vertex_count if indices is None.
     // It passes i as vertex_id.
     // If we want start from 'first', we should probably pass indices.
-    
+
     let indices: Vec<u32> = (0..count).map(|i| (first + i) as u32).collect();
-    
+
     let mut fb = ctx_obj.default_framebuffer.as_framebuffer();
     ctx_obj.rasterizer.draw(
         &mut fb,
@@ -209,8 +259,9 @@ pub fn ctx_draw_elements_instanced(
     let (vx, vy, vw, vh) = ctx_obj.viewport;
 
     // Create pipeline configuration
-    let pipeline = RasterPipeline::default();
-    
+    let mut pipeline = RasterPipeline::default();
+    pipeline.flat_varyings_mask = get_flat_varyings_mask(ctx_obj);
+
     // Prepare textures once
     unsafe {
         ctx_obj.prepare_texture_metadata(pipeline.memory.texture_ptr);

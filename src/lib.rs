@@ -621,6 +621,46 @@ pub extern "C" fn wasm_ctx_vertex_attrib4f(
     webgl2_context::ctx_vertex_attrib4f(ctx, index, v0, v1, v2, v3)
 }
 
+/// Set vertex attribute default value (I4i).
+#[no_mangle]
+pub extern "C" fn wasm_ctx_vertex_attrib_i4i(
+    ctx: u32,
+    index: u32,
+    v0: i32,
+    v1: i32,
+    v2: i32,
+    v3: i32,
+) -> u32 {
+    webgl2_context::ctx_vertex_attrib_i4i(ctx, index, v0, v1, v2, v3)
+}
+
+/// Set vertex attribute default value (I4ui).
+#[no_mangle]
+pub extern "C" fn wasm_ctx_vertex_attrib_i4ui(
+    ctx: u32,
+    index: u32,
+    v0: u32,
+    v1: u32,
+    v2: u32,
+    v3: u32,
+) -> u32 {
+    webgl2_context::ctx_vertex_attrib_i4ui(ctx, index, v0, v1, v2, v3)
+}
+
+/// Vertex attribute integer pointer.
+// Rebuild trigger
+#[no_mangle]
+pub extern "C" fn wasm_ctx_vertex_attrib_ipointer(
+    ctx: u32,
+    index: u32,
+    size: i32,
+    type_: u32,
+    stride: i32,
+    offset: u32,
+) -> u32 {
+    webgl2_context::ctx_vertex_attrib_ipointer(ctx, index, size, type_, stride, offset)
+}
+
 /// Vertex attribute divisor.
 #[no_mangle]
 pub extern "C" fn wasm_ctx_vertex_attrib_divisor(ctx: u32, index: u32, divisor: u32) -> u32 {
@@ -853,10 +893,7 @@ pub extern "C" fn wasm_webgpu_create_texture_view(
 }
 
 #[no_mangle]
-pub extern "C" fn wasm_webgpu_create_sampler(
-    ctx_handle: u32,
-    device_handle: u32,
-) -> u32 {
+pub extern "C" fn wasm_webgpu_create_sampler(ctx_handle: u32, device_handle: u32) -> u32 {
     webgpu::texture::create_sampler(ctx_handle, device_handle)
 }
 

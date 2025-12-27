@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use wgpu_core::global::Global;
 use wgpu_core::id::{
     AdapterId, BindGroupId, BindGroupLayoutId, BufferId, CommandBufferId, CommandEncoderId,
-    ComputePipelineId, DeviceId, PipelineLayoutId, QueueId, RenderPipelineId, ShaderModuleId,
-    TextureId, TextureViewId, SamplerId,
+    ComputePipelineId, DeviceId, PipelineLayoutId, QueueId, RenderPipelineId, SamplerId,
+    ShaderModuleId, TextureId, TextureViewId,
 };
 use wgpu_types as wgt;
 
@@ -61,7 +61,10 @@ impl WebGpuContext {
         // Create Global using our custom backend
         // unsafe: We are responsible for the lifetime of the instance, which Global takes ownership of
         let global = unsafe {
-            Global::from_hal_instance::<crate::webgpu::backend::SoftApi>("webgpu-wasm", soft_instance)
+            Global::from_hal_instance::<crate::webgpu::backend::SoftApi>(
+                "webgpu-wasm",
+                soft_instance,
+            )
         };
 
         WebGpuContext {

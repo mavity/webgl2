@@ -294,11 +294,6 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
         }
     };
     let verbosity = ctx_obj.verbosity;
-    Context::log_static(
-        verbosity,
-        1,
-        &format!("ctx_link_program ctx={} program={}", ctx, program),
-    );
 
     if let Some(p) = ctx_obj.programs.get_mut(&program) {
         let mut vs_module = None;
@@ -395,8 +390,8 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                     if ep.stage == ShaderStage::Vertex {
                         for arg in &ep.function.arguments {
                             if arg.name.as_ref() == Some(name) {
-                                Context::log_static(verbosity, 2, &format!("Attribute {} binding: {:?}", name, arg.binding));
-                                if let Some(Binding::Location { location: loc, .. }) = &arg.binding {
+                                if let Some(Binding::Location { location: loc, .. }) = &arg.binding
+                                {
                                     location = Some(*loc);
                                 }
                             }
