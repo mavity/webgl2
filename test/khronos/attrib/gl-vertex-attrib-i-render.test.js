@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import { webGL2 } from '../index.js';
+import { webGL2 } from '../../../index.js';
 
 test('WebGL2 vertexAttribI* rendering', { skip: true }, async (t) => {
   const gl = await webGL2();
