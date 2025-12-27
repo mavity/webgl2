@@ -158,6 +158,20 @@ pub fn ctx_viewport(ctx: u32, x: i32, y: i32, width: u32, height: u32) -> u32 {
     ERR_OK
 }
 
+pub fn ctx_resize(ctx: u32, width: u32, height: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+    ctx_obj.default_framebuffer = crate::wasm_gl_emu::OwnedFramebuffer::new(width, height);
+    ERR_OK
+}
+
 pub fn ctx_scissor(ctx: u32, x: i32, y: i32, width: u32, height: u32) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();

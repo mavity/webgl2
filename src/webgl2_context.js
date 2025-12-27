@@ -84,8 +84,30 @@ export class WasmWebGL2RenderingContext {
     this._destroyed = false;
     /** @type {import('./webgl2_resources.js').WasmWebGLProgram | null} */
     this._currentProgram = null;
+    this._drawingBufferWidth = 640;
+    this._drawingBufferHeight = 480;
 
     WasmWebGL2RenderingContext._contexts.set(ctxHandle, this);
+  }
+
+  get drawingBufferWidth() {
+    return this._drawingBufferWidth;
+  }
+
+  get drawingBufferHeight() {
+    return this._drawingBufferHeight;
+  }
+
+  resize(width, height) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_resize !== 'function') {
+      throw new Error('wasm_ctx_resize not found');
+    }
+    const code = ex.wasm_ctx_resize(this._ctxHandle, width, height);
+    _checkErr(code, this._instance);
+    this._drawingBufferWidth = width;
+    this._drawingBufferHeight = height;
   }
 
   /** @type {Map<number, WasmWebGL2RenderingContext>} */

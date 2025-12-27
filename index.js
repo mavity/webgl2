@@ -50,11 +50,12 @@ const isNode =
  *
  * @param {{
  *  debug?: boolean,
+ *  size?: { width: number, height: number },
  * }} [opts] - options
  * @returns {Promise<WasmWebGL2RenderingContext>}
  * @throws {Error} if WASM loading or instantiation fails
  */
-export async function webGL2({ debug = process.env.WEBGL2_DEBUG === 'true' } = {}) {
+export async function webGL2({ debug = process.env.WEBGL2_DEBUG === 'true', size } = {}) {
   // Load WASM binary
   let promise = wasmCache.get(!!debug);
   if (!promise) {
@@ -88,6 +89,11 @@ export async function webGL2({ debug = process.env.WEBGL2_DEBUG === 'true' } = {
 
   // Wrap and return
   const gl = new WasmWebGL2RenderingContext(instance, ctxHandle);
+
+  if (size && typeof size.width === 'number' && typeof size.height === 'number') {
+    gl.resize(size.width, size.height);
+  }
+
   return gl;
 }
 

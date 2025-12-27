@@ -129,6 +129,13 @@ pub extern "C" fn wasm_destroy_context(handle: u32) -> u32 {
     webgl2_context::destroy_context(handle)
 }
 
+/// Resize the default framebuffer of a context.
+/// Returns errno (0 on success).
+#[no_mangle]
+pub extern "C" fn wasm_ctx_resize(ctx: u32, width: u32, height: u32) -> u32 {
+    webgl2_context::state::ctx_resize(ctx, width, height)
+}
+
 // ---- Memory Management ----
 
 /// Allocate memory from WASM linear memory.
