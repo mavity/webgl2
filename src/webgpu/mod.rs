@@ -6,6 +6,7 @@
 
 pub mod adapter;
 pub mod backend;
+pub mod bind_group;
 pub mod buffer;
 pub mod command;
 pub mod pipeline;

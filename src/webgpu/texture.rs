@@ -131,6 +131,51 @@ pub fn create_texture_view(
     })
 }
 
+/// Create a sampler
+pub fn create_sampler(
+    ctx_handle: u32,
+    device_handle: u32,
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let device_id = match ctx.devices.get(&device_handle) {
+            Some(id) => *id,
+            None => return super::NULL_HANDLE,
+        };
+
+        let desc = wgpu_core::resource::SamplerDescriptor {
+            label: None,
+            address_modes: [
+                wgt::AddressMode::ClampToEdge,
+                wgt::AddressMode::ClampToEdge,
+                wgt::AddressMode::ClampToEdge,
+            ],
+            mag_filter: wgt::FilterMode::Linear,
+            min_filter: wgt::FilterMode::Linear,
+            mipmap_filter: wgt::MipmapFilterMode::Linear,
+            lod_min_clamp: 0.0,
+            lod_max_clamp: 32.0,
+            compare: None,
+            anisotropy_clamp: 1,
+            border_color: None,
+        };
+
+        let (sampler_id, error) = ctx
+            .global
+            .device_create_sampler(device_id, &desc, None);
+            
+        if let Some(e) = error {
+            crate::js_log(0, &format!("Failed to create sampler: {:?}", e));
+            return super::NULL_HANDLE;
+        }
+
+        let handle = ctx.next_sampler_id;
+        ctx.next_sampler_id += 1;
+        ctx.samplers.insert(handle, sampler_id);
+
+        handle
+    })
+}
+
 /// Destroy a texture
 pub fn destroy_texture(ctx_handle: u32, texture_handle: u32) -> u32 {
     with_context(ctx_handle, |ctx| {

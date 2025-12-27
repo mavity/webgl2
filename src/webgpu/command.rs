@@ -202,6 +202,8 @@ pub fn command_encoder_copy_texture_to_buffer(
     })
 }
 
+use std::num::NonZero;
+
 /// Begin render pass (simplified for 1 color attachment)
 pub fn command_encoder_begin_render_pass_1_color(
     ctx_handle: u32,
@@ -213,6 +215,34 @@ pub fn command_encoder_begin_render_pass_1_color(
     clear_g: f64,
     clear_b: f64,
     clear_a: f64,
+) -> u32 {
+    // Deprecated in favor of run_render_pass, but kept for compatibility if needed
+    command_encoder_run_render_pass(
+        ctx_handle,
+        encoder_handle,
+        view_handle,
+        load_op,
+        store_op,
+        clear_r,
+        clear_g,
+        clear_b,
+        clear_a,
+        &[],
+    )
+}
+
+/// Run a render pass with buffered commands
+pub fn command_encoder_run_render_pass(
+    ctx_handle: u32,
+    encoder_handle: u32,
+    view_handle: u32,
+    load_op: u32,
+    store_op: u32,
+    clear_r: f64,
+    clear_g: f64,
+    clear_b: f64,
+    clear_a: f64,
+    commands: &[u32],
 ) -> u32 {
     with_context(ctx_handle, |ctx| {
         let encoder_id = match ctx.command_encoders.get(&encoder_handle) {
@@ -263,7 +293,81 @@ pub fn command_encoder_begin_render_pass_1_color(
              return super::WEBGPU_ERROR_OPERATION_FAILED;
         }
         
-        // End immediately to simulate "one-shot" pass for clearing
+        // Execute commands
+        let mut cursor = 0;
+        while cursor < commands.len() {
+            let op = commands[cursor];
+            cursor += 1;
+            
+            match op {
+                1 => { // SetPipeline
+                    if cursor >= commands.len() { break; }
+                    let pipeline_handle = commands[cursor];
+                    cursor += 1;
+                    if let Some(id) = ctx.render_pipelines.get(&pipeline_handle) {
+                        ctx.global.render_pass_set_pipeline(&mut pass, *id);
+                    }
+                },
+                2 => { // SetVertexBuffer
+                    if cursor + 3 >= commands.len() { break; }
+                    let slot = commands[cursor];
+                    let buffer_handle = commands[cursor+1];
+                    let offset = commands[cursor+2] as u64;
+                    let size = commands[cursor+3] as u64;
+                    cursor += 4;
+                    
+                    if let Some(id) = ctx.buffers.get(&buffer_handle) {
+                        ctx.global.render_pass_set_vertex_buffer(
+                            &mut pass,
+                            slot,
+                            *id,
+                            offset,
+                            NonZero::new(size),
+                        );
+                    }
+                },
+                3 => { // Draw
+                    if cursor + 3 >= commands.len() { break; }
+                    let vertex_count = commands[cursor];
+                    let instance_count = commands[cursor+1];
+                    let first_vertex = commands[cursor+2];
+                    let first_instance = commands[cursor+3];
+                    cursor += 4;
+                    
+                    if let Err(e) = ctx.global.render_pass_draw(
+                        &mut pass,
+                        vertex_count,
+                        instance_count,
+                        first_vertex,
+                        first_instance,
+                    ) {
+                        crate::js_log(0, &format!("Failed to draw: {:?}", e));
+                    }
+                },
+                4 => { // SetBindGroup
+                    if cursor + 1 >= commands.len() { break; }
+                    let index = commands[cursor];
+                    let bg_handle = commands[cursor+1];
+                    cursor += 2;
+                    
+                    if let Some(id) = ctx.bind_groups.get(&bg_handle) {
+                        if let Err(e) = ctx.global.render_pass_set_bind_group(
+                            &mut pass,
+                            index,
+                            Some(*id),
+                            &[],
+                        ) {
+                            crate::js_log(0, &format!("Failed to set bind group: {:?}", e));
+                        }
+                    }
+                },
+                _ => {
+                    crate::js_log(1, &format!("Unknown render pass command op: {}", op));
+                    break;
+                }
+            }
+        }
+        
         if let Err(e) = ctx.global.render_pass_end(&mut pass) {
              crate::js_log(0, &format!("Failed to end render pass: {:?}", e));
              return super::WEBGPU_ERROR_OPERATION_FAILED;

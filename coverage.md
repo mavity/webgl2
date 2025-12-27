@@ -4,7 +4,7 @@
 
 | File | Lines Covered | Lines Missed | Total Lines | Coverage |
 |---|---|---|---|---|
-| src/lib.rs | 101 | 29 | 130 | 77.69% 🟡 |
+| src/lib.rs | 101 | 34 | 135 | 74.81% 🟡 |
 | src/naga_wasm_backend/backend.rs | 39 | 0 | 39 | 100.00% 🟢 |
 | src/naga_wasm_backend/control_flow.rs | 15 | 5 | 20 | 75.00% 🟡 |
 | src/naga_wasm_backend/expressions.rs | 29 | 12 | 41 | 70.73% 🟡 |
@@ -23,13 +23,13 @@
 | src/webgl2_context/vaos.rs | 23 | 0 | 23 | 100.00% 🟢 |
 | src/webgpu/adapter.rs | 2 | 0 | 2 | 100.00% 🟢 |
 | src/webgpu/backend.rs | 25 | 25 | 50 | 50.00% 🟡 |
-| **Total** | **416** | **85** | **501** | **83.03% 🟢** |
+| **Total** | **416** | **90** | **506** | **82.21% 🟢** |
 
 ## Top Missed Files
 
 | File | Lines Missed | Illustrative Line | Coverage |
 |---|---|---|---|
-| src/lib.rs | 29/130 | [516] `/// Set uniform 3f.` | 77.69% 🟡 |
+| src/lib.rs | 34/135 | [516] `/// Set uniform 3f.` | 74.81% 🟡 |
 | src/webgpu/backend.rs | 25/50 | [806] `}` | 50.00% 🟡 |
 | src/naga_wasm_backend/expressions.rs | 12/41 | [49] `if component_idx == 0 {` | 70.73% 🟡 |
 | src/naga_wasm_backend/control_flow.rs | 5/20 | [80] `for _ in 0..types.len() {` | 75.00% 🟡 |

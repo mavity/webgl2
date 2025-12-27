@@ -853,6 +853,14 @@ pub extern "C" fn wasm_webgpu_create_texture_view(
 }
 
 #[no_mangle]
+pub extern "C" fn wasm_webgpu_create_sampler(
+    ctx_handle: u32,
+    device_handle: u32,
+) -> u32 {
+    webgpu::texture::create_sampler(ctx_handle, device_handle)
+}
+
+#[no_mangle]
 pub extern "C" fn wasm_webgpu_destroy_texture(ctx_handle: u32, texture_handle: u32) -> u32 {
     webgpu::texture::destroy_texture(ctx_handle, texture_handle)
 }
@@ -872,6 +880,21 @@ pub unsafe extern "C" fn wasm_webgpu_create_shader_module(
     webgpu::shader::create_shader_module(ctx_handle, device_handle, code_ptr, code_len)
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn wasm_webgpu_create_pipeline_layout(
+    ctx_handle: u32,
+    device_handle: u32,
+    bind_group_layouts_ptr: *const u32,
+    bind_group_layouts_len: usize,
+) -> u32 {
+    webgpu::pipeline::create_pipeline_layout(
+        ctx_handle,
+        device_handle,
+        bind_group_layouts_ptr,
+        bind_group_layouts_len,
+    )
+}
+
 /// Create a render pipeline.
 ///
 /// # Safety
@@ -887,6 +910,9 @@ pub unsafe extern "C" fn wasm_webgpu_create_render_pipeline(
     fragment_module_handle: u32,
     fragment_entry_ptr: *const u8,
     fragment_entry_len: usize,
+    layout_ptr: *const u32,
+    layout_len: usize,
+    pipeline_layout_handle: u32,
 ) -> u32 {
     let v_entry = {
         let slice = std::slice::from_raw_parts(vertex_entry_ptr, vertex_entry_len);
@@ -896,6 +922,7 @@ pub unsafe extern "C" fn wasm_webgpu_create_render_pipeline(
         let slice = std::slice::from_raw_parts(fragment_entry_ptr, fragment_entry_len);
         std::str::from_utf8_unchecked(slice)
     };
+    let layout_data = std::slice::from_raw_parts(layout_ptr, layout_len);
 
     webgpu::pipeline::create_render_pipeline(
         ctx_handle,
@@ -904,6 +931,65 @@ pub unsafe extern "C" fn wasm_webgpu_create_render_pipeline(
         v_entry,
         fragment_module_handle,
         f_entry,
+        layout_data,
+        pipeline_layout_handle,
+    )
+}
+
+/// Create a bind group layout.
+#[no_mangle]
+pub unsafe extern "C" fn wasm_webgpu_create_bind_group_layout(
+    ctx_handle: u32,
+    device_handle: u32,
+    entries_ptr: *const u32,
+    entries_len: usize,
+) -> u32 {
+    js_log(3, "wasm_webgpu_create_bind_group_layout called");
+    let entries = std::slice::from_raw_parts(entries_ptr, entries_len);
+    webgpu::bind_group::create_bind_group_layout(ctx_handle, device_handle, entries)
+}
+
+/// Create a bind group.
+#[no_mangle]
+pub unsafe extern "C" fn wasm_webgpu_create_bind_group(
+    ctx_handle: u32,
+    device_handle: u32,
+    layout_handle: u32,
+    entries_ptr: *const u32,
+    entries_len: usize,
+) -> u32 {
+    js_log(3, "wasm_webgpu_create_bind_group called");
+    let entries = std::slice::from_raw_parts(entries_ptr, entries_len);
+    webgpu::bind_group::create_bind_group(ctx_handle, device_handle, layout_handle, entries)
+}
+
+/// Run a render pass with buffered commands.
+#[no_mangle]
+pub unsafe extern "C" fn wasm_webgpu_command_encoder_run_render_pass(
+    ctx_handle: u32,
+    encoder_handle: u32,
+    view_handle: u32,
+    load_op: u32,
+    store_op: u32,
+    clear_r: f64,
+    clear_g: f64,
+    clear_b: f64,
+    clear_a: f64,
+    commands_ptr: *const u32,
+    commands_len: usize,
+) -> u32 {
+    let commands = std::slice::from_raw_parts(commands_ptr, commands_len);
+    webgpu::command::command_encoder_run_render_pass(
+        ctx_handle,
+        encoder_handle,
+        view_handle,
+        load_op,
+        store_op,
+        clear_r,
+        clear_g,
+        clear_b,
+        clear_a,
+        commands,
     )
 }
 

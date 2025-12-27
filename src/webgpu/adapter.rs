@@ -6,7 +6,7 @@ use wgpu_core::global::Global;
 use wgpu_core::id::{
     AdapterId, BindGroupId, BindGroupLayoutId, BufferId, CommandBufferId, CommandEncoderId,
     ComputePipelineId, DeviceId, PipelineLayoutId, QueueId, RenderPipelineId, ShaderModuleId,
-    TextureId, TextureViewId,
+    TextureId, TextureViewId, SamplerId,
 };
 use wgpu_types as wgt;
 
@@ -35,6 +35,7 @@ pub struct WebGpuContext {
     pub command_buffers: HashMap<u32, CommandBufferId>,
     pub textures: HashMap<u32, TextureId>,
     pub texture_views: HashMap<u32, TextureViewId>,
+    pub samplers: HashMap<u32, SamplerId>,
 
     pub next_adapter_id: u32,
     pub next_device_id: u32,
@@ -49,6 +50,7 @@ pub struct WebGpuContext {
     pub next_command_buffer_id: u32,
     pub next_texture_id: u32,
     pub next_texture_view_id: u32,
+    pub next_sampler_id: u32,
 }
 
 impl WebGpuContext {
@@ -79,6 +81,7 @@ impl WebGpuContext {
             command_buffers: HashMap::new(),
             textures: HashMap::new(),
             texture_views: HashMap::new(),
+            samplers: HashMap::new(),
 
             next_adapter_id: 1,
             next_device_id: 1,
@@ -93,6 +96,7 @@ impl WebGpuContext {
             next_command_buffer_id: 1,
             next_texture_id: 1,
             next_texture_view_id: 1,
+            next_sampler_id: 1,
         }
     }
 }

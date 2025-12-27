@@ -231,9 +231,49 @@ export class GPUDevice {
      * @returns {GPUShaderModule}
      */
     createShaderModule(descriptor) {
-        // TODO: Call wasm function to create shader module
-        const moduleHandle = 1; // Placeholder
+        const code = descriptor.code;
+        const encoder = new TextEncoder();
+        const codeBytes = encoder.encode(code);
+        
+        const ptr = this.wasm.wasm_alloc(codeBytes.length);
+        const heapU8 = new Uint8Array(this.memory.buffer, ptr, codeBytes.length);
+        heapU8.set(codeBytes);
+        
+        const moduleHandle = this.wasm.wasm_webgpu_create_shader_module(
+            this.ctxHandle,
+            this.deviceHandle,
+            ptr,
+            codeBytes.length
+        );
+        
+        this.wasm.wasm_free(ptr, codeBytes.length);
+        
+        if (moduleHandle === 0) {
+            throw new Error("Failed to create shader module");
+        }
+        
         return new GPUShaderModule(this.wasm, this.memory, this.ctxHandle, moduleHandle);
+    }
+
+    createPipelineLayout(descriptor) {
+        const layouts = descriptor.bindGroupLayouts.map(l => l.layoutHandle);
+        const ptr = this.wasm.wasm_alloc(layouts.length * 4);
+        new Uint32Array(this.memory.buffer, ptr, layouts.length).set(new Uint32Array(layouts));
+        
+        const handle = this.wasm.wasm_webgpu_create_pipeline_layout(
+            this.ctxHandle,
+            this.deviceHandle,
+            ptr,
+            layouts.length
+        );
+        
+        this.wasm.wasm_free(ptr, layouts.length * 4);
+        
+        if (handle === 0) {
+            throw new Error("Failed to create pipeline layout");
+        }
+        
+        return new GPUPipelineLayout(this.wasm, this.memory, this.ctxHandle, handle);
     }
 
     /**
@@ -242,8 +282,76 @@ export class GPUDevice {
      * @returns {GPURenderPipeline}
      */
     createRenderPipeline(descriptor) {
-        // TODO: Call wasm function to create render pipeline
-        const pipelineHandle = 1; // Placeholder
+        const vertexEntry = descriptor.vertex.entryPoint;
+        const fragmentEntry = descriptor.fragment.entryPoint;
+        
+        const encoder = new TextEncoder();
+        const vBytes = encoder.encode(vertexEntry);
+        const fBytes = encoder.encode(fragmentEntry);
+        
+        const vPtr = this.wasm.wasm_alloc(vBytes.length);
+        new Uint8Array(this.memory.buffer, vPtr, vBytes.length).set(vBytes);
+        
+        const fPtr = this.wasm.wasm_alloc(fBytes.length);
+        new Uint8Array(this.memory.buffer, fPtr, fBytes.length).set(fBytes);
+        
+        // Encode vertex buffers
+        // Format: [count, stride, stepMode, attrCount, format, offset, location, ...]
+        const layoutData = [];
+        const buffers = descriptor.vertex.buffers || [];
+        layoutData.push(buffers.length);
+        
+        for (const buffer of buffers) {
+            layoutData.push(buffer.arrayStride);
+            layoutData.push(buffer.stepMode === 'instance' ? 1 : 0);
+            layoutData.push(buffer.attributes.length);
+            for (const attr of buffer.attributes) {
+                // Map format string to enum if needed, or assume simple mapping for now
+                // For this prototype, we'll assume the Rust side handles string parsing or we pass simple IDs
+                // Let's pass format as a simple ID for now: 
+                // float32x3 = 0, float32x2 = 1, etc.
+                // Actually, let's just pass the raw values and let Rust figure it out or use a simplified mapping
+                let formatId = 0;
+                if (attr.format === 'float32x3') formatId = 1;
+                else if (attr.format === 'float32x2') formatId = 2;
+                else if (attr.format === 'float32x4') formatId = 3;
+                
+                layoutData.push(formatId);
+                layoutData.push(attr.offset);
+                layoutData.push(attr.shaderLocation);
+            }
+        }
+        
+        const lPtr = this.wasm.wasm_alloc(layoutData.length * 4);
+        new Uint32Array(this.memory.buffer, lPtr, layoutData.length).set(layoutData);
+
+        let layoutHandle = 0;
+        if (descriptor.layout && descriptor.layout !== 'auto') {
+            layoutHandle = descriptor.layout.layoutHandle;
+        }
+
+        const pipelineHandle = this.wasm.wasm_webgpu_create_render_pipeline(
+            this.ctxHandle,
+            this.deviceHandle,
+            descriptor.vertex.module.moduleHandle,
+            vPtr,
+            vBytes.length,
+            descriptor.fragment.module.moduleHandle,
+            fPtr,
+            fBytes.length,
+            lPtr,
+            layoutData.length,
+            layoutHandle
+        );
+        
+        this.wasm.wasm_free(vPtr, vBytes.length);
+        this.wasm.wasm_free(fPtr, fBytes.length);
+        this.wasm.wasm_free(lPtr, layoutData.length * 4);
+        
+        if (pipelineHandle === 0) {
+            throw new Error("Failed to create render pipeline");
+        }
+
         return new GPURenderPipeline(this.wasm, this.memory, this.ctxHandle, pipelineHandle);
     }
 
@@ -258,6 +366,108 @@ export class GPUDevice {
             throw new Error("Failed to create command encoder");
         }
         return new GPUCommandEncoder(this.wasm, this.memory, this.ctxHandle, encoderHandle);
+    }
+
+    /**
+     * Create a bind group layout
+     * @param {Object} descriptor
+     * @returns {GPUBindGroupLayout}
+     */
+    createBindGroupLayout(descriptor) {
+        const entries = descriptor.entries || [];
+        const data = [entries.length];
+        
+        for (const entry of entries) {
+            data.push(entry.binding);
+            data.push(entry.visibility);
+            
+            // Type: 0=Buffer, 1=Texture, 2=Sampler
+            let typeId = 0;
+            if (entry.buffer) typeId = 0;
+            else if (entry.texture) typeId = 1;
+            else if (entry.sampler) typeId = 2;
+            
+            data.push(typeId);
+        }
+        
+        const ptr = this.wasm.wasm_alloc(data.length * 4);
+        new Uint32Array(this.memory.buffer, ptr, data.length).set(data);
+        
+        const handle = this.wasm.wasm_webgpu_create_bind_group_layout(
+            this.ctxHandle,
+            this.deviceHandle,
+            ptr,
+            data.length
+        );
+        
+        this.wasm.wasm_free(ptr, data.length * 4);
+        
+        if (handle === 0) throw new Error("Failed to create bind group layout");
+        
+        return new GPUBindGroupLayout(this.wasm, this.memory, this.ctxHandle, handle);
+    }
+
+    /**
+     * Create a bind group
+     * @param {Object} descriptor
+     * @returns {GPUBindGroup}
+     */
+    createBindGroup(descriptor) {
+        const entries = descriptor.entries || [];
+        const data = [entries.length];
+        
+        for (const entry of entries) {
+            data.push(entry.binding);
+            
+            // Resource Type: 0=Buffer, 1=TextureView, 2=Sampler
+            let resType = 0;
+            let resHandle = 0;
+            
+            if (entry.resource.buffer) {
+                resType = 0;
+                resHandle = entry.resource.buffer.bufferHandle;
+            } else if (entry.resource instanceof GPUTextureView) {
+                resType = 1;
+                resHandle = entry.resource.viewHandle;
+            } else if (entry.resource instanceof GPUSampler) {
+                resType = 2;
+                resHandle = entry.resource.samplerHandle;
+            } else if (entry.resource.constructor.name === 'GPUSampler') {
+                 resType = 2;
+                 resHandle = entry.resource.samplerHandle;
+            }
+            
+            data.push(resType);
+            data.push(resHandle);
+        }
+        
+        const ptr = this.wasm.wasm_alloc(data.length * 4);
+        new Uint32Array(this.memory.buffer, ptr, data.length).set(data);
+        
+        const handle = this.wasm.wasm_webgpu_create_bind_group(
+            this.ctxHandle,
+            this.deviceHandle,
+            descriptor.layout.layoutHandle,
+            ptr,
+            data.length
+        );
+        
+        this.wasm.wasm_free(ptr, data.length * 4);
+        
+        if (handle === 0) throw new Error("Failed to create bind group");
+        
+        return new GPUBindGroup(this.wasm, this.memory, this.ctxHandle, handle);
+    }
+
+    /**
+     * Create a sampler
+     * @param {Object} descriptor
+     * @returns {GPUSampler}
+     */
+    createSampler(descriptor = {}) {
+        const handle = this.wasm.wasm_webgpu_create_sampler(this.ctxHandle, this.deviceHandle);
+        if (handle === 0) throw new Error("Failed to create sampler");
+        return new GPUSampler(this.wasm, this.memory, this.ctxHandle, handle);
     }
 
     /**
@@ -490,31 +700,7 @@ export class GPUCommandEncoder {
      * @returns {GPURenderPassEncoder}
      */
     beginRenderPass(descriptor) {
-        // Simplified implementation for testing:
-        // If we have 1 color attachment with clear, we call the special function
-        if (descriptor.colorAttachments && descriptor.colorAttachments.length === 1) {
-            const att = descriptor.colorAttachments[0];
-            const loadOp = att.loadOp === 'clear' ? 1 : 0;
-            const storeOp = att.storeOp === 'discard' ? 1 : 0;
-            const clearColor = att.clearValue || { r: 0, g: 0, b: 0, a: 0 };
-            
-            // This function executes the pass immediately (begin + end)
-            // This is a hack for the prototype to test clearing
-            this.wasm.wasm_webgpu_command_encoder_begin_render_pass_1_color(
-                this.ctxHandle,
-                this.encoderHandle,
-                att.view.viewHandle,
-                loadOp,
-                storeOp,
-                clearColor.r,
-                clearColor.g,
-                clearColor.b,
-                clearColor.a
-            );
-        }
-        
-        const passHandle = 1; // Placeholder
-        return new GPURenderPassEncoder(this.wasm, this.memory, this.ctxHandle, passHandle);
+        return new GPURenderPassEncoder(this.wasm, this.memory, this.ctxHandle, this.encoderHandle, descriptor);
     }
 
     /**
@@ -535,13 +721,16 @@ export class GPURenderPassEncoder {
      * @param {*} wasmModule
      * @param {WebAssembly.Memory} wasmMemory
      * @param {number} ctxHandle
-     * @param {number} passHandle
+     * @param {number} encoderHandle
+     * @param {Object} descriptor
      */
-    constructor(wasmModule, wasmMemory, ctxHandle, passHandle) {
+    constructor(wasmModule, wasmMemory, ctxHandle, encoderHandle, descriptor) {
         this.wasm = wasmModule;
         this.memory = wasmMemory;
         this.ctxHandle = ctxHandle;
-        this.passHandle = passHandle;
+        this.encoderHandle = encoderHandle;
+        this.descriptor = descriptor;
+        this.commands = [];
     }
 
     /**
@@ -549,7 +738,7 @@ export class GPURenderPassEncoder {
      * @param {GPURenderPipeline} pipeline
      */
     setPipeline(pipeline) {
-        // TODO: Call wasm function to set pipeline
+        this.commands.push(1, pipeline.pipelineHandle);
     }
 
     /**
@@ -560,7 +749,17 @@ export class GPURenderPassEncoder {
      * @param {number} size
      */
     setVertexBuffer(slot, buffer, offset = 0, size) {
-        // TODO: Call wasm function to set vertex buffer
+        this.commands.push(2, slot, buffer.bufferHandle, offset, size || buffer.size);
+    }
+
+    /**
+     * Set bind group
+     * @param {number} index
+     * @param {GPUBindGroup} bindGroup
+     * @param {Array<number>} dynamicOffsets
+     */
+    setBindGroup(index, bindGroup, dynamicOffsets = []) {
+        this.commands.push(4, index, bindGroup.bindGroupHandle);
     }
 
     /**
@@ -571,14 +770,38 @@ export class GPURenderPassEncoder {
      * @param {number} firstInstance
      */
     draw(vertexCount, instanceCount = 1, firstVertex = 0, firstInstance = 0) {
-        // TODO: Call wasm function to draw
+        this.commands.push(3, vertexCount, instanceCount, firstVertex, firstInstance);
     }
 
     /**
      * End the render pass
      */
     end() {
-        // TODO: Call wasm function to end render pass
+        // Execute the render pass with all buffered commands
+        const att = this.descriptor.colorAttachments[0];
+        const loadOp = att.loadOp === 'clear' ? 1 : 0;
+        const storeOp = att.storeOp === 'discard' ? 1 : 0;
+        const clearColor = att.clearValue || { r: 0, g: 0, b: 0, a: 0 };
+        
+        const ptr = this.wasm.wasm_alloc(this.commands.length * 4);
+        const heapU32 = new Uint32Array(this.memory.buffer, ptr, this.commands.length);
+        heapU32.set(this.commands);
+        
+        this.wasm.wasm_webgpu_command_encoder_run_render_pass(
+            this.ctxHandle,
+            this.encoderHandle,
+            att.view.viewHandle,
+            loadOp,
+            storeOp,
+            clearColor.r,
+            clearColor.g,
+            clearColor.b,
+            clearColor.a,
+            ptr,
+            this.commands.length
+        );
+        
+        this.wasm.wasm_free(ptr, this.commands.length * 4);
     }
 }
 
@@ -657,6 +880,33 @@ export class GPUTextureView {
     }
 }
 
+export class GPUBindGroupLayout {
+    constructor(wasmModule, wasmMemory, ctxHandle, layoutHandle) {
+        this.wasm = wasmModule;
+        this.memory = wasmMemory;
+        this.ctxHandle = ctxHandle;
+        this.layoutHandle = layoutHandle;
+    }
+}
+
+export class GPUBindGroup {
+    constructor(wasmModule, wasmMemory, ctxHandle, bindGroupHandle) {
+        this.wasm = wasmModule;
+        this.memory = wasmMemory;
+        this.ctxHandle = ctxHandle;
+        this.bindGroupHandle = bindGroupHandle;
+    }
+}
+
+export class GPUSampler {
+    constructor(wasmModule, wasmMemory, ctxHandle, samplerHandle) {
+        this.wasm = wasmModule;
+        this.memory = wasmMemory;
+        this.ctxHandle = ctxHandle;
+        this.samplerHandle = samplerHandle;
+    }
+}
+
 /**
  * Create a navigator.gpu object
  * @param {Object} wasmModule - WebAssembly module
@@ -665,4 +915,13 @@ export class GPUTextureView {
  */
 export function createWebGPU(wasmModule, wasmMemory) {
     return new GPU(wasmModule, wasmMemory);
+}
+
+export class GPUPipelineLayout {
+    constructor(wasmModule, wasmMemory, ctxHandle, layoutHandle) {
+        this.wasm = wasmModule;
+        this.memory = wasmMemory;
+        this.ctxHandle = ctxHandle;
+        this.layoutHandle = layoutHandle;
+    }
 }

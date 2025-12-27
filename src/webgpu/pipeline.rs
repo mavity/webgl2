@@ -13,6 +13,8 @@ pub fn create_render_pipeline(
     vertex_entry: &str,
     fragment_module_handle: u32,
     fragment_entry: &str,
+    layout_data: &[u32],
+    pipeline_layout_handle: u32,
 ) -> u32 {
     with_context(ctx_handle, |ctx| {
         let device_id = match ctx.devices.get(&device_handle) {
@@ -30,9 +32,65 @@ pub fn create_render_pipeline(
             None => return super::NULL_HANDLE,
         };
 
+        let layout_id = if pipeline_layout_handle != 0 {
+            match ctx.pipeline_layouts.get(&pipeline_layout_handle) {
+                Some(id) => Some(*id),
+                None => {
+                    crate::js_log(0, &format!("Invalid pipeline layout handle: {}", pipeline_layout_handle));
+                    return super::NULL_HANDLE;
+                }
+            }
+        } else {
+            None
+        };
+
+        // Parse vertex buffer layout
+        let mut vertex_buffers = Vec::new();
+        let mut cursor = 0;
+        if cursor < layout_data.len() {
+            let count = layout_data[cursor];
+            cursor += 1;
+            
+            for _ in 0..count {
+                if cursor + 3 > layout_data.len() { break; }
+                let array_stride = layout_data[cursor] as u64;
+                let step_mode = if layout_data[cursor+1] == 1 { wgt::VertexStepMode::Instance } else { wgt::VertexStepMode::Vertex };
+                let attr_count = layout_data[cursor+2];
+                cursor += 3;
+                
+                let mut attributes = Vec::new();
+                for _ in 0..attr_count {
+                    if cursor + 3 > layout_data.len() { break; }
+                    let format_id = layout_data[cursor];
+                    let offset = layout_data[cursor+1] as u64;
+                    let shader_location = layout_data[cursor+2];
+                    cursor += 3;
+                    
+                    let format = match format_id {
+                        1 => wgt::VertexFormat::Float32x3,
+                        2 => wgt::VertexFormat::Float32x2,
+                        3 => wgt::VertexFormat::Float32x4,
+                        _ => wgt::VertexFormat::Float32x3, // Default/Fallback
+                    };
+                    
+                    attributes.push(wgt::VertexAttribute {
+                        format,
+                        offset,
+                        shader_location,
+                    });
+                }
+                
+                vertex_buffers.push(wgpu_core::pipeline::VertexBufferLayout {
+                    array_stride,
+                    step_mode,
+                    attributes: Cow::Owned(attributes),
+                });
+            }
+        }
+
         let desc = pipeline::RenderPipelineDescriptor {
             label: None,
-            layout: None, // Auto-layout
+            layout: layout_id,
             vertex: pipeline::VertexState {
                 stage: pipeline::ProgrammableStageDescriptor {
                     module: v_module,
@@ -40,7 +98,7 @@ pub fn create_render_pipeline(
                     constants: Default::default(),
                     zero_initialize_workgroup_memory: true,
                 },
-                buffers: Cow::Borrowed(&[]),
+                buffers: Cow::Owned(vertex_buffers),
             },
             primitive: wgt::PrimitiveState::default(),
             depth_stencil: None,
@@ -73,6 +131,51 @@ pub fn create_render_pipeline(
         let handle = ctx.next_render_pipeline_id;
         ctx.next_render_pipeline_id += 1;
         ctx.render_pipelines.insert(handle, pipeline_id);
+
+        handle
+    })
+}
+
+/// Create a pipeline layout
+pub unsafe fn create_pipeline_layout(
+    ctx_handle: u32,
+    device_handle: u32,
+    bind_group_layouts_ptr: *const u32,
+    bind_group_layouts_len: usize,
+) -> u32 {
+    let bgl_handles = std::slice::from_raw_parts(bind_group_layouts_ptr, bind_group_layouts_len);
+
+    with_context(ctx_handle, |ctx| {
+        let device_id = match ctx.devices.get(&device_handle) {
+            Some(id) => *id,
+            None => return super::NULL_HANDLE,
+        };
+
+        let mut bind_group_layouts = Vec::with_capacity(bind_group_layouts_len);
+        for handle in bgl_handles {
+            if let Some(id) = ctx.bind_group_layouts.get(handle) {
+                bind_group_layouts.push(*id);
+            } else {
+                crate::js_log(0, &format!("Invalid bind group layout handle: {}", handle));
+                return super::NULL_HANDLE;
+            }
+        }
+
+        let desc = wgpu_core::binding_model::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: Cow::Borrowed(&bind_group_layouts),
+            immediate_size: 0,
+        };
+
+        let (layout_id, error) = ctx.global.device_create_pipeline_layout(device_id, &desc, None);
+        if let Some(e) = error {
+            crate::js_log(0, &format!("Failed to create pipeline layout: {:?}", e));
+            return super::NULL_HANDLE;
+        }
+
+        let handle = ctx.next_pipeline_layout_id;
+        ctx.next_pipeline_layout_id += 1;
+        ctx.pipeline_layouts.insert(handle, layout_id);
 
         handle
     })
