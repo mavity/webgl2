@@ -52,6 +52,7 @@ export class WasmWebGL2RenderingContext {
   RGBA4 = 0x8056;
   RGB565 = 0x8D62;
   RGB5_A1 = 0x8057;
+  RGBA8 = 0x8058;
   STENCIL_INDEX8 = 0x8D48;
   COLOR_ATTACHMENT0 = 0x8CE0;
   DEPTH_ATTACHMENT = 0x8D00;

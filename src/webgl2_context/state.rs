@@ -62,20 +62,58 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
                     }
                     Attachment::Renderbuffer(rb_handle) => {
                         if let Some(rb) = ctx_obj.renderbuffers.get_mut(&rb_handle) {
-                            // Only clear if it's a color renderbuffer
-                            // For now we assume RGBA4 or similar that fits in u8/pixel logic roughly?
-                            // Actually RGBA4 is 2 bytes per pixel.
-                            // But let's just fill with 0 for now if it's not RGBA8, or try to support it.
-                            // Since we only support software rasterizer for default FB, this is mostly for correctness of API.
-                            // If the user clears a renderbuffer, we should probably fill it.
-                            // But `rb.data` is `Vec<u8>`.
-                            // If format is RGBA4, we need to pack r,g,b,a into 16 bits.
-                            // For now, let's just fill with 0s if we don't know the format, or implement proper clearing later.
-                            // Or just ignore for now to avoid complexity, as software rasterizer doesn't support FBOs fully yet.
-                            // But we should at least not crash.
-
-                            // Simple clear for now:
-                            rb.data.fill(0);
+                            match rb.internal_format {
+                                GL_RGBA4 => {
+                                    let r4 = ((ctx_obj.clear_color[0] * 15.0).round() as u16) & 0xF;
+                                    let g4 = ((ctx_obj.clear_color[1] * 15.0).round() as u16) & 0xF;
+                                    let b4 = ((ctx_obj.clear_color[2] * 15.0).round() as u16) & 0xF;
+                                    let a4 = ((ctx_obj.clear_color[3] * 15.0).round() as u16) & 0xF;
+                                    let val = (r4 << 12) | (g4 << 8) | (b4 << 4) | a4;
+                                    let bytes = val.to_le_bytes();
+                                    for i in (0..rb.data.len()).step_by(2) {
+                                        if i + 1 < rb.data.len() {
+                                            rb.data[i] = bytes[0];
+                                            rb.data[i + 1] = bytes[1];
+                                        }
+                                    }
+                                }
+                                GL_RGB565 => {
+                                    let r5 =
+                                        ((ctx_obj.clear_color[0] * 31.0).round() as u16) & 0x1F;
+                                    let g6 =
+                                        ((ctx_obj.clear_color[1] * 63.0).round() as u16) & 0x3F;
+                                    let b5 =
+                                        ((ctx_obj.clear_color[2] * 31.0).round() as u16) & 0x1F;
+                                    let val = (r5 << 11) | (g6 << 5) | b5;
+                                    let bytes = val.to_le_bytes();
+                                    for i in (0..rb.data.len()).step_by(2) {
+                                        if i + 1 < rb.data.len() {
+                                            rb.data[i] = bytes[0];
+                                            rb.data[i + 1] = bytes[1];
+                                        }
+                                    }
+                                }
+                                GL_RGB5_A1 => {
+                                    let r5 =
+                                        ((ctx_obj.clear_color[0] * 31.0).round() as u16) & 0x1F;
+                                    let g5 =
+                                        ((ctx_obj.clear_color[1] * 31.0).round() as u16) & 0x1F;
+                                    let b5 =
+                                        ((ctx_obj.clear_color[2] * 31.0).round() as u16) & 0x1F;
+                                    let a1 = if ctx_obj.clear_color[3] >= 0.5 { 1 } else { 0 };
+                                    let val = (r5 << 11) | (g5 << 6) | (b5 << 1) | a1;
+                                    let bytes = val.to_le_bytes();
+                                    for i in (0..rb.data.len()).step_by(2) {
+                                        if i + 1 < rb.data.len() {
+                                            rb.data[i] = bytes[0];
+                                            rb.data[i + 1] = bytes[1];
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    rb.data.fill(0);
+                                }
+                            }
                         }
                     }
                 }

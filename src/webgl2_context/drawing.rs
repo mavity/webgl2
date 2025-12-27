@@ -514,48 +514,50 @@ pub fn ctx_read_pixels(
     };
 
     // Get the source data and dimensions
-    let (src_data, src_width, src_height) = if let Some(fb_handle) = ctx_obj.bound_framebuffer {
-        let fb = match ctx_obj.framebuffers.get(&fb_handle) {
-            Some(f) => f,
-            None => {
-                set_last_error("framebuffer not found");
-                return ERR_INVALID_HANDLE;
-            }
-        };
+    let (src_data, src_width, src_height, src_format) =
+        if let Some(fb_handle) = ctx_obj.bound_framebuffer {
+            let fb = match ctx_obj.framebuffers.get(&fb_handle) {
+                Some(f) => f,
+                None => {
+                    set_last_error("framebuffer not found");
+                    return ERR_INVALID_HANDLE;
+                }
+            };
 
-        match fb.color_attachment {
-            Some(Attachment::Texture(tex_handle)) => {
-                let tex = match ctx_obj.textures.get(&tex_handle) {
-                    Some(t) => t,
-                    None => {
-                        set_last_error("attached texture not found");
-                        return ERR_INVALID_HANDLE;
-                    }
-                };
-                (&tex.data, tex.width, tex.height)
+            match fb.color_attachment {
+                Some(Attachment::Texture(tex_handle)) => {
+                    let tex = match ctx_obj.textures.get(&tex_handle) {
+                        Some(t) => t,
+                        None => {
+                            set_last_error("attached texture not found");
+                            return ERR_INVALID_HANDLE;
+                        }
+                    };
+                    (&tex.data, tex.width, tex.height, GL_RGBA8) // Textures are RGBA8 in this impl
+                }
+                Some(Attachment::Renderbuffer(rb_handle)) => {
+                    let rb = match ctx_obj.renderbuffers.get(&rb_handle) {
+                        Some(r) => r,
+                        None => {
+                            set_last_error("attached renderbuffer not found");
+                            return ERR_INVALID_HANDLE;
+                        }
+                    };
+                    (&rb.data, rb.width, rb.height, rb.internal_format)
+                }
+                None => {
+                    set_last_error("framebuffer has no color attachment");
+                    return ERR_INVALID_ARGS;
+                }
             }
-            Some(Attachment::Renderbuffer(rb_handle)) => {
-                let rb = match ctx_obj.renderbuffers.get(&rb_handle) {
-                    Some(r) => r,
-                    None => {
-                        set_last_error("attached renderbuffer not found");
-                        return ERR_INVALID_HANDLE;
-                    }
-                };
-                (&rb.data, rb.width, rb.height)
-            }
-            None => {
-                set_last_error("framebuffer has no color attachment");
-                return ERR_INVALID_ARGS;
-            }
-        }
-    } else {
-        (
-            &ctx_obj.default_framebuffer.color,
-            ctx_obj.default_framebuffer.width,
-            ctx_obj.default_framebuffer.height,
-        )
-    };
+        } else {
+            (
+                &ctx_obj.default_framebuffer.color,
+                ctx_obj.default_framebuffer.width,
+                ctx_obj.default_framebuffer.height,
+                GL_RGBA8,
+            )
+        };
 
     // Verify output buffer size
     let expected_size = (width as u64)
@@ -577,17 +579,94 @@ pub fn ctx_read_pixels(
             let sy = y + row as i32;
 
             if sx >= 0 && sx < src_width as i32 && sy >= 0 && sy < src_height as i32 {
-                let src_idx = ((sy as u32 * src_width + sx as u32) * 4) as usize;
-                if src_idx + 3 < src_data.len() {
-                    dest_slice[dst_off] = src_data[src_idx];
-                    dest_slice[dst_off + 1] = src_data[src_idx + 1];
-                    dest_slice[dst_off + 2] = src_data[src_idx + 2];
-                    dest_slice[dst_off + 3] = src_data[src_idx + 3];
-                } else {
-                    dest_slice[dst_off] = 0;
-                    dest_slice[dst_off + 1] = 0;
-                    dest_slice[dst_off + 2] = 0;
-                    dest_slice[dst_off + 3] = 0;
+                match src_format {
+                    GL_RGBA8 => {
+                        let src_idx = ((sy as u32 * src_width + sx as u32) * 4) as usize;
+                        if src_idx + 3 < src_data.len() {
+                            dest_slice[dst_off] = src_data[src_idx];
+                            dest_slice[dst_off + 1] = src_data[src_idx + 1];
+                            dest_slice[dst_off + 2] = src_data[src_idx + 2];
+                            dest_slice[dst_off + 3] = src_data[src_idx + 3];
+                        } else {
+                            dest_slice[dst_off] = 0;
+                            dest_slice[dst_off + 1] = 0;
+                            dest_slice[dst_off + 2] = 0;
+                            dest_slice[dst_off + 3] = 0;
+                        }
+                    }
+                    GL_RGBA4 => {
+                        let src_idx = ((sy as u32 * src_width + sx as u32) * 2) as usize;
+                        if src_idx + 1 < src_data.len() {
+                            let val =
+                                u16::from_le_bytes([src_data[src_idx], src_data[src_idx + 1]]);
+                            // R4 G4 B4 A4
+                            let r = ((val >> 12) & 0xF) as u8;
+                            let g = ((val >> 8) & 0xF) as u8;
+                            let b = ((val >> 4) & 0xF) as u8;
+                            let a = (val & 0xF) as u8;
+                            // Expand to 8-bit: (c * 255) / 15  => c * 17
+                            dest_slice[dst_off] = r * 17;
+                            dest_slice[dst_off + 1] = g * 17;
+                            dest_slice[dst_off + 2] = b * 17;
+                            dest_slice[dst_off + 3] = a * 17;
+                        } else {
+                            dest_slice[dst_off] = 0;
+                            dest_slice[dst_off + 1] = 0;
+                            dest_slice[dst_off + 2] = 0;
+                            dest_slice[dst_off + 3] = 0;
+                        }
+                    }
+                    GL_RGB565 => {
+                        let src_idx = ((sy as u32 * src_width + sx as u32) * 2) as usize;
+                        if src_idx + 1 < src_data.len() {
+                            let val =
+                                u16::from_le_bytes([src_data[src_idx], src_data[src_idx + 1]]);
+                            // R5 G6 B5
+                            let r = ((val >> 11) & 0x1F) as u8;
+                            let g = ((val >> 5) & 0x3F) as u8;
+                            let b = (val & 0x1F) as u8;
+                            // Expand
+                            // 5-bit: c * 255 / 31 => c * 8.22... approx (c << 3) | (c >> 2)
+                            // 6-bit: c * 255 / 63 => c * 4.04... approx (c << 2) | (c >> 4)
+                            dest_slice[dst_off] = (r << 3) | (r >> 2);
+                            dest_slice[dst_off + 1] = (g << 2) | (g >> 4);
+                            dest_slice[dst_off + 2] = (b << 3) | (b >> 2);
+                            dest_slice[dst_off + 3] = 255;
+                        } else {
+                            dest_slice[dst_off] = 0;
+                            dest_slice[dst_off + 1] = 0;
+                            dest_slice[dst_off + 2] = 0;
+                            dest_slice[dst_off + 3] = 255;
+                        }
+                    }
+                    GL_RGB5_A1 => {
+                        let src_idx = ((sy as u32 * src_width + sx as u32) * 2) as usize;
+                        if src_idx + 1 < src_data.len() {
+                            let val =
+                                u16::from_le_bytes([src_data[src_idx], src_data[src_idx + 1]]);
+                            // R5 G5 B5 A1
+                            let r = ((val >> 11) & 0x1F) as u8;
+                            let g = ((val >> 6) & 0x1F) as u8;
+                            let b = ((val >> 1) & 0x1F) as u8;
+                            let a = (val & 0x1) as u8;
+                            dest_slice[dst_off] = (r << 3) | (r >> 2);
+                            dest_slice[dst_off + 1] = (g << 3) | (g >> 2);
+                            dest_slice[dst_off + 2] = (b << 3) | (b >> 2);
+                            dest_slice[dst_off + 3] = if a == 1 { 255 } else { 0 };
+                        } else {
+                            dest_slice[dst_off] = 0;
+                            dest_slice[dst_off + 1] = 0;
+                            dest_slice[dst_off + 2] = 0;
+                            dest_slice[dst_off + 3] = 0;
+                        }
+                    }
+                    _ => {
+                        // Unsupported format or depth/stencil, return 0
+                        dest_slice[dst_off] = 0;
+                        dest_slice[dst_off + 1] = 0;
+                        dest_slice[dst_off + 2] = 0;
+                        dest_slice[dst_off + 3] = 0;
+                    }
                 }
             } else {
                 // Out of bounds: write transparent black

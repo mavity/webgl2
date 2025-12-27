@@ -48,6 +48,7 @@ pub const GL_DEPTH_STENCIL: u32 = 0x84F9;
 pub const GL_RGBA4: u32 = 0x8056;
 pub const GL_RGB565: u32 = 0x8D62;
 pub const GL_RGB5_A1: u32 = 0x8057;
+pub const GL_RGBA8: u32 = 0x8058;
 pub const GL_STENCIL_INDEX8: u32 = 0x8D48;
 
 // Handle constants
