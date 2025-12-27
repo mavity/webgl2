@@ -4,7 +4,7 @@
 
 | File | Lines Covered | Lines Missed | Total Lines | Coverage |
 |---|---|---|---|---|
-| src/lib.rs | 97 | 29 | 126 | 76.98% 🟡 |
+| src/lib.rs | 97 | 32 | 129 | 75.19% 🟡 |
 | src/naga_wasm_backend/backend.rs | 39 | 0 | 39 | 100.00% 🟢 |
 | src/naga_wasm_backend/control_flow.rs | 15 | 4 | 19 | 78.95% 🟡 |
 | src/naga_wasm_backend/expressions.rs | 29 | 12 | 41 | 70.73% 🟡 |
@@ -13,22 +13,22 @@
 | src/webgl2_context/buffers.rs | 16 | 1 | 17 | 94.12% 🟢 |
 | src/webgl2_context/drawing.rs | 24 | 4 | 28 | 85.71% 🟢 |
 | src/webgl2_context/framebuffers.rs | 7 | 1 | 8 | 87.50% 🟢 |
-| src/webgl2_context/registry.rs | 5 | 1 | 6 | 83.33% 🟢 |
+| src/webgl2_context/registry.rs | 5 | 0 | 5 | 100.00% 🟢 |
 | src/webgl2_context/renderbuffers.rs | 10 | 0 | 10 | 100.00% 🟢 |
-| src/webgl2_context/shaders.rs | 67 | 4 | 71 | 94.37% 🟢 |
+| src/webgl2_context/shaders.rs | 67 | 5 | 72 | 93.06% 🟢 |
 | src/webgl2_context/state.rs | 4 | 1 | 5 | 80.00% 🟢 |
 | src/webgl2_context/textures.rs | 9 | 0 | 9 | 100.00% 🟢 |
 | src/webgl2_context/types.rs | 11 | 1 | 12 | 91.67% 🟢 |
 | src/webgl2_context/vaos.rs | 23 | 0 | 23 | 100.00% 🟢 |
 | src/webgpu/adapter.rs | 2 | 0 | 2 | 100.00% 🟢 |
-| src/webgpu/backend.rs | 11 | 5 | 16 | 68.75% 🟡 |
-| **Total** | **390** | **63** | **453** | **86.09% 🟢** |
+| src/webgpu/backend.rs | 12 | 31 | 43 | 27.91% 🟠 |
+| **Total** | **391** | **92** | **483** | **80.95% 🟢** |
 
 ## Top Missed Files
 
 | File | Lines Missed | Illustrative Line | Coverage |
 |---|---|---|---|
-| src/lib.rs | 29/126 | [516] `#[no_mangle]` | 76.98% 🟡 |
+| src/lib.rs | 32/129 | [516] `#[no_mangle]` | 75.19% 🟡 |
+| src/webgpu/backend.rs | 31/43 | [697] `}` | 27.91% 🟠 |
 | src/naga_wasm_backend/expressions.rs | 12/41 | [49] `if component_idx == 0 {` | 70.73% 🟡 |
-| src/webgpu/backend.rs | 5/16 | [348] `unsafe fn add_raw_buffer(&self, _buffer: &SoftBuffer) { t...` | 68.75% 🟡 |
-| src/naga_wasm_backend/control_flow.rs | 4/19 | [80] `for _ in 0..types.len() {` | 78.95% 🟡 |
+| src/webgl2_context/shaders.rs | 5/72 | [415] `if let Some(other_name) = used_locations.get(&loc) {` | 93.06% 🟢 |

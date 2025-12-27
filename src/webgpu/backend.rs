@@ -247,6 +247,7 @@ impl hal::Device for SoftDevice {
     ) -> Result<SoftCommandEncoder, hal::DeviceError> {
         Ok(SoftCommandEncoder {
             commands: Vec::new(),
+            current_render_pass: None,
         })
     }
 
@@ -274,9 +275,23 @@ impl hal::Device for SoftDevice {
 
     unsafe fn create_render_pipeline(
         &self,
-        _desc: &hal::RenderPipelineDescriptor<SoftPipelineLayout, SoftShaderModule, SoftPipelineLayout>,
+        desc: &hal::RenderPipelineDescriptor<SoftPipelineLayout, SoftShaderModule, SoftPipelineLayout>,
     ) -> Result<SoftRenderPipeline, hal::PipelineError> {
-        Ok(SoftRenderPipeline)
+        let vertex_layouts = match &desc.vertex_processor {
+            hal::VertexProcessor::Standard { vertex_buffers, .. } => {
+                vertex_buffers.iter().map(|vb| SoftVertexBufferLayout {
+                    array_stride: vb.array_stride,
+                    step_mode: vb.step_mode,
+                    attributes: vb.attributes.to_vec(),
+                }).collect()
+            }
+            _ => vec![], // Mesh shaders not supported
+        };
+
+        Ok(SoftRenderPipeline {
+            vertex_layouts,
+            primitive: desc.primitive,
+        })
     }
 
     unsafe fn create_compute_pipeline(
@@ -295,26 +310,55 @@ impl hal::Device for SoftDevice {
 
     unsafe fn create_texture(
         &self,
-        _desc: &hal::TextureDescriptor,
+        desc: &hal::TextureDescriptor,
     ) -> Result<SoftTexture, hal::DeviceError> {
-        Ok(SoftTexture)
+        let block_size = desc.format.block_copy_size(None).unwrap_or(4);
+        let size = (desc.size.width * desc.size.height * desc.size.depth_or_array_layers * block_size) as usize;
+        let data = vec![0; size];
+        
+        Ok(SoftTexture {
+            data: Arc::new(Mutex::new(data)),
+            desc: desc.into(),
+        })
     }
 
     unsafe fn destroy_texture(&self, _texture: SoftTexture) {}
 
     unsafe fn create_texture_view(
         &self,
-        _texture: &SoftTexture,
-        _desc: &hal::TextureViewDescriptor,
+        texture: &SoftTexture,
+        desc: &hal::TextureViewDescriptor,
     ) -> Result<SoftTextureView, hal::DeviceError> {
-        Ok(SoftTextureView)
+        Ok(SoftTextureView {
+            texture: texture.data.clone(),
+            desc: hal::TextureViewDescriptor {
+                label: None,
+                format: desc.format,
+                dimension: desc.dimension,
+                usage: desc.usage,
+                range: desc.range.clone(),
+            },
+            texture_desc: texture.desc.clone(),
+        })
     }
 
     unsafe fn create_sampler(
         &self,
-        _desc: &hal::SamplerDescriptor,
+        desc: &hal::SamplerDescriptor,
     ) -> Result<SoftSampler, hal::DeviceError> {
-        Ok(SoftSampler)
+        Ok(SoftSampler {
+            desc: hal::SamplerDescriptor {
+                label: None,
+                address_modes: desc.address_modes,
+                mag_filter: desc.mag_filter,
+                min_filter: desc.min_filter,
+                mipmap_filter: desc.mipmap_filter,
+                lod_clamp: desc.lod_clamp.clone(),
+                compare: desc.compare,
+                anisotropy_clamp: desc.anisotropy_clamp,
+                border_color: desc.border_color,
+            },
+        })
     }
 
     unsafe fn create_query_set(
@@ -370,12 +414,83 @@ impl hal::Device for SoftDevice {
     fn check_if_oom(&self) -> Result<(), hal::DeviceError> { Ok(()) }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SoftCommand {
     CopyBufferToBuffer {
         src: Arc<Mutex<Vec<u8>>>,
         dst: Arc<Mutex<Vec<u8>>>,
         regions: Vec<hal::BufferCopy>,
+    },
+    CopyTextureToBuffer {
+        src: Arc<Mutex<Vec<u8>>>,
+        dst: Arc<Mutex<Vec<u8>>>,
+        regions: Vec<hal::BufferTextureCopy>,
+        texture_desc: SoftTextureDescriptor,
+    },
+    RenderPass {
+        desc: SoftRenderPassDescriptor,
+        commands: Vec<SoftRenderCommand>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct SoftRenderPassDescriptor {
+    pub color_attachments: Vec<Option<SoftRenderPassColorAttachment>>,
+    pub depth_stencil_attachment: Option<SoftRenderPassDepthStencilAttachment>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SoftRenderPassColorAttachment {
+    pub view: SoftTextureView,
+    pub resolve_target: Option<SoftTextureView>,
+    pub load_op: wgt::LoadOp<wgt::Color>,
+    pub store_op: wgt::StoreOp,
+    pub clear_value: wgt::Color,
+}
+
+#[derive(Debug, Clone)]
+pub struct SoftRenderPassDepthStencilAttachment {
+    pub view: SoftTextureView,
+    pub depth_load_op: Option<wgt::LoadOp<f32>>,
+    pub depth_store_op: Option<wgt::StoreOp>,
+    pub depth_clear_value: f32,
+    pub stencil_load_op: Option<wgt::LoadOp<u32>>,
+    pub stencil_store_op: Option<wgt::StoreOp>,
+    pub stencil_clear_value: u32,
+}
+
+#[derive(Debug, Clone)]
+pub enum SoftRenderCommand {
+    SetPipeline(SoftRenderPipeline),
+    SetBindGroup {
+        index: u32,
+        group: SoftBindGroup,
+        dynamic_offsets: Vec<u32>,
+    },
+    SetVertexBuffer {
+        index: u32,
+        buffer: SoftBuffer,
+        offset: wgt::BufferAddress,
+        size: Option<wgt::BufferSize>,
+    },
+    SetIndexBuffer {
+        buffer: SoftBuffer,
+        offset: wgt::BufferAddress,
+        size: Option<wgt::BufferSize>,
+        format: wgt::IndexFormat,
+    },
+    Draw {
+        vertex_count: u32,
+        instance_count: u32,
+        first_vertex: u32,
+        first_instance: u32,
+    },
+    DrawIndexed {
+        index_count: u32,
+        instance_count: u32,
+        first_index: u32,
+        base_vertex: i32,
+        first_instance: u32,
     },
 }
 
@@ -410,6 +525,133 @@ impl hal::Queue for SoftQueue {
                             }
                         }
                     }
+                    SoftCommand::CopyTextureToBuffer { src, dst, regions, texture_desc } => {
+                        let src_data = src.lock().unwrap();
+                        let mut dst_data = dst.lock().unwrap();
+                        
+                        for region in regions {
+                            // Simplified implementation: assumes tightly packed RGBA8
+                            // TODO: Handle strides, offsets, and other formats correctly
+                            
+                            let bytes_per_pixel = 4; // Assume RGBA8
+                            let width = region.size.width;
+                            let height = region.size.height;
+                            let depth = region.size.depth;
+                            
+                            let row_pitch = width * bytes_per_pixel;
+                            let slice_pitch = row_pitch * height;
+                            
+                            // Calculate source offset
+                            // Assumes 2D texture for now
+                            let src_origin = region.texture_base.origin;
+                            let src_offset = (src_origin.z * texture_desc.size.height * texture_desc.size.width 
+                                            + src_origin.y * texture_desc.size.width 
+                                            + src_origin.x) * bytes_per_pixel;
+                                            
+                            // Calculate dest offset
+                            let dst_offset = region.buffer_layout.offset;
+                            
+                            // Copy row by row
+                            for z in 0..depth {
+                                for y in 0..height {
+                                    let src_idx = (src_offset as u32 + (z * slice_pitch) + (y * row_pitch)) as usize;
+                                    let dst_idx = (dst_offset + (z as u64 * slice_pitch as u64) + (y as u64 * row_pitch as u64)) as usize;
+                                    
+                                    let len = row_pitch as usize;
+                                    if src_idx + len <= src_data.len() && dst_idx + len <= dst_data.len() {
+                                        dst_data[dst_idx..dst_idx + len].copy_from_slice(&src_data[src_idx..src_idx + len]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    SoftCommand::RenderPass { desc, commands } => {
+                        // 1. Handle LoadOps (Clearing)
+                        for attachment in &desc.color_attachments {
+                            if let Some(att) = attachment {
+                                if let wgt::LoadOp::Clear(color) = att.load_op {
+                                    let mut data = att.view.texture.lock().unwrap();
+                                    let format = att.view.texture_desc.format;
+                                    
+                                    // TODO: Handle other formats properly
+                                    match format {
+                                        wgt::TextureFormat::Rgba8Unorm | wgt::TextureFormat::Bgra8Unorm => {
+                                            let r = (color.r * 255.0) as u8;
+                                            let g = (color.g * 255.0) as u8;
+                                            let b = (color.b * 255.0) as u8;
+                                            let a = (color.a * 255.0) as u8;
+                                            let pixel = [r, g, b, a];
+                                            
+                                            for chunk in data.chunks_mut(4) {
+                                                if chunk.len() == 4 {
+                                                    chunk.copy_from_slice(&pixel);
+                                                }
+                                            }
+                                        }
+                                        _ => {
+                                            eprintln!("SoftGPU: Unsupported format for clear: {:?}", format);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if let Some(att) = &desc.depth_stencil_attachment {
+                            let mut data = att.view.texture.lock().unwrap();
+                            // TODO: Implement depth/stencil clearing
+                            // This requires knowing the depth/stencil layout in memory
+                        }
+
+                        // 2. Execute commands
+                        let mut current_pipeline: Option<&SoftRenderPipeline> = None;
+                        let mut vertex_buffers: Vec<Option<(Arc<Mutex<Vec<u8>>>, wgt::BufferAddress)>> = vec![None; 16];
+                        let mut index_buffer: Option<(Arc<Mutex<Vec<u8>>>, wgt::BufferAddress, wgt::IndexFormat)> = None;
+
+                        for command in commands {
+                            match command {
+                                SoftRenderCommand::SetPipeline(pipeline) => {
+                                    current_pipeline = Some(pipeline);
+                                }
+                                SoftRenderCommand::SetBindGroup { .. } => {
+                                    // TODO: Handle bind groups
+                                }
+                                SoftRenderCommand::SetVertexBuffer { index, buffer, offset, size: _ } => {
+                                    if (*index as usize) < vertex_buffers.len() {
+                                        vertex_buffers[*index as usize] = Some((buffer.data.clone(), *offset));
+                                    }
+                                }
+                                SoftRenderCommand::SetIndexBuffer { buffer, offset, size: _, format } => {
+                                    index_buffer = Some((buffer.data.clone(), *offset, *format));
+                                }
+                                SoftRenderCommand::Draw { vertex_count, instance_count, first_vertex, first_instance } => {
+                                    if let Some(_pipeline) = current_pipeline {
+                                        // Placeholder for draw execution
+                                        // In a real implementation, we would:
+                                        // 1. Iterate instances and vertices
+                                        // 2. Fetch vertex attributes using vertex_buffers and pipeline.vertex_layouts
+                                        // 3. Run vertex shader
+                                        // 4. Assemble primitives (triangles, lines, points)
+                                        // 5. Rasterize using wasm_gl_emu::Rasterizer
+                                        
+                                        // For now, we just acknowledge the command
+                                        let _ = (vertex_count, instance_count, first_vertex, first_instance);
+                                    }
+                                }
+                                SoftRenderCommand::DrawIndexed { index_count, instance_count, first_index, base_vertex, first_instance } => {
+                                    if let Some(_pipeline) = current_pipeline {
+                                        // Placeholder for indexed draw execution
+                                        let _ = (index_count, instance_count, first_index, base_vertex, first_instance);
+                                        let _ = &index_buffer;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // 3. Handle StoreOps (Resolve)
+                        // Currently we write directly to the texture, so StoreOp::Store is implicit.
+                        // StoreOp::Discard would mean we don't care, but we already wrote it.
+                        // Resolve targets would need to be handled here.
+                    }
                 }
             }
         }
@@ -437,6 +679,7 @@ impl hal::Queue for SoftQueue {
 #[derive(Debug)]
 pub struct SoftCommandEncoder {
     commands: Vec<SoftCommand>,
+    current_render_pass: Option<(SoftRenderPassDescriptor, Vec<SoftRenderCommand>)>,
 }
 
 impl hal::CommandEncoder for SoftCommandEncoder {
@@ -444,11 +687,13 @@ impl hal::CommandEncoder for SoftCommandEncoder {
 
     unsafe fn begin_encoding(&mut self, _label: hal::Label) -> Result<(), hal::DeviceError> {
         self.commands.clear();
+        self.current_render_pass = None;
         Ok(())
     }
 
     unsafe fn discard_encoding(&mut self) {
         self.commands.clear();
+        self.current_render_pass = None;
     }
 
     unsafe fn end_encoding(&mut self) -> Result<SoftCommandBuffer, hal::DeviceError> {
@@ -483,9 +728,25 @@ impl hal::CommandEncoder for SoftCommandEncoder {
 
     unsafe fn copy_texture_to_texture<T>(&mut self, _src: &SoftTexture, _src_usage: wgt::TextureUses, _dst: &SoftTexture, _regions: T) where T: Iterator<Item = hal::TextureCopy> {}
     unsafe fn copy_buffer_to_texture<T>(&mut self, _src: &SoftBuffer, _dst: &SoftTexture, _regions: T) where T: Iterator<Item = hal::BufferTextureCopy> {}
-    unsafe fn copy_texture_to_buffer<T>(&mut self, _src: &SoftTexture, _src_usage: wgt::TextureUses, _dst: &SoftBuffer, _regions: T) where T: Iterator<Item = hal::BufferTextureCopy> {}
+    unsafe fn copy_texture_to_buffer<T>(&mut self, src: &SoftTexture, _src_usage: wgt::TextureUses, dst: &SoftBuffer, regions: T) where T: Iterator<Item = hal::BufferTextureCopy> {
+        let regions_vec: Vec<hal::BufferTextureCopy> = regions.collect();
+        self.commands.push(SoftCommand::CopyTextureToBuffer {
+            src: src.data.clone(),
+            dst: dst.data.clone(),
+            regions: regions_vec,
+            texture_desc: src.desc.clone(),
+        });
+    }
     unsafe fn copy_acceleration_structure_to_acceleration_structure(&mut self, _src: &SoftAccelerationStructure, _dst: &SoftAccelerationStructure, _copy: wgt::AccelerationStructureCopy) {}
-    unsafe fn set_bind_group(&mut self, _layout: &SoftPipelineLayout, _index: u32, _group: &SoftBindGroup, _dynamic_offsets: &[u32]) {}
+    unsafe fn set_bind_group(&mut self, _layout: &SoftPipelineLayout, index: u32, group: &SoftBindGroup, dynamic_offsets: &[u32]) {
+        if let Some((_, commands)) = &mut self.current_render_pass {
+            commands.push(SoftRenderCommand::SetBindGroup {
+                index,
+                group: group.clone(),
+                dynamic_offsets: dynamic_offsets.to_vec(),
+            });
+        }
+    }
     unsafe fn set_immediates(&mut self, _layout: &SoftPipelineLayout, _index: u32, _data: &[u32]) {}
     unsafe fn insert_debug_marker(&mut self, _label: &str) {}
     unsafe fn begin_debug_marker(&mut self, _group_label: &str) {}
@@ -495,17 +756,149 @@ impl hal::CommandEncoder for SoftCommandEncoder {
     unsafe fn write_timestamp(&mut self, _set: &SoftQuerySet, _index: u32) {}
     unsafe fn reset_queries(&mut self, _set: &SoftQuerySet, _range: std::ops::Range<u32>) {}
     unsafe fn copy_query_results(&mut self, _set: &SoftQuerySet, _range: std::ops::Range<u32>, _buffer: &SoftBuffer, _offset: wgt::BufferAddress, _stride: NonZero<wgt::BufferAddress>) {}
-    unsafe fn begin_render_pass(&mut self, _desc: &hal::RenderPassDescriptor<SoftQuerySet, SoftTextureView>) -> Result<(), hal::DeviceError> { Ok(()) }
-    unsafe fn end_render_pass(&mut self) {}
-    unsafe fn set_render_pipeline(&mut self, _pipeline: &SoftRenderPipeline) {}
-    unsafe fn set_index_buffer(&mut self, _binding: hal::BufferBinding<SoftBuffer>, _format: wgt::IndexFormat) {}
-    unsafe fn set_vertex_buffer(&mut self, _index: u32, _binding: hal::BufferBinding<SoftBuffer>) {}
+    
+    unsafe fn begin_render_pass(&mut self, desc: &hal::RenderPassDescriptor<SoftQuerySet, SoftTextureView>) -> Result<(), hal::DeviceError> {
+        let color_attachments = desc.color_attachments.iter().map(|att| {
+            att.as_ref().map(|a| {
+                let load_op = if a.ops.contains(hal::AttachmentOps::LOAD) {
+                    wgt::LoadOp::Load
+                } else if a.ops.contains(hal::AttachmentOps::LOAD_CLEAR) {
+                    wgt::LoadOp::Clear(a.clear_value)
+                } else {
+                    wgt::LoadOp::Clear(a.clear_value)
+                };
+
+                let store_op = if a.ops.contains(hal::AttachmentOps::STORE) {
+                    wgt::StoreOp::Store
+                } else {
+                    wgt::StoreOp::Discard
+                };
+
+                SoftRenderPassColorAttachment {
+                    view: a.target.view.clone(),
+                    resolve_target: a.resolve_target.as_ref().map(|r| r.view.clone()),
+                    load_op,
+                    store_op,
+                    clear_value: a.clear_value,
+                }
+            })
+        }).collect();
+
+        let depth_stencil_attachment = desc.depth_stencil_attachment.as_ref().map(|a| {
+            let depth_load_op = if a.depth_ops.contains(hal::AttachmentOps::LOAD) {
+                Some(wgt::LoadOp::Load)
+            } else if a.depth_ops.contains(hal::AttachmentOps::LOAD_CLEAR) {
+                Some(wgt::LoadOp::Clear(a.clear_value.0))
+            } else {
+                None
+            };
+
+            let depth_store_op = if a.depth_ops.contains(hal::AttachmentOps::STORE) {
+                Some(wgt::StoreOp::Store)
+            } else if a.depth_ops.contains(hal::AttachmentOps::STORE_DISCARD) {
+                Some(wgt::StoreOp::Discard)
+            } else {
+                None
+            };
+
+            let stencil_load_op = if a.stencil_ops.contains(hal::AttachmentOps::LOAD) {
+                Some(wgt::LoadOp::Load)
+            } else if a.stencil_ops.contains(hal::AttachmentOps::LOAD_CLEAR) {
+                Some(wgt::LoadOp::Clear(a.clear_value.1))
+            } else {
+                None
+            };
+
+            let stencil_store_op = if a.stencil_ops.contains(hal::AttachmentOps::STORE) {
+                Some(wgt::StoreOp::Store)
+            } else if a.stencil_ops.contains(hal::AttachmentOps::STORE_DISCARD) {
+                Some(wgt::StoreOp::Discard)
+            } else {
+                None
+            };
+
+            SoftRenderPassDepthStencilAttachment {
+                view: a.target.view.clone(),
+                depth_load_op,
+                depth_store_op,
+                depth_clear_value: a.clear_value.0,
+                stencil_load_op,
+                stencil_store_op,
+                stencil_clear_value: a.clear_value.1,
+            }
+        });
+
+        let pass_desc = SoftRenderPassDescriptor {
+            color_attachments,
+            depth_stencil_attachment,
+        };
+
+        self.current_render_pass = Some((pass_desc, Vec::new()));
+        Ok(())
+    }
+
+    unsafe fn end_render_pass(&mut self) {
+        if let Some((desc, commands)) = self.current_render_pass.take() {
+            self.commands.push(SoftCommand::RenderPass { desc, commands });
+        }
+    }
+
+    unsafe fn set_render_pipeline(&mut self, pipeline: &SoftRenderPipeline) {
+        if let Some((_, commands)) = &mut self.current_render_pass {
+            commands.push(SoftRenderCommand::SetPipeline(pipeline.clone()));
+        }
+    }
+
+    unsafe fn set_index_buffer(&mut self, binding: hal::BufferBinding<SoftBuffer>, format: wgt::IndexFormat) {
+        if let Some((_, commands)) = &mut self.current_render_pass {
+            commands.push(SoftRenderCommand::SetIndexBuffer {
+                buffer: binding.buffer.clone(),
+                offset: binding.offset,
+                size: binding.size,
+                format,
+            });
+        }
+    }
+
+    unsafe fn set_vertex_buffer(&mut self, index: u32, binding: hal::BufferBinding<SoftBuffer>) {
+        if let Some((_, commands)) = &mut self.current_render_pass {
+            commands.push(SoftRenderCommand::SetVertexBuffer {
+                index,
+                buffer: binding.buffer.clone(),
+                offset: binding.offset,
+                size: binding.size,
+            });
+        }
+    }
+
     unsafe fn set_viewport(&mut self, _rect: &hal::Rect<f32>, _depth_range: std::ops::Range<f32>) {}
     unsafe fn set_scissor_rect(&mut self, _rect: &hal::Rect<u32>) {}
     unsafe fn set_stencil_reference(&mut self, _reference: u32) {}
     unsafe fn set_blend_constants(&mut self, _color: &[f32; 4]) {}
-    unsafe fn draw(&mut self, _start_vertex: u32, _vertex_count: u32, _start_instance: u32, _instance_count: u32) {}
-    unsafe fn draw_indexed(&mut self, _start_index: u32, _index_count: u32, _base_vertex: i32, _start_instance: u32, _instance_count: u32) {}
+    
+    unsafe fn draw(&mut self, start_vertex: u32, vertex_count: u32, start_instance: u32, instance_count: u32) {
+        if let Some((_, commands)) = &mut self.current_render_pass {
+            commands.push(SoftRenderCommand::Draw {
+                vertex_count,
+                instance_count,
+                first_vertex: start_vertex,
+                first_instance: start_instance,
+            });
+        }
+    }
+
+    unsafe fn draw_indexed(&mut self, start_index: u32, index_count: u32, base_vertex: i32, start_instance: u32, instance_count: u32) {
+        if let Some((_, commands)) = &mut self.current_render_pass {
+            commands.push(SoftRenderCommand::DrawIndexed {
+                index_count,
+                instance_count,
+                first_index: start_index,
+                base_vertex,
+                first_instance: start_instance,
+            });
+        }
+    }
+
     unsafe fn draw_indirect(&mut self, _buffer: &SoftBuffer, _offset: wgt::BufferAddress, _draw_count: u32) {}
     unsafe fn draw_indexed_indirect(&mut self, _buffer: &SoftBuffer, _offset: wgt::BufferAddress, _draw_count: u32) {}
     unsafe fn draw_indirect_count(&mut self, _buffer: &SoftBuffer, _offset: wgt::BufferAddress, _count_buffer: &SoftBuffer, _count_offset: wgt::BufferAddress, _max_draw_count: u32) {}
@@ -528,49 +921,91 @@ pub struct SoftCommandBuffer {
     pub commands: Vec<SoftCommand>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SoftBuffer {
     pub data: Arc<Mutex<Vec<u8>>>,
     pub size: wgt::BufferAddress,
     pub usage: wgt::BufferUses,
 }
 
-#[derive(Debug)]
-pub struct SoftTexture;
+#[derive(Debug, Clone)]
+pub struct SoftTextureDescriptor {
+    pub size: wgt::Extent3d,
+    pub mip_level_count: u32,
+    pub sample_count: u32,
+    pub dimension: wgt::TextureDimension,
+    pub format: wgt::TextureFormat,
+    pub usage: wgt::TextureUses,
+}
 
-#[derive(Debug)]
-pub struct SoftTextureView;
+impl From<&hal::TextureDescriptor<'_>> for SoftTextureDescriptor {
+    fn from(desc: &hal::TextureDescriptor) -> Self {
+        Self {
+            size: desc.size,
+            mip_level_count: desc.mip_level_count,
+            sample_count: desc.sample_count,
+            dimension: desc.dimension,
+            format: desc.format,
+            usage: desc.usage,
+        }
+    }
+}
 
-#[derive(Debug)]
-pub struct SoftSampler;
+#[derive(Debug, Clone)]
+pub struct SoftTexture {
+    pub data: Arc<Mutex<Vec<u8>>>,
+    pub desc: SoftTextureDescriptor,
+}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct SoftTextureView {
+    pub texture: Arc<Mutex<Vec<u8>>>,
+    pub desc: hal::TextureViewDescriptor<'static>,
+    pub texture_desc: SoftTextureDescriptor,
+}
+
+#[derive(Debug, Clone)]
+pub struct SoftSampler {
+    pub desc: hal::SamplerDescriptor<'static>,
+}
+
+#[derive(Debug, Clone)]
 pub struct SoftQuerySet;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SoftFence {
     pub value: Arc<Mutex<hal::FenceValue>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SoftPipelineLayout;
 
-#[derive(Debug)]
-pub struct SoftRenderPipeline;
+#[derive(Debug, Clone)]
+pub struct SoftVertexBufferLayout {
+    pub array_stride: wgt::BufferAddress,
+    pub step_mode: wgt::VertexStepMode,
+    pub attributes: Vec<wgt::VertexAttribute>,
+}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct SoftRenderPipeline {
+    pub vertex_layouts: Vec<SoftVertexBufferLayout>,
+    pub primitive: wgt::PrimitiveState,
+}
+
+#[derive(Debug, Clone)]
 pub struct SoftComputePipeline;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SoftShaderModule;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SoftBindGroupLayout;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SoftBindGroup;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SoftAccelerationStructure;
 
 impl_dyn_resource!(

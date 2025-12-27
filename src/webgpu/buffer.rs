@@ -1,6 +1,6 @@
 //! WebGPU Buffer management
 
-use super::adapter::with_context;
+use super::adapter::{with_context, with_context_val};
 use wgpu_types as wgt;
 
 /// Create a new buffer
@@ -108,18 +108,20 @@ pub fn buffer_get_mapped_range(
     buffer_handle: u32,
     offset: u64,
     size: u64,
-) -> u32 {
-    with_context(ctx_handle, |ctx| {
+) -> *mut u8 {
+    with_context_val(ctx_handle, std::ptr::null_mut(), |ctx| {
         let buffer_id = match ctx.buffers.get(&buffer_handle) {
             Some(id) => *id,
-            None => return 0,
+            None => return std::ptr::null_mut(),
         };
 
         match ctx.global.buffer_get_mapped_range(buffer_id, offset, Some(size)) {
-            Ok((ptr, _len)) => ptr.as_ptr() as u32,
+            Ok((ptr, _len)) => {
+                ptr.as_ptr()
+            },
             Err(e) => {
                 crate::js_log(0, &format!("Failed to get mapped range: {:?}", e));
-                0
+                std::ptr::null_mut()
             }
         }
     })

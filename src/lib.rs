@@ -785,12 +785,69 @@ pub extern "C" fn wasm_webgpu_buffer_get_mapped_range(
     offset: u64,
     size: u64,
 ) -> u32 {
-    webgpu::buffer::buffer_get_mapped_range(ctx_handle, buffer_handle, offset, size)
+    webgpu::buffer::buffer_get_mapped_range(ctx_handle, buffer_handle, offset, size) as u32
 }
 
 #[no_mangle]
 pub extern "C" fn wasm_webgpu_buffer_unmap(ctx_handle: u32, buffer_handle: u32) -> u32 {
     webgpu::buffer::buffer_unmap(ctx_handle, buffer_handle)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_create_texture(
+    ctx_handle: u32,
+    device_handle: u32,
+    width: u32,
+    height: u32,
+    depth_or_array_layers: u32,
+    mip_level_count: u32,
+    sample_count: u32,
+    dimension: u32,
+    format: u32,
+    usage: u32,
+) -> u32 {
+    webgpu::texture::create_texture(
+        ctx_handle,
+        device_handle,
+        width,
+        height,
+        depth_or_array_layers,
+        mip_level_count,
+        sample_count,
+        dimension,
+        format,
+        usage,
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_create_texture_view(
+    ctx_handle: u32,
+    texture_handle: u32,
+    format: u32,
+    dimension: u32,
+    base_mip_level: u32,
+    mip_level_count: u32,
+    base_array_layer: u32,
+    array_layer_count: u32,
+    aspect: u32,
+) -> u32 {
+    webgpu::texture::create_texture_view(
+        ctx_handle,
+        texture_handle,
+        format,
+        dimension,
+        base_mip_level,
+        mip_level_count,
+        base_array_layer,
+        array_layer_count,
+        aspect,
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_destroy_texture(ctx_handle: u32, texture_handle: u32) -> u32 {
+    webgpu::texture::destroy_texture(ctx_handle, texture_handle)
 }
 
 /// Create a shader module from WGSL code.

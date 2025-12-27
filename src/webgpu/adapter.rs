@@ -129,6 +129,21 @@ where
     })
 }
 
+/// Execute a closure with a mutable reference to a WebGPU context, returning a default value on failure
+pub fn with_context_val<F, R>(handle: u32, default: R, f: F) -> R
+where
+    F: FnOnce(&mut WebGpuContext) -> R,
+{
+    WEBGPU_CONTEXTS.with(|contexts| {
+        let mut contexts = contexts.borrow_mut();
+        if let Some(ctx) = contexts.get_mut(&handle) {
+            f(ctx)
+        } else {
+            default
+        }
+    })
+}
+
 /// Destroy a WebGPU context
 pub fn destroy_context(handle: u32) -> u32 {
     WEBGPU_CONTEXTS.with(|contexts| {

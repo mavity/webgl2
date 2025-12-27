@@ -10,6 +10,7 @@ pub mod buffer;
 pub mod command;
 pub mod pipeline;
 pub mod shader;
+pub mod texture;
 
 #[cfg(test)]
 mod tests;
