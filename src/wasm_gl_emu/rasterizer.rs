@@ -56,6 +56,13 @@ pub struct RenderState<'a> {
     pub prepare_textures: Option<Box<dyn Fn(u32) + 'a>>,
 }
 
+/// Interface for fetching vertex attributes
+pub trait VertexFetcher {
+    /// Fetch attributes for a specific vertex and instance
+    /// Writes data directly to the destination buffer (which maps to attr_ptr)
+    fn fetch(&self, vertex_index: u32, instance_index: u32, dest: &mut [u8]);
+}
+
 /// Pipeline configuration for rasterization
 /// Decouples from WebGL's Program object to support WebGPU
 pub struct RasterPipeline {
@@ -250,6 +257,129 @@ impl Rasterizer {
             (c[2].clamp(0.0, 1.0) * 255.0) as u8,
             (c[3].clamp(0.0, 1.0) * 255.0) as u8,
         ]
+    }
+
+    /// Draw primitives
+    pub fn draw(
+        &self,
+        fb: &mut super::Framebuffer,
+        pipeline: &RasterPipeline,
+        state: &RenderState,
+        vertex_fetcher: &dyn VertexFetcher,
+        vertex_count: usize,
+        instance_count: usize,
+        indices: Option<&[u32]>,
+        mode: u32, // 0x0000 = POINTS, 0x0004 = TRIANGLES
+    ) {
+        let (vx, vy, vw, vh) = state.viewport;
+
+        // Allocate attribute buffer (enough for 16 locations * 16 floats = 1024 bytes)
+        // This should match the size expected by the shader
+        let mut attr_buffer = vec![0u8; 1024];
+
+        for instance_id in 0..instance_count {
+            let mut vertices = Vec::with_capacity(vertex_count);
+
+            // 1. Run Vertex Shader for all vertices
+            let count = if let Some(idxs) = indices {
+                idxs.len()
+            } else {
+                vertex_count
+            };
+
+            for i in 0..count {
+                let vertex_id = if let Some(idxs) = indices {
+                    idxs[i]
+                } else {
+                    i as u32
+                };
+
+                // Fetch attributes
+                vertex_fetcher.fetch(vertex_id, instance_id as u32, &mut attr_buffer);
+
+                // Copy attributes to shader memory
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        attr_buffer.as_ptr(),
+                        pipeline.memory.attr_ptr as *mut u8,
+                        attr_buffer.len(),
+                    );
+                    // Copy uniforms
+                    std::ptr::copy_nonoverlapping(
+                        state.uniform_data.as_ptr(),
+                        pipeline.memory.uniform_ptr as *mut u8,
+                        state.uniform_data.len(),
+                    );
+                    // Prepare textures
+                    if let Some(ref prepare) = state.prepare_textures {
+                        prepare(pipeline.memory.texture_ptr);
+                    }
+                }
+
+                // Execute Vertex Shader
+                crate::js_execute_shader(
+                    state.ctx_handle,
+                    pipeline.vertex_shader_type,
+                    pipeline.memory.attr_ptr,
+                    pipeline.memory.uniform_ptr,
+                    pipeline.memory.varying_ptr,
+                    pipeline.memory.private_ptr,
+                    pipeline.memory.texture_ptr,
+                );
+
+                // Capture position and varyings
+                let mut pos_bytes = [0u8; 16];
+                let mut varying_bytes = vec![0u8; 256]; // Capture first 256 bytes of varyings
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        pipeline.memory.varying_ptr as *const u8,
+                        pos_bytes.as_mut_ptr(),
+                        16,
+                    );
+                    std::ptr::copy_nonoverlapping(
+                        pipeline.memory.varying_ptr as *const u8,
+                        varying_bytes.as_mut_ptr(),
+                        256,
+                    );
+                }
+                let pos: [f32; 4] = unsafe { std::mem::transmute(pos_bytes) };
+                
+                // Convert varyings to f32 for interpolation
+                let varyings_f32: Vec<f32> = unsafe {
+                    std::slice::from_raw_parts(varying_bytes.as_ptr() as *const f32, 64)
+                }.to_vec();
+
+                vertices.push(ProcessedVertex {
+                    position: pos,
+                    varyings: varyings_f32,
+                });
+            }
+
+            // 2. Rasterize
+            if mode == 0x0000 {
+                // GL_POINTS
+                for v in &vertices {
+                    let screen_x = vx as f32 + (v.position[0] / v.position[3] + 1.0) * 0.5 * vw as f32;
+                    let screen_y = vy as f32 + (v.position[1] / v.position[3] + 1.0) * 0.5 * vh as f32;
+
+                    // Run FS
+                    let color = self.execute_fragment_shader(&v.varyings, pipeline, state);
+                    self.draw_point(fb, screen_x, screen_y, color);
+                }
+            } else if mode == 0x0004 {
+                // GL_TRIANGLES
+                for i in (0..vertices.len()).step_by(3) {
+                    if i + 2 >= vertices.len() {
+                        break;
+                    }
+                    let v0 = &vertices[i];
+                    let v1 = &vertices[i + 1];
+                    let v2 = &vertices[i + 2];
+
+                    self.rasterize_triangle(fb, v0, v1, v2, pipeline, state);
+                }
+            }
+        }
     }
 }
 

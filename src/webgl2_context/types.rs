@@ -344,13 +344,32 @@ impl Context {
         h
     }
 
+    #[allow(dead_code)]
     pub(crate) fn fetch_vertex_attributes(
         &self,
         vertex_id: u32,
         instance_id: u32,
         dest: &mut [f32],
     ) {
-        let vao = match self.vertex_arrays.get(&self.bound_vertex_array) {
+        Self::fetch_vertex_attributes_static(
+            &self.vertex_arrays,
+            self.bound_vertex_array,
+            &self.buffers,
+            vertex_id,
+            instance_id,
+            dest,
+        );
+    }
+
+    pub(crate) fn fetch_vertex_attributes_static(
+        vertex_arrays: &HashMap<u32, VertexArray>,
+        bound_vertex_array: u32,
+        buffers: &HashMap<u32, Buffer>,
+        vertex_id: u32,
+        instance_id: u32,
+        dest: &mut [f32],
+    ) {
+        let vao = match vertex_arrays.get(&bound_vertex_array) {
             Some(v) => v,
             None => return, // Should not happen as default VAO is always there
         };
@@ -370,7 +389,7 @@ impl Context {
             };
 
             if let Some(buffer_id) = attr.buffer {
-                if let Some(buffer) = self.buffers.get(&buffer_id) {
+                if let Some(buffer) = buffers.get(&buffer_id) {
                     let type_size = match attr.type_ {
                         0x1406 => 4, // GL_FLOAT
                         0x1400 => 1, // GL_BYTE
