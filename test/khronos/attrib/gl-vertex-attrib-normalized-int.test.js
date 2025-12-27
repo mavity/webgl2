@@ -18,7 +18,7 @@ import { webGL2 } from '../../../index.js';
  * For `GL_BYTE` with `normalized = true`, the conversion should be `max(c / 127.0, -1.0)`.
  */
 
-test('WebGL 2 Normalized Vertex Attributes Conformance Test', { skip: true }, async (t) => {
+test('WebGL 2 Normalized Vertex Attributes Conformance Test', async (t) => {
     const gl = await webGL2();
     gl.viewport(0, 0, 1, 1);
 

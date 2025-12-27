@@ -11,7 +11,7 @@ function replaceParams(str, replacements) {
     return result;
 }
 
-test('bindAttribLocation with aliasing - inactive attributes', { skip: true }, async (t) => {
+test('bindAttribLocation with aliasing - inactive attributes', async (t) => {
     const gl = await webGL2();
 
     // Helper to compile shader

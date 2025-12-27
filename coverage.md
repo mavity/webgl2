@@ -15,14 +15,14 @@
 | src/webgl2_context/framebuffers.rs | 7 | 1 | 8 | 87.50% 🟢 |
 | src/webgl2_context/registry.rs | 5 | 1 | 6 | 83.33% 🟢 |
 | src/webgl2_context/renderbuffers.rs | 10 | 0 | 10 | 100.00% 🟢 |
-| src/webgl2_context/shaders.rs | 67 | 4 | 71 | 94.37% 🟢 |
+| src/webgl2_context/shaders.rs | 68 | 3 | 71 | 95.77% 🟢 |
 | src/webgl2_context/state.rs | 5 | 0 | 5 | 100.00% 🟢 |
 | src/webgl2_context/textures.rs | 9 | 0 | 9 | 100.00% 🟢 |
 | src/webgl2_context/types.rs | 11 | 0 | 11 | 100.00% 🟢 |
 | src/webgl2_context/vaos.rs | 32 | 0 | 32 | 100.00% 🟢 |
 | src/webgpu/adapter.rs | 3 | 0 | 3 | 100.00% 🟢 |
 | src/webgpu/backend.rs | 24 | 26 | 50 | 48.00% 🟠 |
-| **Total** | **428** | **85** | **513** | **83.43% 🟢** |
+| **Total** | **429** | **84** | **513** | **83.63% 🟢** |
 
 ## Top Missed Files
 
