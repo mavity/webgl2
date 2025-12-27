@@ -1,7 +1,7 @@
 //! Comprehensive tests for rasterizer components
 
 use super::*;
-use crate::wasm_gl_emu::Framebuffer;
+use crate::wasm_gl_emu::{Framebuffer, OwnedFramebuffer};
 
 #[test]
 fn test_processed_vertex_creation() {
@@ -98,7 +98,8 @@ fn test_barycentric_degenerate() {
 #[test]
 fn test_rasterizer_draw_point() {
     let rasterizer = Rasterizer::default();
-    let mut fb = Framebuffer::new(100, 100);
+    let mut owned_fb = OwnedFramebuffer::new(100, 100);
+    let mut fb = owned_fb.as_framebuffer();
 
     // Draw a point at (50, 50)
     rasterizer.draw_point(&mut fb, 50.0, 50.0, [255, 0, 0, 255]);
@@ -114,7 +115,8 @@ fn test_rasterizer_draw_point() {
 #[test]
 fn test_rasterizer_draw_point_out_of_bounds() {
     let rasterizer = Rasterizer::default();
-    let mut fb = Framebuffer::new(100, 100);
+    let mut owned_fb = OwnedFramebuffer::new(100, 100);
+    let mut fb = owned_fb.as_framebuffer();
 
     // Try to draw outside framebuffer
     rasterizer.draw_point(&mut fb, -10.0, -10.0, [255, 0, 0, 255]);
@@ -128,7 +130,8 @@ fn test_rasterizer_draw_point_out_of_bounds() {
 #[test]
 fn test_rasterizer_draw_simple_triangle() {
     let rasterizer = Rasterizer::default();
-    let mut fb = Framebuffer::new(100, 100);
+    let mut owned_fb = OwnedFramebuffer::new(100, 100);
+    let mut fb = owned_fb.as_framebuffer();
 
     // Draw a small triangle
     let p0 = (10.0, 10.0);

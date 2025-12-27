@@ -203,7 +203,7 @@ pub struct Context {
     pub(crate) uniform_data: Vec<u8>,
 
     // Software rendering state
-    pub default_framebuffer: crate::wasm_gl_emu::Framebuffer,
+    pub default_framebuffer: crate::wasm_gl_emu::OwnedFramebuffer,
     pub rasterizer: crate::wasm_gl_emu::Rasterizer,
 
     // State
@@ -251,7 +251,7 @@ impl Default for Context {
 
             uniform_data: vec![0; 4096], // 4KB for uniforms
 
-            default_framebuffer: crate::wasm_gl_emu::Framebuffer::new(640, 480),
+            default_framebuffer: crate::wasm_gl_emu::OwnedFramebuffer::new(640, 480),
             rasterizer: crate::wasm_gl_emu::Rasterizer::default(),
 
             clear_color: [0.0, 0.0, 0.0, 0.0],

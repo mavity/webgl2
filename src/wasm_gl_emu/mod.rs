@@ -16,10 +16,10 @@ mod texture;
 pub use runtime_wasmi::RuntimeError;
 pub use runtime_wasmi::ShaderRuntime;
 
-pub use framebuffer::Framebuffer;
+pub use framebuffer::{Framebuffer, OwnedFramebuffer};
 pub use pipeline::{Pipeline, VertexOutput};
 pub use rasterizer::{
-    ProcessedVertex, RasterPipeline, Rasterizer, RenderState, ShaderMemoryLayout,
+    ProcessedVertex, RasterPipeline, Rasterizer, RenderState, ShaderMemoryLayout, VertexFetcher,
 };
 pub use state::WebGLState;
 pub use texture::Texture;

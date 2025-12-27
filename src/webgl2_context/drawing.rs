@@ -104,8 +104,9 @@ pub fn ctx_draw_arrays_instanced(
     
     let indices: Vec<u32> = (0..count).map(|i| (first + i) as u32).collect();
     
+    let mut fb = ctx_obj.default_framebuffer.as_framebuffer();
     ctx_obj.rasterizer.draw(
-        &mut ctx_obj.default_framebuffer,
+        &mut fb,
         &pipeline,
         &state,
         &fetcher,
@@ -229,8 +230,9 @@ pub fn ctx_draw_elements_instanced(
         buffers: &ctx_obj.buffers,
     };
 
+    let mut fb = ctx_obj.default_framebuffer.as_framebuffer();
     ctx_obj.rasterizer.draw(
-        &mut ctx_obj.default_framebuffer,
+        &mut fb,
         &pipeline,
         &state,
         &fetcher,

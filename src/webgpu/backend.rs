@@ -4,6 +4,7 @@ use std::time::Duration;
 use std::any::Any;
 use wgpu_hal as hal;
 use wgpu_types as wgt;
+use crate::wasm_gl_emu;
 
 macro_rules! impl_dyn_resource {
     ($($type:ty),*) => {
@@ -624,24 +625,132 @@ impl hal::Queue for SoftQueue {
                                     index_buffer = Some((buffer.data.clone(), *offset, *format));
                                 }
                                 SoftRenderCommand::Draw { vertex_count, instance_count, first_vertex, first_instance } => {
-                                    if let Some(_pipeline) = current_pipeline {
-                                        // Placeholder for draw execution
-                                        // In a real implementation, we would:
-                                        // 1. Iterate instances and vertices
-                                        // 2. Fetch vertex attributes using vertex_buffers and pipeline.vertex_layouts
-                                        // 3. Run vertex shader
-                                        // 4. Assemble primitives (triangles, lines, points)
-                                        // 5. Rasterize using wasm_gl_emu::Rasterizer
-                                        
-                                        // For now, we just acknowledge the command
-                                        let _ = (vertex_count, instance_count, first_vertex, first_instance);
+                                    if let Some(pipeline) = current_pipeline {
+                                        // Only handle the first color attachment for now
+                                        if let Some(Some(att)) = desc.color_attachments.first() {
+                                            let mut data = att.view.texture.lock().unwrap();
+                                            let width = att.view.texture_desc.size.width;
+                                            let height = att.view.texture_desc.size.height;
+                                            
+                                            // Dummy depth buffer if not present
+                                            // TODO: Handle actual depth attachment
+                                            let mut dummy_depth = vec![1.0; (width * height) as usize];
+                                            
+                                            let mut fb = wasm_gl_emu::Framebuffer::new(
+                                                width, 
+                                                height, 
+                                                &mut data, 
+                                                &mut dummy_depth
+                                            );
+                                            
+                                            let rasterizer = wasm_gl_emu::Rasterizer::default();
+                                            
+                                            let fetcher = SoftVertexFetcher {
+                                                vertex_buffers: &vertex_buffers,
+                                                vertex_layouts: &pipeline.vertex_layouts,
+                                            };
+                                            
+                                            let state = wasm_gl_emu::RenderState {
+                                                ctx_handle: 0, // TODO: Pass context handle
+                                                memory: wasm_gl_emu::ShaderMemoryLayout::default(),
+                                                viewport: (0, 0, width, height), // TODO: SetViewport command
+                                                uniform_data: &[], // TODO: BindGroups
+                                                prepare_textures: None,
+                                            };
+                                            
+                                            let raster_pipeline = wasm_gl_emu::RasterPipeline::default(); // TODO: Map from SoftRenderPipeline
+                                            
+                                            rasterizer.draw(
+                                                &mut fb,
+                                                &raster_pipeline,
+                                                &state,
+                                                &fetcher,
+                                                *vertex_count as usize,
+                                                *instance_count as usize,
+                                                None, // indices
+                                                0x0004, // TRIANGLES
+                                            );
+                                        }
                                     }
                                 }
                                 SoftRenderCommand::DrawIndexed { index_count, instance_count, first_index, base_vertex, first_instance } => {
-                                    if let Some(_pipeline) = current_pipeline {
-                                        // Placeholder for indexed draw execution
-                                        let _ = (index_count, instance_count, first_index, base_vertex, first_instance);
-                                        let _ = &index_buffer;
+                                    if let Some(pipeline) = current_pipeline {
+                                        if let Some(Some(att)) = desc.color_attachments.first() {
+                                            let mut data = att.view.texture.lock().unwrap();
+                                            let width = att.view.texture_desc.size.width;
+                                            let height = att.view.texture_desc.size.height;
+                                            
+                                            let mut dummy_depth = vec![1.0; (width * height) as usize];
+                                            
+                                            let mut fb = wasm_gl_emu::Framebuffer::new(
+                                                width, 
+                                                height, 
+                                                &mut data, 
+                                                &mut dummy_depth
+                                            );
+                                            
+                                            let rasterizer = wasm_gl_emu::Rasterizer::default();
+                                            
+                                            let fetcher = SoftVertexFetcher {
+                                                vertex_buffers: &vertex_buffers,
+                                                vertex_layouts: &pipeline.vertex_layouts,
+                                            };
+                                            
+                                            let state = wasm_gl_emu::RenderState {
+                                                ctx_handle: 0,
+                                                memory: wasm_gl_emu::ShaderMemoryLayout::default(),
+                                                viewport: (0, 0, width, height),
+                                                uniform_data: &[],
+                                                prepare_textures: None,
+                                            };
+                                            
+                                            let raster_pipeline = wasm_gl_emu::RasterPipeline::default();
+                                            
+                                            // Fetch indices
+                                            let indices = if let Some((buffer, offset, format)) = &index_buffer {
+                                                let data = buffer.lock().unwrap();
+                                                let start = *offset as usize;
+                                                let count = *index_count as usize;
+                                                let mut idxs = Vec::with_capacity(count);
+                                                
+                                                match format {
+                                                    wgt::IndexFormat::Uint16 => {
+                                                        for i in 0..count {
+                                                            let pos = start + i * 2;
+                                                            if pos + 2 <= data.len() {
+                                                                let val = u16::from_le_bytes([data[pos], data[pos+1]]);
+                                                                idxs.push(val as u32);
+                                                            }
+                                                        }
+                                                    }
+                                                    wgt::IndexFormat::Uint32 => {
+                                                        for i in 0..count {
+                                                            let pos = start + i * 4;
+                                                            if pos + 4 <= data.len() {
+                                                                let val = u32::from_le_bytes([data[pos], data[pos+1], data[pos+2], data[pos+3]]);
+                                                                idxs.push(val);
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                Some(idxs)
+                                            } else {
+                                                None
+                                            };
+                                            
+                                            if let Some(idxs) = indices {
+                                                rasterizer.draw(
+                                                    &mut fb,
+                                                    &raster_pipeline,
+                                                    &state,
+                                                    &fetcher,
+                                                    *index_count as usize,
+                                                    *instance_count as usize,
+                                                    Some(&idxs),
+                                                    0x0004, // TRIANGLES
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -914,6 +1023,64 @@ impl hal::CommandEncoder for SoftCommandEncoder {
     unsafe fn build_acceleration_structures<'a, T>(&mut self, _descriptor_count: u32, _descriptors: T) where T: IntoIterator<Item = hal::BuildAccelerationStructureDescriptor<'a, SoftBuffer, SoftAccelerationStructure>> {}
     unsafe fn place_acceleration_structure_barrier(&mut self, _barrier: hal::AccelerationStructureBarrier) {}
     unsafe fn read_acceleration_structure_compact_size(&mut self, _as: &SoftAccelerationStructure, _buffer: &SoftBuffer) {}
+}
+
+struct SoftVertexFetcher<'a> {
+    vertex_buffers: &'a [Option<(Arc<Mutex<Vec<u8>>>, wgt::BufferAddress)>],
+    vertex_layouts: &'a [SoftVertexBufferLayout],
+}
+
+impl<'a> wasm_gl_emu::VertexFetcher for SoftVertexFetcher<'a> {
+    fn fetch(&self, vertex_index: u32, instance_index: u32, dest: &mut [u8]) {
+        for (i, layout) in self.vertex_layouts.iter().enumerate() {
+            if i >= self.vertex_buffers.len() {
+                continue;
+            }
+            
+            if let Some((buffer_data, buffer_offset)) = &self.vertex_buffers[i] {
+                let data = buffer_data.lock().unwrap();
+                let stride = layout.array_stride as usize;
+                
+                let index = match layout.step_mode {
+                    wgt::VertexStepMode::Vertex => vertex_index,
+                    wgt::VertexStepMode::Instance => instance_index,
+                } as usize;
+                
+                let start = *buffer_offset as usize + index * stride;
+                
+                for attribute in &layout.attributes {
+                    let location = attribute.shader_location as usize;
+                    let dest_offset = location * 16; // Assumption: 16 bytes per location
+                    
+                    if dest_offset + 16 > dest.len() {
+                        continue;
+                    }
+                    
+                    let attr_offset = attribute.offset as usize;
+                    let attr_format = attribute.format;
+                    
+                    // Read from data[start + attr_offset]
+                    let src_start = start + attr_offset;
+                    
+                    // Simple size mapping
+                    let size = match attr_format {
+                        wgt::VertexFormat::Float32x4 => 16,
+                        wgt::VertexFormat::Float32x3 => 12,
+                        wgt::VertexFormat::Float32x2 => 8,
+                        wgt::VertexFormat::Float32 => 4,
+                        // TODO: Handle other formats
+                        _ => 16,
+                    };
+                    
+                    if src_start + size <= data.len() {
+                        let src_slice = &data[src_start..src_start + size];
+                        let dst_slice = &mut dest[dest_offset..dest_offset + size];
+                        dst_slice.copy_from_slice(src_slice);
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
