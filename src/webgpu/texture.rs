@@ -3,26 +3,26 @@
 use super::adapter::with_context;
 use wgpu_types as wgt;
 
+pub struct TextureConfig {
+    pub width: u32,
+    pub height: u32,
+    pub depth_or_array_layers: u32,
+    pub mip_level_count: u32,
+    pub sample_count: u32,
+    pub dimension: u32,
+    pub format: u32,
+    pub usage: u32,
+}
+
 /// Create a new texture
-pub fn create_texture(
-    ctx_handle: u32,
-    device_handle: u32,
-    width: u32,
-    height: u32,
-    depth_or_array_layers: u32,
-    mip_level_count: u32,
-    sample_count: u32,
-    dimension: u32, // wgt::TextureDimension
-    format: u32,    // wgt::TextureFormat
-    usage: u32,
-) -> u32 {
+pub fn create_texture(ctx_handle: u32, device_handle: u32, config: TextureConfig) -> u32 {
     with_context(ctx_handle, |ctx| {
         let device_id = match ctx.devices.get(&device_handle) {
             Some(id) => *id,
             None => return super::NULL_HANDLE,
         };
 
-        let dimension = match dimension {
+        let dimension = match config.dimension {
             0 => wgt::TextureDimension::D1,
             1 => wgt::TextureDimension::D2,
             2 => wgt::TextureDimension::D3,
@@ -36,15 +36,15 @@ pub fn create_texture(
         let desc = wgt::TextureDescriptor {
             label: None,
             size: wgt::Extent3d {
-                width,
-                height,
-                depth_or_array_layers,
+                width: config.width,
+                height: config.height,
+                depth_or_array_layers: config.depth_or_array_layers,
             },
-            mip_level_count,
-            sample_count,
+            mip_level_count: config.mip_level_count,
+            sample_count: config.sample_count,
             dimension,
             format,
-            usage: wgt::TextureUsages::from_bits_truncate(usage),
+            usage: wgt::TextureUsages::from_bits_truncate(config.usage),
             view_formats: vec![],
         };
 
@@ -62,31 +62,31 @@ pub fn create_texture(
     })
 }
 
+pub struct TextureViewConfig {
+    pub format: u32,
+    pub dimension: u32,
+    pub base_mip_level: u32,
+    pub mip_level_count: u32,
+    pub base_array_layer: u32,
+    pub array_layer_count: u32,
+    pub aspect: u32,
+}
+
 /// Create a texture view
-pub fn create_texture_view(
-    ctx_handle: u32,
-    texture_handle: u32,
-    format: u32,    // 0 = undefined/inherit
-    dimension: u32, // 0 = undefined/inherit
-    base_mip_level: u32,
-    mip_level_count: u32,
-    base_array_layer: u32,
-    array_layer_count: u32,
-    aspect: u32, // wgt::TextureAspect
-) -> u32 {
+pub fn create_texture_view(ctx_handle: u32, texture_handle: u32, config: TextureViewConfig) -> u32 {
     with_context(ctx_handle, |ctx| {
         let texture_id = match ctx.textures.get(&texture_handle) {
             Some(id) => *id,
             None => return super::NULL_HANDLE,
         };
 
-        let format = if format == 0 {
+        let format = if config.format == 0 {
             None
         } else {
             Some(wgt::TextureFormat::Rgba8Unorm) // TODO: Map format
         };
 
-        let dimension = match dimension {
+        let dimension = match config.dimension {
             1 => Some(wgt::TextureViewDimension::D1),
             2 => Some(wgt::TextureViewDimension::D2),
             3 => Some(wgt::TextureViewDimension::D2Array),
@@ -96,7 +96,7 @@ pub fn create_texture_view(
             _ => None,
         };
 
-        let aspect = match aspect {
+        let aspect = match config.aspect {
             0 => wgt::TextureAspect::All,
             1 => wgt::TextureAspect::StencilOnly,
             2 => wgt::TextureAspect::DepthOnly,
@@ -110,17 +110,17 @@ pub fn create_texture_view(
             usage: None, // Inherit from texture
             range: wgt::ImageSubresourceRange {
                 aspect,
-                base_mip_level,
-                mip_level_count: if mip_level_count == 0 {
+                base_mip_level: config.base_mip_level,
+                mip_level_count: if config.mip_level_count == 0 {
                     None
                 } else {
-                    Some(mip_level_count)
+                    Some(config.mip_level_count)
                 },
-                base_array_layer,
-                array_layer_count: if array_layer_count == 0 {
+                base_array_layer: config.base_array_layer,
+                array_layer_count: if config.array_layer_count == 0 {
                     None
                 } else {
-                    Some(array_layer_count)
+                    Some(config.array_layer_count)
                 },
             },
         };

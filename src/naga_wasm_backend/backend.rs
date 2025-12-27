@@ -1,6 +1,6 @@
 //! Core WASM code generation logic
 
-use super::{BackendError, MemoryLayout, WasmBackend, WasmModule};
+use super::{BackendError, CompileConfig, MemoryLayout, WasmBackend, WasmModule};
 use naga::{front::Typifier, valid::ModuleInfo, Module};
 use std::collections::HashMap;
 use wasm_encoder::{
@@ -11,28 +11,15 @@ use wasm_encoder::{
 /// Compile a Naga module to WASM bytecode
 pub(super) fn compile_module(
     backend: &WasmBackend,
-    module: &Module,
-    info: &ModuleInfo,
-    source: &str,
-    stage: naga::ShaderStage,
-    attribute_locations: &HashMap<String, u32>,
-    uniform_locations: &HashMap<String, u32>,
-    varying_locations: &HashMap<String, u32>,
+    config: CompileConfig,
 ) -> Result<WasmModule, BackendError> {
     tracing::info!(
         "Starting WASM compilation for module with {} entry points",
-        module.entry_points.len()
+        config.module.entry_points.len()
     );
 
-    let mut compiler = Compiler::new(
-        backend,
-        info,
-        source,
-        stage,
-        attribute_locations,
-        uniform_locations,
-        varying_locations,
-    );
+    let module = config.module;
+    let mut compiler = Compiler::new(backend, config);
     compiler.compile(module)?;
 
     Ok(compiler.finish())
@@ -67,29 +54,21 @@ struct Compiler<'a> {
 }
 
 impl<'a> Compiler<'a> {
-    fn new(
-        backend: &'a WasmBackend,
-        info: &'a ModuleInfo,
-        source: &'a str,
-        stage: naga::ShaderStage,
-        attribute_locations: &'a HashMap<String, u32>,
-        uniform_locations: &'a HashMap<String, u32>,
-        varying_locations: &'a HashMap<String, u32>,
-    ) -> Self {
+    fn new(backend: &'a WasmBackend, config: CompileConfig<'a>) -> Self {
         let debug_generator = if backend.config.debug_info {
-            Some(super::debug::DwarfGenerator::new(source))
+            Some(super::debug::DwarfGenerator::new(config.source))
         } else {
             None
         };
 
         Self {
             _backend: backend,
-            _info: info,
-            _source: source,
-            stage,
-            attribute_locations,
-            uniform_locations,
-            varying_locations,
+            _info: config.info,
+            _source: config.source,
+            stage: config.stage,
+            attribute_locations: config.attribute_locations,
+            uniform_locations: config.uniform_locations,
+            varying_locations: config.varying_locations,
             types: TypeSection::new(),
             imports: ImportSection::new(),
             functions: FunctionSection::new(),

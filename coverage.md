@@ -4,14 +4,14 @@
 
 | File | Lines Covered | Lines Missed | Total Lines | Coverage |
 |---|---|---|---|---|
-| src/lib.rs | 103 | 34 | 137 | 75.18% 🟡 |
+| src/lib.rs | 102 | 34 | 136 | 75.00% 🟡 |
 | src/naga_wasm_backend/backend.rs | 39 | 0 | 39 | 100.00% 🟢 |
 | src/naga_wasm_backend/control_flow.rs | 19 | 3 | 22 | 86.36% 🟢 |
 | src/naga_wasm_backend/expressions.rs | 30 | 11 | 41 | 73.17% 🟡 |
 | src/naga_wasm_backend/types.rs | 6 | 0 | 6 | 100.00% 🟢 |
-| src/wasm_gl_emu/rasterizer.rs | 13 | 0 | 13 | 100.00% 🟢 |
+| src/wasm_gl_emu/rasterizer.rs | 15 | 0 | 15 | 100.00% 🟢 |
 | src/webgl2_context/buffers.rs | 16 | 1 | 17 | 94.12% 🟢 |
-| src/webgl2_context/drawing.rs | 26 | 4 | 30 | 86.67% 🟢 |
+| src/webgl2_context/drawing.rs | 28 | 4 | 32 | 87.50% 🟢 |
 | src/webgl2_context/framebuffers.rs | 7 | 1 | 8 | 87.50% 🟢 |
 | src/webgl2_context/registry.rs | 5 | 1 | 6 | 83.33% 🟢 |
 | src/webgl2_context/renderbuffers.rs | 10 | 0 | 10 | 100.00% 🟢 |
@@ -21,14 +21,14 @@
 | src/webgl2_context/types.rs | 11 | 0 | 11 | 100.00% 🟢 |
 | src/webgl2_context/vaos.rs | 32 | 0 | 32 | 100.00% 🟢 |
 | src/webgpu/adapter.rs | 3 | 0 | 3 | 100.00% 🟢 |
-| src/webgpu/backend.rs | 25 | 25 | 50 | 50.00% 🟡 |
-| **Total** | **426** | **84** | **510** | **83.53% 🟢** |
+| src/webgpu/backend.rs | 24 | 26 | 50 | 48.00% 🟠 |
+| **Total** | **428** | **85** | **513** | **83.43% 🟢** |
 
 ## Top Missed Files
 
 | File | Lines Missed | Illustrative Line | Coverage |
 |---|---|---|---|
-| src/lib.rs | 34/137 | [516] `/// Set uniform 3f.` | 75.18% 🟡 |
-| src/webgpu/backend.rs | 25/50 | [806] `}` | 50.00% 🟡 |
+| src/lib.rs | 34/136 | [516] `/// Set uniform 3f.` | 75.00% 🟡 |
+| src/webgpu/backend.rs | 26/50 | [919] `}` | 48.00% 🟠 |
 | src/naga_wasm_backend/expressions.rs | 11/41 | [52] `if component_idx == 0 {` | 73.17% 🟡 |
-| src/webgl2_context/drawing.rs | 4/30 | [400] `dest_slice[dst_off + 2] = 0;` | 86.67% 🟢 |
+| src/webgl2_context/drawing.rs | 4/32 | [410] `dest_slice[dst_off + 2] = 0;` | 87.50% 🟢 |

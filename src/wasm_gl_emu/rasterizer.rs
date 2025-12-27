@@ -90,6 +90,19 @@ impl Default for RasterPipeline {
 #[derive(Default)]
 pub struct Rasterizer {}
 
+pub struct DrawConfig<'a> {
+    pub fb: &'a mut super::Framebuffer<'a>,
+    pub pipeline: &'a RasterPipeline,
+    pub state: &'a RenderState<'a>,
+    pub vertex_fetcher: &'a dyn VertexFetcher,
+    pub vertex_count: usize,
+    pub instance_count: usize,
+    pub first_vertex: usize,
+    pub first_instance: usize,
+    pub indices: Option<&'a [u32]>,
+    pub mode: u32,
+}
+
 impl Rasterizer {
     /// Draw a single point to the framebuffer
     pub fn draw_point(&self, fb: &mut super::Framebuffer, x: f32, y: f32, color: [u8; 4]) {
@@ -276,71 +289,64 @@ impl Rasterizer {
     }
 
     /// Draw primitives
-    pub fn draw(
-        &self,
-        fb: &mut super::Framebuffer,
-        pipeline: &RasterPipeline,
-        state: &RenderState,
-        vertex_fetcher: &dyn VertexFetcher,
-        vertex_count: usize,
-        instance_count: usize,
-        indices: Option<&[u32]>,
-        mode: u32, // 0x0000 = POINTS, 0x0004 = TRIANGLES
-    ) {
-        let (vx, vy, vw, vh) = state.viewport;
+    pub fn draw(&self, config: DrawConfig) {
+        let (vx, vy, vw, vh) = config.state.viewport;
 
         // Allocate attribute buffer (enough for 16 locations * 16 floats = 1024 bytes)
         // This should match the size expected by the shader
         let mut attr_buffer = vec![0u8; 1024];
 
-        for instance_id in 0..instance_count {
-            let mut vertices = Vec::with_capacity(vertex_count);
+        for instance_id in 0..config.instance_count {
+            let actual_instance_id = config.first_instance + instance_id;
+            let mut vertices = Vec::with_capacity(config.vertex_count);
 
             // 1. Run Vertex Shader for all vertices
-            let count = if let Some(idxs) = indices {
+            let count = if let Some(idxs) = config.indices {
                 idxs.len()
             } else {
-                vertex_count
+                config.vertex_count
             };
 
             for i in 0..count {
-                let vertex_id = if let Some(idxs) = indices {
+                let vertex_id = if let Some(idxs) = config.indices {
                     idxs[i]
                 } else {
-                    i as u32
+                    (config.first_vertex + i) as u32
                 };
 
                 // Fetch attributes
-                vertex_fetcher.fetch(vertex_id, instance_id as u32, &mut attr_buffer);
+                config
+                    .vertex_fetcher
+                    .fetch(vertex_id, actual_instance_id as u32, &mut attr_buffer);
 
                 // Copy attributes to shader memory
                 unsafe {
                     std::ptr::copy_nonoverlapping(
                         attr_buffer.as_ptr(),
-                        pipeline.memory.attr_ptr as *mut u8,
+                        config.pipeline.memory.attr_ptr as *mut u8,
                         attr_buffer.len(),
                     );
                     // Copy uniforms
                     std::ptr::copy_nonoverlapping(
-                        state.uniform_data.as_ptr(),
-                        pipeline.memory.uniform_ptr as *mut u8,
-                        state.uniform_data.len(),
+                        config.state.uniform_data.as_ptr(),
+                        config.pipeline.memory.uniform_ptr as *mut u8,
+                        config.state.uniform_data.len(),
                     );
                     // Prepare textures
-                    if let Some(ref prepare) = state.prepare_textures {
-                        prepare(pipeline.memory.texture_ptr);
+                    if let Some(ref prepare) = config.state.prepare_textures {
+                        prepare(config.pipeline.memory.texture_ptr);
                     }
                 }
 
                 // Execute Vertex Shader
                 crate::js_execute_shader(
-                    state.ctx_handle,
-                    pipeline.vertex_shader_type,
-                    pipeline.memory.attr_ptr,
-                    pipeline.memory.uniform_ptr,
-                    pipeline.memory.varying_ptr,
-                    pipeline.memory.private_ptr,
-                    pipeline.memory.texture_ptr,
+                    config.state.ctx_handle,
+                    config.pipeline.vertex_shader_type,
+                    config.pipeline.memory.attr_ptr,
+                    config.pipeline.memory.uniform_ptr,
+                    config.pipeline.memory.varying_ptr,
+                    config.pipeline.memory.private_ptr,
+                    config.pipeline.memory.texture_ptr,
                 );
 
                 // Capture position and varyings
@@ -348,12 +354,12 @@ impl Rasterizer {
                 let mut varying_bytes = vec![0u8; 256]; // Capture first 256 bytes of varyings
                 unsafe {
                     std::ptr::copy_nonoverlapping(
-                        pipeline.memory.varying_ptr as *const u8,
+                        config.pipeline.memory.varying_ptr as *const u8,
                         pos_bytes.as_mut_ptr(),
                         16,
                     );
                     std::ptr::copy_nonoverlapping(
-                        pipeline.memory.varying_ptr as *const u8,
+                        config.pipeline.memory.varying_ptr as *const u8,
                         varying_bytes.as_mut_ptr(),
                         256,
                     );
@@ -372,7 +378,7 @@ impl Rasterizer {
             }
 
             // 2. Rasterize
-            if mode == 0x0000 {
+            if config.mode == 0x0000 {
                 // GL_POINTS
                 for v in &vertices {
                     let screen_x =
@@ -381,10 +387,11 @@ impl Rasterizer {
                         vy as f32 + (v.position[1] / v.position[3] + 1.0) * 0.5 * vh as f32;
 
                     // Run FS
-                    let color = self.execute_fragment_shader(&v.varyings, pipeline, state);
-                    self.draw_point(fb, screen_x, screen_y, color);
+                    let color =
+                        self.execute_fragment_shader(&v.varyings, config.pipeline, config.state);
+                    self.draw_point(config.fb, screen_x, screen_y, color);
                 }
-            } else if mode == 0x0004 {
+            } else if config.mode == 0x0004 {
                 // GL_TRIANGLES
                 for i in (0..vertices.len()).step_by(3) {
                     if i + 2 >= vertices.len() {
@@ -394,7 +401,7 @@ impl Rasterizer {
                     let v1 = &vertices[i + 1];
                     let v2 = &vertices[i + 2];
 
-                    self.rasterize_triangle(fb, v0, v1, v2, pipeline, state);
+                    self.rasterize_triangle(config.fb, v0, v1, v2, config.pipeline, config.state);
                 }
             }
         }

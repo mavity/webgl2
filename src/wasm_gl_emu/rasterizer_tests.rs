@@ -1,7 +1,7 @@
 //! Comprehensive tests for rasterizer components
 
 use super::*;
-use crate::wasm_gl_emu::{Framebuffer, OwnedFramebuffer};
+use crate::wasm_gl_emu::OwnedFramebuffer;
 
 #[test]
 fn test_processed_vertex_creation() {
@@ -35,6 +35,7 @@ fn test_raster_pipeline_custom() {
         vertex_shader_type: 100,
         fragment_shader_type: 200,
         memory: ShaderMemoryLayout::default(),
+        flat_varyings_mask: 0,
     };
 
     assert_eq!(pipeline.vertex_shader_type, 100);

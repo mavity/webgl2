@@ -91,6 +91,17 @@ impl Default for MemoryLayout {
     }
 }
 
+/// Configuration for compiling a module
+pub struct CompileConfig<'a> {
+    pub module: &'a Module,
+    pub info: &'a ModuleInfo,
+    pub source: &'a str,
+    pub stage: naga::ShaderStage,
+    pub attribute_locations: &'a HashMap<String, u32>,
+    pub uniform_locations: &'a HashMap<String, u32>,
+    pub varying_locations: &'a HashMap<String, u32>,
+}
+
 /// Main backend interface
 pub struct WasmBackend {
     config: WasmBackendConfig,
@@ -103,36 +114,8 @@ impl WasmBackend {
     }
 
     /// Compile a Naga module to WASM
-    ///
-    /// # Arguments
-    ///
-    /// * `module` - The validated Naga IR module
-    /// * `info` - Validation information from Naga
-    /// * `source` - Original GLSL source code (for DWARF line mappings)
-    ///
-    /// # Returns
-    ///
-    /// A compiled WASM module with optional debug information
-    pub fn compile(
-        &self,
-        module: &Module,
-        info: &ModuleInfo,
-        source: &str,
-        stage: naga::ShaderStage,
-        attribute_locations: &HashMap<String, u32>,
-        uniform_locations: &HashMap<String, u32>,
-        varying_locations: &HashMap<String, u32>,
-    ) -> Result<WasmModule, BackendError> {
-        backend::compile_module(
-            self,
-            module,
-            info,
-            source,
-            stage,
-            attribute_locations,
-            uniform_locations,
-            varying_locations,
-        )
+    pub fn compile(&self, config: CompileConfig) -> Result<WasmModule, BackendError> {
+        backend::compile_module(self, config)
     }
 }
 

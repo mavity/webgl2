@@ -18,7 +18,7 @@ impl OwnedFramebuffer {
         }
     }
 
-    pub fn as_framebuffer(&mut self) -> Framebuffer {
+    pub fn as_framebuffer(&mut self) -> Framebuffer<'_> {
         Framebuffer {
             width: self.width,
             height: self.height,

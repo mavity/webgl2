@@ -5,16 +5,20 @@ use std::borrow::Cow;
 use wgpu_core::pipeline;
 use wgpu_types as wgt;
 
+pub struct RenderPipelineConfig<'a> {
+    pub vertex_module_handle: u32,
+    pub vertex_entry: &'a str,
+    pub fragment_module_handle: u32,
+    pub fragment_entry: &'a str,
+    pub layout_data: &'a [u32],
+    pub pipeline_layout_handle: u32,
+}
+
 /// Create a new render pipeline (simplified for Phase 1)
 pub fn create_render_pipeline(
     ctx_handle: u32,
     device_handle: u32,
-    vertex_module_handle: u32,
-    vertex_entry: &str,
-    fragment_module_handle: u32,
-    fragment_entry: &str,
-    layout_data: &[u32],
-    pipeline_layout_handle: u32,
+    config: RenderPipelineConfig,
 ) -> u32 {
     with_context(ctx_handle, |ctx| {
         let device_id = match ctx.devices.get(&device_handle) {
@@ -22,23 +26,26 @@ pub fn create_render_pipeline(
             None => return super::NULL_HANDLE,
         };
 
-        let v_module = match ctx.shader_modules.get(&vertex_module_handle) {
+        let v_module = match ctx.shader_modules.get(&config.vertex_module_handle) {
             Some(id) => *id,
             None => return super::NULL_HANDLE,
         };
 
-        let f_module = match ctx.shader_modules.get(&fragment_module_handle) {
+        let f_module = match ctx.shader_modules.get(&config.fragment_module_handle) {
             Some(id) => *id,
             None => return super::NULL_HANDLE,
         };
 
-        let layout_id = if pipeline_layout_handle != 0 {
-            match ctx.pipeline_layouts.get(&pipeline_layout_handle) {
+        let layout_id = if config.pipeline_layout_handle != 0 {
+            match ctx.pipeline_layouts.get(&config.pipeline_layout_handle) {
                 Some(id) => Some(*id),
                 None => {
                     crate::js_log(
                         0,
-                        &format!("Invalid pipeline layout handle: {}", pipeline_layout_handle),
+                        &format!(
+                            "Invalid pipeline layout handle: {}",
+                            config.pipeline_layout_handle
+                        ),
                     );
                     return super::NULL_HANDLE;
                 }
@@ -50,31 +57,31 @@ pub fn create_render_pipeline(
         // Parse vertex buffer layout
         let mut vertex_buffers = Vec::new();
         let mut cursor = 0;
-        if cursor < layout_data.len() {
-            let count = layout_data[cursor];
+        if cursor < config.layout_data.len() {
+            let count = config.layout_data[cursor];
             cursor += 1;
 
             for _ in 0..count {
-                if cursor + 3 > layout_data.len() {
+                if cursor + 3 > config.layout_data.len() {
                     break;
                 }
-                let array_stride = layout_data[cursor] as u64;
-                let step_mode = if layout_data[cursor + 1] == 1 {
+                let array_stride = config.layout_data[cursor] as u64;
+                let step_mode = if config.layout_data[cursor + 1] == 1 {
                     wgt::VertexStepMode::Instance
                 } else {
                     wgt::VertexStepMode::Vertex
                 };
-                let attr_count = layout_data[cursor + 2];
+                let attr_count = config.layout_data[cursor + 2];
                 cursor += 3;
 
                 let mut attributes = Vec::new();
                 for _ in 0..attr_count {
-                    if cursor + 3 > layout_data.len() {
+                    if cursor + 3 > config.layout_data.len() {
                         break;
                     }
-                    let format_id = layout_data[cursor];
-                    let offset = layout_data[cursor + 1] as u64;
-                    let shader_location = layout_data[cursor + 2];
+                    let format_id = config.layout_data[cursor];
+                    let offset = config.layout_data[cursor + 1] as u64;
+                    let shader_location = config.layout_data[cursor + 2];
                     cursor += 3;
 
                     let format = match format_id {
@@ -105,7 +112,7 @@ pub fn create_render_pipeline(
             vertex: pipeline::VertexState {
                 stage: pipeline::ProgrammableStageDescriptor {
                     module: v_module,
-                    entry_point: Some(Cow::Borrowed(vertex_entry)),
+                    entry_point: Some(Cow::Borrowed(config.vertex_entry)),
                     constants: Default::default(),
                     zero_initialize_workgroup_memory: true,
                 },
@@ -117,7 +124,7 @@ pub fn create_render_pipeline(
             fragment: Some(pipeline::FragmentState {
                 stage: pipeline::ProgrammableStageDescriptor {
                     module: f_module,
-                    entry_point: Some(Cow::Borrowed(fragment_entry)),
+                    entry_point: Some(Cow::Borrowed(config.fragment_entry)),
                     constants: Default::default(),
                     zero_initialize_workgroup_memory: true,
                 },
@@ -148,6 +155,10 @@ pub fn create_render_pipeline(
 }
 
 /// Create a pipeline layout
+///
+/// # Safety
+///
+/// This function is unsafe because it takes raw pointers.
 pub unsafe fn create_pipeline_layout(
     ctx_handle: u32,
     device_handle: u32,

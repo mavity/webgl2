@@ -1,7 +1,6 @@
 //! WebGPU Bind Group management
 
 use super::adapter::with_context;
-use std::num::NonZero;
 use wgpu_types as wgt;
 
 /// Create a bind group layout

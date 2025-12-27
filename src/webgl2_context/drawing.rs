@@ -17,25 +17,23 @@ fn get_flat_varyings_mask(ctx: &Context) -> u64 {
                         for arg in &ep.function.arguments {
                             if let Some(naga::Binding::Location {
                                 location,
-                                interpolation,
+                                interpolation: Some(interp),
                                 ..
                             }) = &arg.binding
                             {
-                                if let Some(interp) = interpolation {
-                                    if *interp == naga::Interpolation::Flat {
-                                        let start_bit = location * 4;
-                                        let ty = &fs_module.types[arg.ty];
-                                        let count = match ty.inner {
-                                            naga::TypeInner::Vector { size, .. } => size as u32,
-                                            naga::TypeInner::Matrix { columns, rows, .. } => {
-                                                columns as u32 * rows as u32
-                                            }
-                                            _ => 1,
-                                        };
-                                        for i in 0..count {
-                                            if start_bit + i < 64 {
-                                                mask |= 1 << (start_bit + i);
-                                            }
+                                if *interp == naga::Interpolation::Flat {
+                                    let start_bit = location * 4;
+                                    let ty = &fs_module.types[arg.ty];
+                                    let count = match ty.inner {
+                                        naga::TypeInner::Vector { size, .. } => size as u32,
+                                        naga::TypeInner::Matrix { columns, rows, .. } => {
+                                            columns as u32 * rows as u32
+                                        }
+                                        _ => 1,
+                                    };
+                                    for i in 0..count {
+                                        if start_bit + i < 64 {
+                                            mask |= 1 << (start_bit + i);
                                         }
                                     }
                                 }
@@ -121,13 +119,13 @@ pub fn ctx_draw_arrays_instanced(
     let (vx, vy, vw, vh) = ctx_obj.viewport;
 
     // Create pipeline configuration
-    let mut pipeline = RasterPipeline::default();
-    pipeline.flat_varyings_mask = get_flat_varyings_mask(ctx_obj);
+    let pipeline = RasterPipeline {
+        flat_varyings_mask: get_flat_varyings_mask(ctx_obj),
+        ..Default::default()
+    };
 
     // Prepare textures once
-    unsafe {
-        ctx_obj.prepare_texture_metadata(pipeline.memory.texture_ptr);
-    }
+    ctx_obj.prepare_texture_metadata(pipeline.memory.texture_ptr);
 
     let state = RenderState {
         ctx_handle: ctx,
@@ -152,19 +150,21 @@ pub fn ctx_draw_arrays_instanced(
     // It passes i as vertex_id.
     // If we want start from 'first', we should probably pass indices.
 
-    let indices: Vec<u32> = (0..count).map(|i| (first + i) as u32).collect();
-
     let mut fb = ctx_obj.default_framebuffer.as_framebuffer();
-    ctx_obj.rasterizer.draw(
-        &mut fb,
-        &pipeline,
-        &state,
-        &fetcher,
-        count as usize,
-        instance_count as usize,
-        Some(&indices),
-        mode,
-    );
+    ctx_obj
+        .rasterizer
+        .draw(crate::wasm_gl_emu::rasterizer::DrawConfig {
+            fb: &mut fb,
+            pipeline: &pipeline,
+            state: &state,
+            vertex_fetcher: &fetcher,
+            vertex_count: count as usize,
+            instance_count: instance_count as usize,
+            first_vertex: first as usize,
+            first_instance: 0,
+            indices: None,
+            mode,
+        });
 
     ERR_OK
 }
@@ -259,13 +259,13 @@ pub fn ctx_draw_elements_instanced(
     let (vx, vy, vw, vh) = ctx_obj.viewport;
 
     // Create pipeline configuration
-    let mut pipeline = RasterPipeline::default();
-    pipeline.flat_varyings_mask = get_flat_varyings_mask(ctx_obj);
+    let pipeline = RasterPipeline {
+        flat_varyings_mask: get_flat_varyings_mask(ctx_obj),
+        ..Default::default()
+    };
 
     // Prepare textures once
-    unsafe {
-        ctx_obj.prepare_texture_metadata(pipeline.memory.texture_ptr);
-    }
+    ctx_obj.prepare_texture_metadata(pipeline.memory.texture_ptr);
 
     let state = RenderState {
         ctx_handle: ctx,
@@ -282,16 +282,20 @@ pub fn ctx_draw_elements_instanced(
     };
 
     let mut fb = ctx_obj.default_framebuffer.as_framebuffer();
-    ctx_obj.rasterizer.draw(
-        &mut fb,
-        &pipeline,
-        &state,
-        &fetcher,
-        count as usize,
-        instance_count as usize,
-        Some(&indices),
-        mode,
-    );
+    ctx_obj
+        .rasterizer
+        .draw(crate::wasm_gl_emu::rasterizer::DrawConfig {
+            fb: &mut fb,
+            pipeline: &pipeline,
+            state: &state,
+            vertex_fetcher: &fetcher,
+            vertex_count: count as usize,
+            instance_count: instance_count as usize,
+            first_vertex: 0,
+            first_instance: 0,
+            indices: Some(&indices),
+            mode,
+        });
 
     ERR_OK
 }

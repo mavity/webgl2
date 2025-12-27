@@ -491,15 +491,15 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
 
         if let (Some(vs), Some(vsi)) = (&p.vs_module, &p.vs_info) {
             Context::log_static(verbosity, 3, "Compiling VS to WASM");
-            match backend.compile(
-                vs,
-                vsi,
-                &vs_source,
-                naga::ShaderStage::Vertex,
-                &attribute_locations,
-                &uniform_locations,
-                &varying_locations,
-            ) {
+            match backend.compile(crate::naga_wasm_backend::CompileConfig {
+                module: vs,
+                info: vsi,
+                source: &vs_source,
+                stage: naga::ShaderStage::Vertex,
+                attribute_locations: &attribute_locations,
+                uniform_locations: &uniform_locations,
+                varying_locations: &varying_locations,
+            }) {
                 Ok(wasm) => {
                     Context::log_static(
                         verbosity,
@@ -519,15 +519,15 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
 
         if let (Some(fs), Some(fsi)) = (&p.fs_module, &p.fs_info) {
             Context::log_static(verbosity, 3, "Compiling FS to WASM");
-            match backend.compile(
-                fs,
-                fsi,
-                &fs_source,
-                naga::ShaderStage::Fragment,
-                &attribute_locations,
-                &uniform_locations,
-                &varying_locations,
-            ) {
+            match backend.compile(crate::naga_wasm_backend::CompileConfig {
+                module: fs,
+                info: fsi,
+                source: &fs_source,
+                stage: naga::ShaderStage::Fragment,
+                attribute_locations: &attribute_locations,
+                uniform_locations: &uniform_locations,
+                varying_locations: &varying_locations,
+            }) {
                 Ok(wasm) => {
                     Context::log_static(
                         verbosity,

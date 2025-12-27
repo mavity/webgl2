@@ -314,7 +314,9 @@ mod tests {
     #[test]
     fn test_texture_creation() {
         use crate::webgpu::adapter::{request_adapter, request_device};
-        use crate::webgpu::texture::{create_texture, create_texture_view, destroy_texture};
+        use crate::webgpu::texture::{
+            create_texture, create_texture_view, destroy_texture, TextureConfig, TextureViewConfig,
+        };
         use wgpu_types::{PowerPreference, TextureDimension, TextureUsages};
 
         let ctx = create_context();
@@ -329,26 +331,32 @@ mod tests {
         let texture = create_texture(
             ctx,
             device,
-            width,
-            height,
-            1, // depth
-            1, // mips
-            1, // samples
-            TextureDimension::D2 as u32,
-            17, // Rgba8Unorm
-            usage.bits(),
+            TextureConfig {
+                width,
+                height,
+                depth_or_array_layers: 1,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2 as u32,
+                format: 17, // Rgba8Unorm
+                usage: usage.bits(),
+            },
         );
         assert_ne!(texture, NULL_HANDLE, "Texture creation failed");
 
         // Create view
         let view = create_texture_view(
-            ctx, texture, 0, // undefined format
-            0, // undefined dimension
-            0, // base mip
-            1, // mip count
-            0, // base layer
-            1, // layer count
-            0, // all aspects
+            ctx,
+            texture,
+            TextureViewConfig {
+                format: 0,
+                dimension: 0,
+                base_mip_level: 0,
+                mip_level_count: 1,
+                base_array_layer: 0,
+                array_layer_count: 1,
+                aspect: 0,
+            },
         );
         assert_ne!(view, NULL_HANDLE, "Texture view creation failed");
 

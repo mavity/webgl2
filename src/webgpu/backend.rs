@@ -6,6 +6,9 @@ use std::time::Duration;
 use wgpu_hal as hal;
 use wgpu_types as wgt;
 
+type VertexBufferEntry = Option<(Arc<Mutex<Vec<u8>>>, wgt::BufferAddress)>;
+type IndexBufferEntry = Option<(Arc<Mutex<Vec<u8>>>, wgt::BufferAddress, wgt::IndexFormat)>;
+
 macro_rules! impl_dyn_resource {
     ($($type:ty),*) => {
         $(
@@ -73,9 +76,7 @@ impl hal::Instance for SoftInstance {
         &self,
         _surface_hint: Option<&SoftSurface>,
     ) -> Vec<hal::ExposedAdapter<SoftApi>> {
-        let adapter = SoftAdapter {
-            handle: 0, // Dummy handle
-        };
+        let adapter = SoftAdapter;
 
         let info = wgt::AdapterInfo {
             name: "WASM Soft-GPU".to_string(),
@@ -140,9 +141,7 @@ impl hal::Surface for SoftSurface {
 }
 
 #[derive(Debug)]
-pub struct SoftAdapter {
-    handle: u32,
-}
+pub struct SoftAdapter;
 
 impl hal::Adapter for SoftAdapter {
     type A = SoftApi;
@@ -154,7 +153,7 @@ impl hal::Adapter for SoftAdapter {
         _memory_hints: &wgt::MemoryHints,
     ) -> Result<hal::OpenDevice<SoftApi>, hal::DeviceError> {
         let device = SoftDevice {
-            mem_allocator: Arc::new(Mutex::new(0)), // Simple allocator
+            _mem_allocator: Arc::new(Mutex::new(0)), // Simple allocator
         };
         let queue = SoftQueue;
         Ok(hal::OpenDevice { device, queue })
@@ -189,7 +188,7 @@ impl hal::Adapter for SoftAdapter {
 #[derive(Debug)]
 pub struct SoftDevice {
     // In a real implementation, this would manage memory
-    mem_allocator: Arc<Mutex<u32>>,
+    _mem_allocator: Arc<Mutex<u32>>,
 }
 
 impl hal::Device for SoftDevice {
@@ -201,8 +200,7 @@ impl hal::Device for SoftDevice {
     ) -> Result<SoftBuffer, hal::DeviceError> {
         // Allocate memory for the buffer
         let size = desc.size as usize;
-        let mut data = Vec::with_capacity(size);
-        data.resize(size, 0);
+        let data = vec![0; size];
 
         Ok(SoftBuffer {
             data: Arc::new(Mutex::new(data)),
@@ -357,7 +355,7 @@ impl hal::Device for SoftDevice {
                 format: desc.format,
                 dimension: desc.dimension,
                 usage: desc.usage,
-                range: desc.range.clone(),
+                range: desc.range,
             },
             texture_desc: texture.desc.clone(),
         })
@@ -620,8 +618,7 @@ impl hal::Queue for SoftQueue {
                             for z in 0..depth {
                                 for y in 0..height {
                                     let src_idx =
-                                        (src_offset as u32 + (z * slice_pitch) + (y * row_pitch))
-                                            as usize;
+                                        (src_offset + (z * slice_pitch) + (y * row_pitch)) as usize;
                                     let dst_idx = (dst_offset
                                         + (z as u64 * slice_pitch as u64)
                                         + (y as u64 * row_pitch as u64))
@@ -640,55 +637,47 @@ impl hal::Queue for SoftQueue {
                     }
                     SoftCommand::RenderPass { desc, commands } => {
                         // 1. Handle LoadOps (Clearing)
-                        for attachment in &desc.color_attachments {
-                            if let Some(att) = attachment {
-                                if let wgt::LoadOp::Clear(color) = att.load_op {
-                                    let mut data = att.view.texture.lock().unwrap();
-                                    let format = att.view.texture_desc.format;
+                        for att in desc.color_attachments.iter().flatten() {
+                            if let wgt::LoadOp::Clear(color) = att.load_op {
+                                let mut data = att.view.texture.lock().unwrap();
+                                let format = att.view.texture_desc.format;
 
-                                    // TODO: Handle other formats properly
-                                    match format {
-                                        wgt::TextureFormat::Rgba8Unorm
-                                        | wgt::TextureFormat::Bgra8Unorm => {
-                                            let r = (color.r * 255.0) as u8;
-                                            let g = (color.g * 255.0) as u8;
-                                            let b = (color.b * 255.0) as u8;
-                                            let a = (color.a * 255.0) as u8;
-                                            let pixel = [r, g, b, a];
+                                // TODO: Handle other formats properly
+                                match format {
+                                    wgt::TextureFormat::Rgba8Unorm
+                                    | wgt::TextureFormat::Bgra8Unorm => {
+                                        let r = (color.r * 255.0) as u8;
+                                        let g = (color.g * 255.0) as u8;
+                                        let b = (color.b * 255.0) as u8;
+                                        let a = (color.a * 255.0) as u8;
+                                        let pixel = [r, g, b, a];
 
-                                            for chunk in data.chunks_mut(4) {
-                                                if chunk.len() == 4 {
-                                                    chunk.copy_from_slice(&pixel);
-                                                }
+                                        for chunk in data.chunks_mut(4) {
+                                            if chunk.len() == 4 {
+                                                chunk.copy_from_slice(&pixel);
                                             }
                                         }
-                                        _ => {
-                                            eprintln!(
-                                                "SoftGPU: Unsupported format for clear: {:?}",
-                                                format
-                                            );
-                                        }
+                                    }
+                                    _ => {
+                                        eprintln!(
+                                            "SoftGPU: Unsupported format for clear: {:?}",
+                                            format
+                                        );
                                     }
                                 }
                             }
                         }
 
                         if let Some(att) = &desc.depth_stencil_attachment {
-                            let mut data = att.view.texture.lock().unwrap();
+                            let _data = att.view.texture.lock().unwrap();
                             // TODO: Implement depth/stencil clearing
                             // This requires knowing the depth/stencil layout in memory
                         }
 
                         // 2. Execute commands
                         let mut current_pipeline: Option<&SoftRenderPipeline> = None;
-                        let mut vertex_buffers: Vec<
-                            Option<(Arc<Mutex<Vec<u8>>>, wgt::BufferAddress)>,
-                        > = vec![None; 16];
-                        let mut index_buffer: Option<(
-                            Arc<Mutex<Vec<u8>>>,
-                            wgt::BufferAddress,
-                            wgt::IndexFormat,
-                        )> = None;
+                        let mut vertex_buffers: Vec<VertexBufferEntry> = vec![None; 16];
+                        let mut index_buffer: IndexBufferEntry = None;
 
                         for command in commands {
                             match command {
@@ -760,23 +749,25 @@ impl hal::Queue for SoftQueue {
                                             let raster_pipeline =
                                                 wasm_gl_emu::RasterPipeline::default(); // TODO: Map from SoftRenderPipeline
 
-                                            rasterizer.draw(
-                                                &mut fb,
-                                                &raster_pipeline,
-                                                &state,
-                                                &fetcher,
-                                                *vertex_count as usize,
-                                                *instance_count as usize,
-                                                None,   // indices
-                                                0x0004, // TRIANGLES
-                                            );
+                                            rasterizer.draw(wasm_gl_emu::rasterizer::DrawConfig {
+                                                fb: &mut fb,
+                                                pipeline: &raster_pipeline,
+                                                state: &state,
+                                                vertex_fetcher: &fetcher,
+                                                vertex_count: *vertex_count as usize,
+                                                instance_count: *instance_count as usize,
+                                                first_vertex: *first_vertex as usize,
+                                                first_instance: *first_instance as usize,
+                                                indices: None,
+                                                mode: 0x0004, // TRIANGLES
+                                            });
                                         }
                                     }
                                 }
                                 SoftRenderCommand::DrawIndexed {
                                     index_count,
                                     instance_count,
-                                    first_index,
+                                    first_index: _,
                                     base_vertex,
                                     first_instance,
                                 } => {
@@ -858,14 +849,18 @@ impl hal::Queue for SoftQueue {
 
                                             if let Some(idxs) = indices {
                                                 rasterizer.draw(
-                                                    &mut fb,
-                                                    &raster_pipeline,
-                                                    &state,
-                                                    &fetcher,
-                                                    *index_count as usize,
-                                                    *instance_count as usize,
-                                                    Some(&idxs),
-                                                    0x0004, // TRIANGLES
+                                                    wasm_gl_emu::rasterizer::DrawConfig {
+                                                        fb: &mut fb,
+                                                        pipeline: &raster_pipeline,
+                                                        state: &state,
+                                                        vertex_fetcher: &fetcher,
+                                                        vertex_count: *index_count as usize,
+                                                        instance_count: *instance_count as usize,
+                                                        first_vertex: *base_vertex as usize,
+                                                        first_instance: *first_instance as usize,
+                                                        indices: Some(&idxs),
+                                                        mode: 0x0004, // TRIANGLES
+                                                    },
                                                 );
                                             }
                                         }
@@ -1054,8 +1049,6 @@ impl hal::CommandEncoder for SoftCommandEncoder {
                 att.as_ref().map(|a| {
                     let load_op = if a.ops.contains(hal::AttachmentOps::LOAD) {
                         wgt::LoadOp::Load
-                    } else if a.ops.contains(hal::AttachmentOps::LOAD_CLEAR) {
-                        wgt::LoadOp::Clear(a.clear_value)
                     } else {
                         wgt::LoadOp::Clear(a.clear_value)
                     };
@@ -1298,7 +1291,7 @@ impl hal::CommandEncoder for SoftCommandEncoder {
 }
 
 struct SoftVertexFetcher<'a> {
-    vertex_buffers: &'a [Option<(Arc<Mutex<Vec<u8>>>, wgt::BufferAddress)>],
+    vertex_buffers: &'a [VertexBufferEntry],
     vertex_layouts: &'a [SoftVertexBufferLayout],
 }
 

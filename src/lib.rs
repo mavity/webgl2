@@ -853,9 +853,7 @@ pub extern "C" fn wasm_webgpu_create_texture(
     format: u32,
     usage: u32,
 ) -> u32 {
-    webgpu::texture::create_texture(
-        ctx_handle,
-        device_handle,
+    let config = webgpu::texture::TextureConfig {
         width,
         height,
         depth_or_array_layers,
@@ -864,7 +862,8 @@ pub extern "C" fn wasm_webgpu_create_texture(
         dimension,
         format,
         usage,
-    )
+    };
+    webgpu::texture::create_texture(ctx_handle, device_handle, config)
 }
 
 #[no_mangle]
@@ -879,9 +878,7 @@ pub extern "C" fn wasm_webgpu_create_texture_view(
     array_layer_count: u32,
     aspect: u32,
 ) -> u32 {
-    webgpu::texture::create_texture_view(
-        ctx_handle,
-        texture_handle,
+    let config = webgpu::texture::TextureViewConfig {
         format,
         dimension,
         base_mip_level,
@@ -889,7 +886,8 @@ pub extern "C" fn wasm_webgpu_create_texture_view(
         base_array_layer,
         array_layer_count,
         aspect,
-    )
+    };
+    webgpu::texture::create_texture_view(ctx_handle, texture_handle, config)
 }
 
 #[no_mangle]
@@ -917,6 +915,9 @@ pub unsafe extern "C" fn wasm_webgpu_create_shader_module(
     webgpu::shader::create_shader_module(ctx_handle, device_handle, code_ptr, code_len)
 }
 
+/// # Safety
+///
+/// This function is unsafe because it takes raw pointers.
 #[no_mangle]
 pub unsafe extern "C" fn wasm_webgpu_create_pipeline_layout(
     ctx_handle: u32,
@@ -961,19 +962,23 @@ pub unsafe extern "C" fn wasm_webgpu_create_render_pipeline(
     };
     let layout_data = std::slice::from_raw_parts(layout_ptr, layout_len);
 
-    webgpu::pipeline::create_render_pipeline(
-        ctx_handle,
-        device_handle,
+    let config = webgpu::pipeline::RenderPipelineConfig {
         vertex_module_handle,
-        v_entry,
+        vertex_entry: v_entry,
         fragment_module_handle,
-        f_entry,
+        fragment_entry: f_entry,
         layout_data,
         pipeline_layout_handle,
-    )
+    };
+
+    webgpu::pipeline::create_render_pipeline(ctx_handle, device_handle, config)
 }
 
 /// Create a bind group layout.
+///
+/// # Safety
+///
+/// This function is unsafe because it takes raw pointers.
 #[no_mangle]
 pub unsafe extern "C" fn wasm_webgpu_create_bind_group_layout(
     ctx_handle: u32,
@@ -987,6 +992,10 @@ pub unsafe extern "C" fn wasm_webgpu_create_bind_group_layout(
 }
 
 /// Create a bind group.
+///
+/// # Safety
+///
+/// This function is unsafe because it takes raw pointers.
 #[no_mangle]
 pub unsafe extern "C" fn wasm_webgpu_create_bind_group(
     ctx_handle: u32,
@@ -1001,6 +1010,10 @@ pub unsafe extern "C" fn wasm_webgpu_create_bind_group(
 }
 
 /// Run a render pass with buffered commands.
+///
+/// # Safety
+///
+/// This function is unsafe because it takes raw pointers.
 #[no_mangle]
 pub unsafe extern "C" fn wasm_webgpu_command_encoder_run_render_pass(
     ctx_handle: u32,
@@ -1016,9 +1029,7 @@ pub unsafe extern "C" fn wasm_webgpu_command_encoder_run_render_pass(
     commands_len: usize,
 ) -> u32 {
     let commands = std::slice::from_raw_parts(commands_ptr, commands_len);
-    webgpu::command::command_encoder_run_render_pass(
-        ctx_handle,
-        encoder_handle,
+    let config = webgpu::command::RenderPassConfig {
         view_handle,
         load_op,
         store_op,
@@ -1026,8 +1037,8 @@ pub unsafe extern "C" fn wasm_webgpu_command_encoder_run_render_pass(
         clear_g,
         clear_b,
         clear_a,
-        commands,
-    )
+    };
+    webgpu::command::command_encoder_run_render_pass(ctx_handle, encoder_handle, config, commands)
 }
 
 #[no_mangle]
@@ -1090,9 +1101,7 @@ pub extern "C" fn wasm_webgpu_command_encoder_copy_texture_to_buffer(
     size_height: u32,
     size_depth: u32,
 ) -> u32 {
-    webgpu::command::command_encoder_copy_texture_to_buffer(
-        ctx_handle,
-        encoder_handle,
+    let config = webgpu::command::CopyTextureToBufferConfig {
         source_texture_handle,
         dest_buffer_handle,
         dest_offset,
@@ -1101,7 +1110,8 @@ pub extern "C" fn wasm_webgpu_command_encoder_copy_texture_to_buffer(
         size_width,
         size_height,
         size_depth,
-    )
+    };
+    webgpu::command::command_encoder_copy_texture_to_buffer(ctx_handle, encoder_handle, config)
 }
 
 #[no_mangle]
@@ -1116,9 +1126,7 @@ pub extern "C" fn wasm_webgpu_command_encoder_begin_render_pass_1_color(
     clear_b: f64,
     clear_a: f64,
 ) -> u32 {
-    webgpu::command::command_encoder_begin_render_pass_1_color(
-        ctx_handle,
-        encoder_handle,
+    let config = webgpu::command::RenderPassConfig {
         view_handle,
         load_op,
         store_op,
@@ -1126,7 +1134,8 @@ pub extern "C" fn wasm_webgpu_command_encoder_begin_render_pass_1_color(
         clear_g,
         clear_b,
         clear_a,
-    )
+    };
+    webgpu::command::command_encoder_begin_render_pass_1_color(ctx_handle, encoder_handle, config)
 }
 
 // ============================================================================

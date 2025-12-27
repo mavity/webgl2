@@ -1,6 +1,7 @@
 //! WebGPU Command Encoder and Queue management
 
 use super::adapter::with_context;
+use std::num::NonZero;
 use wgpu_types as wgt;
 
 /// Create a new command encoder
@@ -137,18 +138,22 @@ pub fn queue_submit(ctx_handle: u32, device_handle: u32, cb_handles: &[u32]) -> 
     })
 }
 
+pub struct CopyTextureToBufferConfig {
+    pub source_texture_handle: u32,
+    pub dest_buffer_handle: u32,
+    pub dest_offset: u64,
+    pub dest_bytes_per_row: u32,
+    pub dest_rows_per_image: u32,
+    pub size_width: u32,
+    pub size_height: u32,
+    pub size_depth: u32,
+}
+
 /// Copy texture to buffer
 pub fn command_encoder_copy_texture_to_buffer(
     ctx_handle: u32,
     encoder_handle: u32,
-    source_texture_handle: u32,
-    dest_buffer_handle: u32,
-    dest_offset: u64,
-    dest_bytes_per_row: u32,
-    dest_rows_per_image: u32,
-    size_width: u32,
-    size_height: u32,
-    size_depth: u32,
+    config: CopyTextureToBufferConfig,
 ) -> u32 {
     with_context(ctx_handle, |ctx| {
         let encoder_id = match ctx.command_encoders.get(&encoder_handle) {
@@ -156,12 +161,12 @@ pub fn command_encoder_copy_texture_to_buffer(
             None => return super::WEBGPU_ERROR_INVALID_HANDLE,
         };
 
-        let texture_id = match ctx.textures.get(&source_texture_handle) {
+        let texture_id = match ctx.textures.get(&config.source_texture_handle) {
             Some(id) => *id,
             None => return super::WEBGPU_ERROR_INVALID_HANDLE,
         };
 
-        let buffer_id = match ctx.buffers.get(&dest_buffer_handle) {
+        let buffer_id = match ctx.buffers.get(&config.dest_buffer_handle) {
             Some(id) => *id,
             None => return super::WEBGPU_ERROR_INVALID_HANDLE,
         };
@@ -176,14 +181,14 @@ pub fn command_encoder_copy_texture_to_buffer(
         let dest = wgt::TexelCopyBufferInfo {
             buffer: buffer_id,
             layout: wgt::TexelCopyBufferLayout {
-                offset: dest_offset,
-                bytes_per_row: if dest_bytes_per_row > 0 {
-                    Some(dest_bytes_per_row)
+                offset: config.dest_offset,
+                bytes_per_row: if config.dest_bytes_per_row > 0 {
+                    Some(config.dest_bytes_per_row)
                 } else {
                     None
                 },
-                rows_per_image: if dest_rows_per_image > 0 {
-                    Some(dest_rows_per_image)
+                rows_per_image: if config.dest_rows_per_image > 0 {
+                    Some(config.dest_rows_per_image)
                 } else {
                     None
                 },
@@ -191,9 +196,9 @@ pub fn command_encoder_copy_texture_to_buffer(
         };
 
         let size = wgt::Extent3d {
-            width: size_width,
-            height: size_height,
-            depth_or_array_layers: size_depth,
+            width: config.size_width,
+            height: config.size_height,
+            depth_or_array_layers: config.size_depth,
         };
 
         if let Err(e) = ctx
@@ -208,46 +213,31 @@ pub fn command_encoder_copy_texture_to_buffer(
     })
 }
 
-use std::num::NonZero;
+pub struct RenderPassConfig {
+    pub view_handle: u32,
+    pub load_op: u32,
+    pub store_op: u32,
+    pub clear_r: f64,
+    pub clear_g: f64,
+    pub clear_b: f64,
+    pub clear_a: f64,
+}
 
 /// Begin render pass (simplified for 1 color attachment)
 pub fn command_encoder_begin_render_pass_1_color(
     ctx_handle: u32,
     encoder_handle: u32,
-    view_handle: u32,
-    load_op: u32,  // 0: Load, 1: Clear
-    store_op: u32, // 0: Store, 1: Discard
-    clear_r: f64,
-    clear_g: f64,
-    clear_b: f64,
-    clear_a: f64,
+    config: RenderPassConfig,
 ) -> u32 {
     // Deprecated in favor of run_render_pass, but kept for compatibility if needed
-    command_encoder_run_render_pass(
-        ctx_handle,
-        encoder_handle,
-        view_handle,
-        load_op,
-        store_op,
-        clear_r,
-        clear_g,
-        clear_b,
-        clear_a,
-        &[],
-    )
+    command_encoder_run_render_pass(ctx_handle, encoder_handle, config, &[])
 }
 
 /// Run a render pass with buffered commands
 pub fn command_encoder_run_render_pass(
     ctx_handle: u32,
     encoder_handle: u32,
-    view_handle: u32,
-    load_op: u32,
-    store_op: u32,
-    clear_r: f64,
-    clear_g: f64,
-    clear_b: f64,
-    clear_a: f64,
+    config: RenderPassConfig,
     commands: &[u32],
 ) -> u32 {
     with_context(ctx_handle, |ctx| {
@@ -256,22 +246,22 @@ pub fn command_encoder_run_render_pass(
             None => return super::NULL_HANDLE,
         };
 
-        let view_id = match ctx.texture_views.get(&view_handle) {
+        let view_id = match ctx.texture_views.get(&config.view_handle) {
             Some(id) => *id,
             None => return super::NULL_HANDLE,
         };
 
-        let load = match load_op {
+        let load = match config.load_op {
             0 => wgpu_core::command::LoadOp::Load,
             _ => wgpu_core::command::LoadOp::Clear(wgt::Color {
-                r: clear_r,
-                g: clear_g,
-                b: clear_b,
-                a: clear_a,
+                r: config.clear_r,
+                g: config.clear_g,
+                b: config.clear_b,
+                a: config.clear_a,
             }),
         };
 
-        let store = match store_op {
+        let store = match config.store_op {
             0 => wgt::StoreOp::Store,
             _ => wgt::StoreOp::Discard,
         };
@@ -316,7 +306,7 @@ pub fn command_encoder_run_render_pass(
                     let pipeline_handle = commands[cursor];
                     cursor += 1;
                     if let Some(id) = ctx.render_pipelines.get(&pipeline_handle) {
-                        ctx.global.render_pass_set_pipeline(&mut pass, *id);
+                        let _ = ctx.global.render_pass_set_pipeline(&mut pass, *id);
                     }
                 }
                 2 => {
@@ -331,7 +321,7 @@ pub fn command_encoder_run_render_pass(
                     cursor += 4;
 
                     if let Some(id) = ctx.buffers.get(&buffer_handle) {
-                        ctx.global.render_pass_set_vertex_buffer(
+                        let _ = ctx.global.render_pass_set_vertex_buffer(
                             &mut pass,
                             slot,
                             *id,
