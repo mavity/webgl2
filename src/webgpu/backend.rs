@@ -245,7 +245,9 @@ impl hal::Device for SoftDevice {
         &self,
         _desc: &hal::CommandEncoderDescriptor<SoftQueue>,
     ) -> Result<SoftCommandEncoder, hal::DeviceError> {
-        Ok(SoftCommandEncoder)
+        Ok(SoftCommandEncoder {
+            commands: Vec::new(),
+        })
     }
 
     unsafe fn create_bind_group_layout(
@@ -323,20 +325,22 @@ impl hal::Device for SoftDevice {
     }
 
     unsafe fn create_fence(&self) -> Result<SoftFence, hal::DeviceError> {
-        Ok(SoftFence)
+        Ok(SoftFence {
+            value: Arc::new(Mutex::new(0)),
+        })
     }
 
-    unsafe fn get_fence_value(&self, _fence: &SoftFence) -> Result<hal::FenceValue, hal::DeviceError> {
-        Ok(0)
+    unsafe fn get_fence_value(&self, fence: &SoftFence) -> Result<hal::FenceValue, hal::DeviceError> {
+        Ok(*fence.value.lock().unwrap())
     }
 
     unsafe fn wait(
         &self,
-        _fence: &SoftFence,
-        _value: hal::FenceValue,
+        fence: &SoftFence,
+        value: hal::FenceValue,
         _timeout_ms: Option<Duration>,
     ) -> Result<bool, hal::DeviceError> {
-        Ok(true)
+        Ok(*fence.value.lock().unwrap() >= value)
     }
 
 
@@ -367,6 +371,15 @@ impl hal::Device for SoftDevice {
 }
 
 #[derive(Debug)]
+pub enum SoftCommand {
+    CopyBufferToBuffer {
+        src: Arc<Mutex<Vec<u8>>>,
+        dst: Arc<Mutex<Vec<u8>>>,
+        regions: Vec<hal::BufferCopy>,
+    },
+}
+
+#[derive(Debug)]
 pub struct SoftQueue;
 
 impl hal::Queue for SoftQueue {
@@ -374,11 +387,37 @@ impl hal::Queue for SoftQueue {
 
     unsafe fn submit(
         &self,
-        _command_buffers: &[&SoftCommandBuffer],
+        command_buffers: &[&SoftCommandBuffer],
         _surface_textures: &[&SoftTexture],
-        _fence: (&mut SoftFence, hal::FenceValue),
+        fence: (&mut SoftFence, hal::FenceValue),
     ) -> Result<(), hal::DeviceError> {
-        // Execute commands here
+        for cmd_buf in command_buffers {
+            for cmd in &cmd_buf.commands {
+                match cmd {
+                    SoftCommand::CopyBufferToBuffer { src, dst, regions } => {
+                        let src_data = src.lock().unwrap();
+                        let mut dst_data = dst.lock().unwrap();
+                        for region in regions {
+                            let src_start = region.src_offset as usize;
+                            let dst_start = region.dst_offset as usize;
+                            let size = region.size.get() as usize;
+                            // Ensure bounds
+                            if src_start + size <= src_data.len() && dst_start + size <= dst_data.len() {
+                                dst_data[dst_start..dst_start + size].copy_from_slice(&src_data[src_start..src_start + size]);
+                            } else {
+                                // Log error or panic in debug?
+                                eprintln!("SoftGPU: CopyBufferToBuffer out of bounds");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Update fence
+        let (fence, value) = fence;
+        *fence.value.lock().unwrap() = value;
+
         Ok(())
     }
 
@@ -396,32 +435,52 @@ impl hal::Queue for SoftQueue {
 }
 
 #[derive(Debug)]
-pub struct SoftCommandEncoder;
+pub struct SoftCommandEncoder {
+    commands: Vec<SoftCommand>,
+}
 
 impl hal::CommandEncoder for SoftCommandEncoder {
     type A = SoftApi;
 
     unsafe fn begin_encoding(&mut self, _label: hal::Label) -> Result<(), hal::DeviceError> {
+        self.commands.clear();
         Ok(())
     }
 
-    unsafe fn discard_encoding(&mut self) {}
+    unsafe fn discard_encoding(&mut self) {
+        self.commands.clear();
+    }
 
     unsafe fn end_encoding(&mut self) -> Result<SoftCommandBuffer, hal::DeviceError> {
-        Ok(SoftCommandBuffer)
+        let cmd_buf = SoftCommandBuffer {
+            commands: std::mem::take(&mut self.commands),
+        };
+        Ok(cmd_buf)
     }
 
     unsafe fn reset_all<I>(&mut self, _command_buffers: I)
     where
         I: Iterator<Item = SoftCommandBuffer>,
     {
+        // In a real implementation, we might recycle command buffers
     }
 
     // Missing methods implementation
     unsafe fn transition_buffers<'a, T>(&mut self, _barriers: T) where T: Iterator<Item = hal::BufferBarrier<'a, SoftBuffer>> {}
     unsafe fn transition_textures<'a, T>(&mut self, _barriers: T) where T: Iterator<Item = hal::TextureBarrier<'a, SoftTexture>> {}
     unsafe fn clear_buffer(&mut self, _buffer: &SoftBuffer, _range: std::ops::Range<wgt::BufferAddress>) {}
-    unsafe fn copy_buffer_to_buffer<T>(&mut self, _src: &SoftBuffer, _dst: &SoftBuffer, _regions: T) where T: Iterator<Item = hal::BufferCopy> {}
+    
+    unsafe fn copy_buffer_to_buffer<T>(&mut self, src: &SoftBuffer, dst: &SoftBuffer, regions: T) 
+    where T: Iterator<Item = hal::BufferCopy> 
+    {
+        let regions_vec: Vec<hal::BufferCopy> = regions.collect();
+        self.commands.push(SoftCommand::CopyBufferToBuffer {
+            src: src.data.clone(),
+            dst: dst.data.clone(),
+            regions: regions_vec,
+        });
+    }
+
     unsafe fn copy_texture_to_texture<T>(&mut self, _src: &SoftTexture, _src_usage: wgt::TextureUses, _dst: &SoftTexture, _regions: T) where T: Iterator<Item = hal::TextureCopy> {}
     unsafe fn copy_buffer_to_texture<T>(&mut self, _src: &SoftBuffer, _dst: &SoftTexture, _regions: T) where T: Iterator<Item = hal::BufferTextureCopy> {}
     unsafe fn copy_texture_to_buffer<T>(&mut self, _src: &SoftTexture, _src_usage: wgt::TextureUses, _dst: &SoftBuffer, _regions: T) where T: Iterator<Item = hal::BufferTextureCopy> {}
@@ -465,7 +524,9 @@ impl hal::CommandEncoder for SoftCommandEncoder {
 }
 
 #[derive(Debug)]
-pub struct SoftCommandBuffer;
+pub struct SoftCommandBuffer {
+    pub commands: Vec<SoftCommand>,
+}
 
 #[derive(Debug)]
 pub struct SoftBuffer {
@@ -487,7 +548,9 @@ pub struct SoftSampler;
 pub struct SoftQuerySet;
 
 #[derive(Debug)]
-pub struct SoftFence;
+pub struct SoftFence {
+    pub value: Arc<Mutex<hal::FenceValue>>,
+}
 
 #[derive(Debug)]
 pub struct SoftPipelineLayout;

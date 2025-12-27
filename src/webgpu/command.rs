@@ -53,6 +53,48 @@ pub fn command_encoder_finish(ctx_handle: u32, encoder_handle: u32) -> u32 {
     })
 }
 
+/// Copy buffer to buffer
+pub fn command_encoder_copy_buffer_to_buffer(
+    ctx_handle: u32,
+    encoder_handle: u32,
+    source_handle: u32,
+    source_offset: u64,
+    dest_handle: u32,
+    dest_offset: u64,
+    size: u64,
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let encoder_id = match ctx.command_encoders.get(&encoder_handle) {
+            Some(id) => *id,
+            None => return super::NULL_HANDLE,
+        };
+
+        let source_id = match ctx.buffers.get(&source_handle) {
+            Some(id) => *id,
+            None => return super::NULL_HANDLE,
+        };
+
+        let dest_id = match ctx.buffers.get(&dest_handle) {
+            Some(id) => *id,
+            None => return super::NULL_HANDLE,
+        };
+
+        if let Err(e) = ctx.global.command_encoder_copy_buffer_to_buffer(
+            encoder_id,
+            source_id,
+            source_offset,
+            dest_id,
+            dest_offset,
+            Some(size),
+        ) {
+            crate::js_log(0, &format!("Failed to copy buffer to buffer: {:?}", e));
+            return super::NULL_HANDLE;
+        }
+        
+        0 // Success
+    })
+}
+
 /// Submit command buffers to the queue
 pub fn queue_submit(ctx_handle: u32, device_handle: u32, cb_handles: &[u32]) -> u32 {
     with_context(ctx_handle, |ctx| {

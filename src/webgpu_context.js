@@ -33,6 +33,46 @@
  * and software rasterization of WebGPU workloads.
  */
 
+export const GPUBufferUsage = {
+    MAP_READ: 0x0001,
+    MAP_WRITE: 0x0002,
+    COPY_SRC: 0x0004,
+    COPY_DST: 0x0008,
+    INDEX: 0x0010,
+    VERTEX: 0x0020,
+    UNIFORM: 0x0040,
+    STORAGE: 0x0080,
+    INDIRECT: 0x0100,
+    QUERY_RESOLVE: 0x0200,
+};
+
+export const GPUMapMode = {
+    READ: 0x0001,
+    WRITE: 0x0002,
+};
+
+export const GPUTextureUsage = {
+    COPY_SRC: 0x01,
+    COPY_DST: 0x02,
+    TEXTURE_BINDING: 0x04,
+    STORAGE_BINDING: 0x08,
+    RENDER_ATTACHMENT: 0x10,
+};
+
+export const GPUShaderStage = {
+    VERTEX: 0x1,
+    FRAGMENT: 0x2,
+    COMPUTE: 0x4,
+};
+
+// Polyfill globals if missing (e.g. in Node.js)
+if (typeof globalThis !== 'undefined') {
+    if (!globalThis.GPUBufferUsage) globalThis.GPUBufferUsage = GPUBufferUsage;
+    if (!globalThis.GPUMapMode) globalThis.GPUMapMode = GPUMapMode;
+    if (!globalThis.GPUTextureUsage) globalThis.GPUTextureUsage = GPUTextureUsage;
+    if (!globalThis.GPUShaderStage) globalThis.GPUShaderStage = GPUShaderStage;
+}
+
 /**
  * Wrapper around a WebAssembly-backed WebGPU implementation.
  */
@@ -46,6 +86,7 @@ export class GPU {
         this.wasm = wasmModule;
         this.memory = wasmMemory;
     }
+
 
     /**
      * Request a GPUAdapter
@@ -120,7 +161,7 @@ export class GPUDevice {
         this.memory = wasmMemory;
         this.ctxHandle = ctxHandle;
         this.deviceHandle = deviceHandle;
-        this.queue = new GPUQueue(wasmModule, wasmMemory, ctxHandle, 1); // Placeholder queue handle
+        this.queue = new GPUQueue(wasmModule, wasmMemory, ctxHandle, deviceHandle);
         this._destroyed = false;
     }
 
@@ -130,9 +171,17 @@ export class GPUDevice {
      * @returns {GPUBuffer}
      */
     createBuffer(descriptor) {
-        // TODO: Call wasm function to create buffer
-        const bufferHandle = 1; // Placeholder
-        return new GPUBuffer(this.wasm, this.memory, this.ctxHandle, bufferHandle, descriptor.size);
+        const bufferHandle = this.wasm.wasm_webgpu_create_buffer(
+            this.ctxHandle,
+            this.deviceHandle,
+            BigInt(descriptor.size),
+            descriptor.usage,
+            descriptor.mappedAtCreation || false
+        );
+        if (bufferHandle === 0) {
+            throw new Error("Failed to create buffer");
+        }
+        return new GPUBuffer(this.wasm, this.memory, this.ctxHandle, this.deviceHandle, bufferHandle, descriptor.size);
     }
 
     /**
@@ -163,8 +212,10 @@ export class GPUDevice {
      * @returns {GPUCommandEncoder}
      */
     createCommandEncoder(descriptor = {}) {
-        // TODO: Call wasm function to create command encoder
-        const encoderHandle = 1; // Placeholder
+        const encoderHandle = this.wasm.wasm_webgpu_create_command_encoder(this.ctxHandle, this.deviceHandle);
+        if (encoderHandle === 0) {
+            throw new Error("Failed to create command encoder");
+        }
         return new GPUCommandEncoder(this.wasm, this.memory, this.ctxHandle, encoderHandle);
     }
 
@@ -199,7 +250,14 @@ export class GPUQueue {
      * @param {Array<GPUCommandBuffer>} commandBuffers
      */
     submit(commandBuffers) {
-        // TODO: Call wasm function to submit command buffers
+        const handles = new Uint32Array(commandBuffers.map(cb => cb.commandBufferHandle));
+        const ptr = this.wasm.wasm_alloc(handles.byteLength);
+        const heapU32 = new Uint32Array(this.memory.buffer, ptr, handles.length);
+        heapU32.set(handles);
+        
+        this.wasm.wasm_webgpu_queue_submit(this.ctxHandle, this.queueHandle, ptr, handles.length);
+        
+        this.wasm.wasm_free(ptr, handles.byteLength);
     }
 
     /**
@@ -220,13 +278,15 @@ export class GPUBuffer {
      * @param {*} wasmModule
      * @param {WebAssembly.Memory} wasmMemory
      * @param {number} ctxHandle
+     * @param {number} deviceHandle
      * @param {number} bufferHandle
      * @param {number} size
      */
-    constructor(wasmModule, wasmMemory, ctxHandle, bufferHandle, size) {
+    constructor(wasmModule, wasmMemory, ctxHandle, deviceHandle, bufferHandle, size) {
         this.wasm = wasmModule;
         this.memory = wasmMemory;
         this.ctxHandle = ctxHandle;
+        this.deviceHandle = deviceHandle;
         this.bufferHandle = bufferHandle;
         this.size = size;
     }
@@ -239,7 +299,17 @@ export class GPUBuffer {
      * @returns {Promise<void>}
      */
     async mapAsync(mode, offset = 0, size) {
-        // TODO: Implement buffer mapping
+        const result = this.wasm.wasm_webgpu_buffer_map_async(
+            this.ctxHandle,
+            this.deviceHandle,
+            this.bufferHandle,
+            mode,
+            BigInt(offset),
+            BigInt(size || this.size)
+        );
+        if (result !== 0) {
+             throw new Error("Failed to map buffer");
+        }
         return Promise.resolve();
     }
 
@@ -247,18 +317,26 @@ export class GPUBuffer {
      * Get mapped range
      * @param {number} offset
      * @param {number} size
-     * @returns {ArrayBuffer}
+     * @returns {Uint8Array}
      */
     getMappedRange(offset = 0, size) {
-        // TODO: Return mapped range
-        return new ArrayBuffer(size || this.size);
+        const ptr = this.wasm.wasm_webgpu_buffer_get_mapped_range(
+            this.ctxHandle,
+            this.bufferHandle,
+            BigInt(offset),
+            BigInt(size || this.size)
+        );
+        if (ptr === 0) {
+            throw new Error("Failed to get mapped range");
+        }
+        return new Uint8Array(this.memory.buffer, ptr, (size || this.size));
     }
 
     /**
      * Unmap the buffer
      */
     unmap() {
-        // TODO: Implement unmapping
+        this.wasm.wasm_webgpu_buffer_unmap(this.ctxHandle, this.bufferHandle);
     }
 
     /**
@@ -314,6 +392,26 @@ export class GPUCommandEncoder {
     }
 
     /**
+     * Copy data from one buffer to another
+     * @param {GPUBuffer} source
+     * @param {number} sourceOffset
+     * @param {GPUBuffer} destination
+     * @param {number} destinationOffset
+     * @param {number} size
+     */
+    copyBufferToBuffer(source, sourceOffset, destination, destinationOffset, size) {
+        this.wasm.wasm_webgpu_command_encoder_copy_buffer_to_buffer(
+            this.ctxHandle,
+            this.encoderHandle,
+            source.bufferHandle,
+            BigInt(sourceOffset),
+            destination.bufferHandle,
+            BigInt(destinationOffset),
+            BigInt(size)
+        );
+    }
+
+    /**
      * Begin a render pass
      * @param {Object} descriptor - Render pass descriptor
      * @returns {GPURenderPassEncoder}
@@ -329,8 +427,10 @@ export class GPUCommandEncoder {
      * @returns {GPUCommandBuffer}
      */
     finish() {
-        // TODO: Call wasm function to finish encoding
-        const commandBufferHandle = 1; // Placeholder
+        const commandBufferHandle = this.wasm.wasm_webgpu_command_encoder_finish(this.ctxHandle, this.encoderHandle);
+        if (commandBufferHandle === 0) {
+            throw new Error("Failed to finish command encoder");
+        }
         return new GPUCommandBuffer(this.wasm, this.memory, this.ctxHandle, commandBufferHandle);
     }
 }

@@ -49,3 +49,96 @@ pub fn destroy_buffer(ctx_handle: u32, buffer_handle: u32) -> u32 {
         }
     })
 }
+
+/// Map a buffer asynchronously
+pub fn buffer_map_async(
+    ctx_handle: u32,
+    device_handle: u32,
+    buffer_handle: u32,
+    mode: u32,
+    offset: u64,
+    size: u64,
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let device_id = match ctx.devices.get(&device_handle) {
+            Some(id) => *id,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        let buffer_id = match ctx.buffers.get(&buffer_handle) {
+            Some(id) => *id,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        let host = if mode == 1 { // Read
+            wgpu_core::device::HostMap::Read
+        } else { // Write
+            wgpu_core::device::HostMap::Write
+        };
+
+        let op = wgpu_core::resource::BufferMapOperation {
+            host,
+            callback: None,
+        };
+
+        match ctx.global.buffer_map_async(buffer_id, offset, Some(size), op) {
+            Ok(_) => {
+                // In a single-threaded WASM environment, we must manually poll the device
+                // to process the mapping operation. wgpu-core is lazy and won't transition
+                // the buffer state to "Mapped" until poll is called. Since we don't have
+                // background threads, we force the update here to make the operation
+                // effectively synchronous from the JS perspective.
+                if let Err(e) = ctx.global.device_poll(device_id, wgt::PollType::Poll) {
+                    crate::js_log(0, &format!("Failed to poll device after map: {:?}", e));
+                    return super::WEBGPU_ERROR_INVALID_HANDLE;
+                }
+                super::WEBGPU_SUCCESS
+            }
+            Err(e) => {
+                crate::js_log(0, &format!("Failed to map buffer: {:?}", e));
+                super::WEBGPU_ERROR_INVALID_HANDLE
+            }
+        }
+    })
+}
+
+/// Get mapped range of a buffer
+pub fn buffer_get_mapped_range(
+    ctx_handle: u32,
+    buffer_handle: u32,
+    offset: u64,
+    size: u64,
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let buffer_id = match ctx.buffers.get(&buffer_handle) {
+            Some(id) => *id,
+            None => return 0,
+        };
+
+        match ctx.global.buffer_get_mapped_range(buffer_id, offset, Some(size)) {
+            Ok((ptr, _len)) => ptr.as_ptr() as u32,
+            Err(e) => {
+                crate::js_log(0, &format!("Failed to get mapped range: {:?}", e));
+                0
+            }
+        }
+    })
+}
+
+/// Unmap a buffer
+pub fn buffer_unmap(ctx_handle: u32, buffer_handle: u32) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let buffer_id = match ctx.buffers.get(&buffer_handle) {
+            Some(id) => *id,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        match ctx.global.buffer_unmap(buffer_id) {
+            Ok(_) => super::WEBGPU_SUCCESS,
+            Err(e) => {
+                crate::js_log(0, &format!("Failed to unmap buffer: {:?}", e));
+                super::WEBGPU_ERROR_INVALID_HANDLE
+            }
+        }
+    })
+}

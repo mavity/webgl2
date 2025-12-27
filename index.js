@@ -6,14 +6,14 @@ import {
   ERR_INVALID_HANDLE,
   readErrorMessage
 } from './src/webgl2_context.js';
-import { GPU } from './src/webgpu_context.js';
+import { GPU, GPUBufferUsage, GPUMapMode, GPUTextureUsage } from './src/webgpu_context.js';
 
 export const debug = {
   getLcovReport,
   resetLcovReport
 };
 
-export { WasmWebGL2RenderingContext, ERR_OK, ERR_INVALID_HANDLE };
+export { ERR_OK, ERR_INVALID_HANDLE, GPUBufferUsage, GPUMapMode, GPUTextureUsage };
 
 /**
  * WebGL2 Prototype: Rust-owned Context, JS thin-forwarder

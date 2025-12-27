@@ -766,6 +766,33 @@ pub extern "C" fn wasm_webgpu_buffer_destroy(ctx_handle: u32, buffer_handle: u32
     webgpu::buffer::destroy_buffer(ctx_handle, buffer_handle)
 }
 
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_buffer_map_async(
+    ctx_handle: u32,
+    device_handle: u32,
+    buffer_handle: u32,
+    mode: u32,
+    offset: u64,
+    size: u64,
+) -> u32 {
+    webgpu::buffer::buffer_map_async(ctx_handle, device_handle, buffer_handle, mode, offset, size)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_buffer_get_mapped_range(
+    ctx_handle: u32,
+    buffer_handle: u32,
+    offset: u64,
+    size: u64,
+) -> u32 {
+    webgpu::buffer::buffer_get_mapped_range(ctx_handle, buffer_handle, offset, size)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_buffer_unmap(ctx_handle: u32, buffer_handle: u32) -> u32 {
+    webgpu::buffer::buffer_unmap(ctx_handle, buffer_handle)
+}
+
 /// Create a shader module from WGSL code.
 ///
 /// # Safety
@@ -824,6 +851,27 @@ pub extern "C" fn wasm_webgpu_create_command_encoder(ctx_handle: u32, device_han
 #[no_mangle]
 pub extern "C" fn wasm_webgpu_command_encoder_finish(ctx_handle: u32, encoder_handle: u32) -> u32 {
     webgpu::command::command_encoder_finish(ctx_handle, encoder_handle)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_command_encoder_copy_buffer_to_buffer(
+    ctx_handle: u32,
+    encoder_handle: u32,
+    source_handle: u32,
+    source_offset: u64,
+    dest_handle: u32,
+    dest_offset: u64,
+    size: u64,
+) -> u32 {
+    webgpu::command::command_encoder_copy_buffer_to_buffer(
+        ctx_handle,
+        encoder_handle,
+        source_handle,
+        source_offset,
+        dest_handle,
+        dest_offset,
+        size,
+    )
 }
 
 /// Submit command buffers to the queue.

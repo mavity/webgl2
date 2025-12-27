@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { webGL2, WasmWebGL2RenderingContext } from '../index.js';
+import { webGL2 } from '../index.js';
 
 test('destroy does not throw', async () => {
   const gl = await webGL2();
@@ -54,8 +54,6 @@ test('can create new context after destroying old one', async () => {
   const handle2 = gl2._ctxHandle;
   
   assert.notStrictEqual(gl1, gl2);
-  // Handles might be reused or incremented, but the objects must be distinct
-  assert.ok(gl2 instanceof WasmWebGL2RenderingContext);
   
   // gl2 should work
   const tex = gl2.createTexture();
