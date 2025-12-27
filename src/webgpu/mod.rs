@@ -5,6 +5,7 @@
 //! rasterization of WebGPU workloads.
 
 pub mod adapter;
+pub mod backend;
 pub mod buffer;
 pub mod command;
 pub mod pipeline;

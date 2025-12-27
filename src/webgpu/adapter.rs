@@ -53,21 +53,14 @@ pub struct WebGpuContext {
 
 impl WebGpuContext {
     pub fn new(id: u32) -> Self {
-        let mut backend_options = wgt::BackendOptions::default();
-        backend_options.noop.enable = true;
+        // Initialize our custom backend instance
+        let soft_instance = crate::webgpu::backend::SoftInstance;
 
-        // Create wgpu-core Global with noop backend
-        // Note: Backends::NOOP causes wgpu-core to use the noop/empty backend
-        // which provides full API validation without rendering
-        let instance_desc = wgt::InstanceDescriptor {
-            backends: wgt::Backends::NOOP,
-            flags: wgt::InstanceFlags::empty(),
-            memory_budget_thresholds: wgt::MemoryBudgetThresholds::default(),
-            backend_options,
-            display: None,
+        // Create Global using our custom backend
+        // unsafe: We are responsible for the lifetime of the instance, which Global takes ownership of
+        let global = unsafe {
+            Global::from_hal_instance::<crate::webgpu::backend::SoftApi>("webgpu-wasm", soft_instance)
         };
-
-        let global = Global::new("webgpu-wasm", instance_desc, None);
 
         WebGpuContext {
             id,

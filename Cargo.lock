@@ -1684,6 +1684,7 @@ dependencies = [
  "js-sys",
  "naga",
  "object",
+ "raw-window-handle",
  "rustc-demangle",
  "serde",
  "serde_json",
