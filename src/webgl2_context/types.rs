@@ -119,6 +119,7 @@ pub(crate) struct Program {
     pub(crate) linked: bool,
     pub(crate) info_log: String,
     pub(crate) attributes: HashMap<String, i32>,
+    pub(crate) attribute_bindings: HashMap<String, u32>,
     pub(crate) uniforms: HashMap<String, i32>,
     pub(crate) vs_module: Option<Arc<naga::Module>>,
     pub(crate) fs_module: Option<Arc<naga::Module>>,

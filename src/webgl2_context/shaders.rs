@@ -216,6 +216,7 @@ pub fn ctx_create_program(ctx: u32) -> u32 {
             linked: false,
             info_log: String::new(),
             attributes: HashMap::new(),
+            attribute_bindings: HashMap::new(),
             uniforms: HashMap::new(),
             vs_module: None,
             fs_module: None,
@@ -295,7 +296,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
     let verbosity = ctx_obj.verbosity;
     Context::log_static(
         verbosity,
-        3,
+        1,
         &format!("ctx_link_program ctx={} program={}", ctx, program),
     );
 
@@ -363,23 +364,84 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
         // Extract attributes and uniforms from Naga modules to ensure consistent locations
         p.attributes.clear();
         p.uniforms.clear();
+        let mut attribute_locations = HashMap::new();
         let mut uniform_locations = HashMap::new();
         let mut next_uniform_loc = 0;
         let mut varying_locations = HashMap::new();
         let mut next_varying_loc = 0; // gl_Position is handled separately at offset 0
 
         if let Some(vs) = &p.vs_module {
+            // 1. Collect active attributes and their requested locations
+            let mut active_attributes = Vec::new();
             for ep in &vs.entry_points {
                 if ep.stage == ShaderStage::Vertex {
                     for arg in &ep.function.arguments {
                         if let Some(name) = &arg.name {
-                            if let Some(Binding::Location { location, .. }) = &arg.binding {
-                                p.attributes.insert(name.clone(), *location as i32);
-                            }
+                            active_attributes.push(name.clone());
                         }
                     }
                 }
             }
+
+            // 2. Assign locations
+            let mut used_locations = HashMap::new(); // location -> attribute name
+            let mut unassigned = Vec::new();
+
+            for name in &active_attributes {
+                let mut location = None;
+
+                // Check for layout qualifier in shader
+                for ep in &vs.entry_points {
+                    if ep.stage == ShaderStage::Vertex {
+                        for arg in &ep.function.arguments {
+                            if arg.name.as_ref() == Some(name) {
+                                Context::log_static(verbosity, 2, &format!("Attribute {} binding: {:?}", name, arg.binding));
+                                if let Some(Binding::Location { location: loc, .. }) = &arg.binding {
+                                    location = Some(*loc);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // If no layout qualifier, check bindAttribLocation
+                if location.is_none() {
+                    if let Some(&loc) = p.attribute_bindings.get(name) {
+                        location = Some(loc);
+                    }
+                }
+
+                if let Some(loc) = location {
+                    if let Some(other_name) = used_locations.get(&loc) {
+                        if other_name != name {
+                            p.linked = false;
+                            p.info_log = format!(
+                                "Link failed: Attributes '{}' and '{}' are both bound to location {}",
+                                name, other_name, loc
+                            );
+                            return ERR_OK;
+                        }
+                    }
+                    used_locations.insert(loc, name.clone());
+                    attribute_locations.insert(name.clone(), loc);
+                    p.attributes.insert(name.clone(), loc as i32);
+                } else {
+                    unassigned.push(name.clone());
+                }
+            }
+
+            // 3. Assign remaining attributes to unused locations
+            let mut next_loc = 0;
+            for name in unassigned {
+                while used_locations.contains_key(&next_loc) {
+                    next_loc += 1;
+                }
+                used_locations.insert(next_loc, name.clone());
+                attribute_locations.insert(name.clone(), next_loc);
+                p.attributes.insert(name.clone(), next_loc as i32);
+                next_loc += 1;
+            }
+
             for (_, var) in vs.global_variables.iter() {
                 if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
                     if let Some(name) = &var.name {
@@ -439,6 +501,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                 vsi,
                 &vs_source,
                 naga::ShaderStage::Vertex,
+                &attribute_locations,
                 &uniform_locations,
                 &varying_locations,
             ) {
@@ -466,6 +529,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                 fsi,
                 &fs_source,
                 naga::ShaderStage::Fragment,
+                &attribute_locations,
                 &uniform_locations,
                 &varying_locations,
             ) {
@@ -696,7 +760,7 @@ pub fn ctx_bind_attrib_location(
     let name = String::from_utf8_lossy(name_slice).into_owned();
 
     if let Some(p) = ctx_obj.programs.get_mut(&program) {
-        p.attributes.insert(name, index as i32);
+        p.attribute_bindings.insert(name, index);
         ERR_OK
     } else {
         set_last_error("program not found");

@@ -154,21 +154,34 @@ pub fn translate_expression_component(
                 // Calculate offset: sum of sizes of previous arguments
                 let mut offset = 0;
                 let arg = &ctx.func.arguments[*idx as usize];
-                if let Some(naga::Binding::Location { location, .. }) = arg.binding {
-                    // Use location-based offset
-                    if ctx.stage == naga::ShaderStage::Vertex {
-                        // VS: attribute location L is at offset L * 64 (to match uniform alignment)
-                        offset = location * 64;
-                    } else {
-                        // FS: varying location L is at offset (L + 1) * 16 (skipping gl_Position)
-                        offset = (location + 1) * 16;
+                let mut found_location = false;
+
+                if ctx.stage == naga::ShaderStage::Vertex {
+                    if let Some(name) = &arg.name {
+                        if let Some(&location) = ctx.attribute_locations.get(name) {
+                            offset = location * 64;
+                            found_location = true;
+                        }
                     }
-                } else {
-                    for i in 0..(*idx as usize) {
-                        let prev_arg = &ctx.func.arguments[i];
-                        let prev_arg_ty = &ctx.module.types[prev_arg.ty].inner;
-                        let prev_size = super::types::type_size(prev_arg_ty).unwrap_or(16);
-                        offset += (prev_size + 3) & !3; // 4-byte alignment
+                }
+
+                if !found_location {
+                    if let Some(naga::Binding::Location { location, .. }) = arg.binding {
+                        // Use location-based offset
+                        if ctx.stage == naga::ShaderStage::Vertex {
+                            // VS: attribute location L is at offset L * 64 (to match uniform alignment)
+                            offset = location * 64;
+                        } else {
+                            // FS: varying location L is at offset (L + 1) * 16 (skipping gl_Position)
+                            offset = (location + 1) * 16;
+                        }
+                    } else {
+                        for i in 0..(*idx as usize) {
+                            let prev_arg = &ctx.func.arguments[i];
+                            let prev_arg_ty = &ctx.module.types[prev_arg.ty].inner;
+                            let prev_size = super::types::type_size(prev_arg_ty).unwrap_or(16);
+                            offset += (prev_size + 3) & !3; // 4-byte alignment
+                        }
                     }
                 }
 

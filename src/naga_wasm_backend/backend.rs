@@ -15,6 +15,7 @@ pub(super) fn compile_module(
     info: &ModuleInfo,
     source: &str,
     stage: naga::ShaderStage,
+    attribute_locations: &HashMap<String, u32>,
     uniform_locations: &HashMap<String, u32>,
     varying_locations: &HashMap<String, u32>,
 ) -> Result<WasmModule, BackendError> {
@@ -28,6 +29,7 @@ pub(super) fn compile_module(
         info,
         source,
         stage,
+        attribute_locations,
         uniform_locations,
         varying_locations,
     );
@@ -42,6 +44,7 @@ struct Compiler<'a> {
     _info: &'a ModuleInfo,
     _source: &'a str,
     stage: naga::ShaderStage,
+    attribute_locations: &'a HashMap<String, u32>,
     uniform_locations: &'a HashMap<String, u32>,
     varying_locations: &'a HashMap<String, u32>,
 
@@ -69,6 +72,7 @@ impl<'a> Compiler<'a> {
         info: &'a ModuleInfo,
         source: &'a str,
         stage: naga::ShaderStage,
+        attribute_locations: &'a HashMap<String, u32>,
         uniform_locations: &'a HashMap<String, u32>,
         varying_locations: &'a HashMap<String, u32>,
     ) -> Self {
@@ -83,6 +87,7 @@ impl<'a> Compiler<'a> {
             _info: info,
             _source: source,
             stage,
+            attribute_locations,
             uniform_locations,
             varying_locations,
             types: TypeSection::new(),
@@ -349,6 +354,9 @@ impl<'a> Compiler<'a> {
             typifier: &typifier,
             naga_function_map: &self.naga_function_map,
             argument_local_offsets: &argument_local_offsets,
+            attribute_locations: self.attribute_locations,
+            uniform_locations: self.uniform_locations,
+            varying_locations: self.varying_locations,
             is_entry_point,
             scratch_base,
         };

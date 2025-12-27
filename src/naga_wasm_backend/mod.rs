@@ -119,6 +119,7 @@ impl WasmBackend {
         info: &ModuleInfo,
         source: &str,
         stage: naga::ShaderStage,
+        attribute_locations: &HashMap<String, u32>,
         uniform_locations: &HashMap<String, u32>,
         varying_locations: &HashMap<String, u32>,
     ) -> Result<WasmModule, BackendError> {
@@ -128,6 +129,7 @@ impl WasmBackend {
             info,
             source,
             stage,
+            attribute_locations,
             uniform_locations,
             varying_locations,
         )
@@ -188,6 +190,12 @@ pub struct TranslationContext<'a> {
     /// Mapping from argument indices to the WASM local indices that hold the
     /// translated argument values for the current function.
     pub argument_local_offsets: &'a HashMap<u32, u32>,
+    /// Mapping from attribute names to their locations.
+    pub attribute_locations: &'a HashMap<String, u32>,
+    /// Mapping from uniform names to their locations.
+    pub uniform_locations: &'a HashMap<String, u32>,
+    /// Mapping from varying names to their locations.
+    pub varying_locations: &'a HashMap<String, u32>,
     /// Indicates whether the current function is a shader entry point, which
     /// can affect how inputs, outputs, and builtins are lowered.
     pub is_entry_point: bool,
