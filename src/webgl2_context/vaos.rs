@@ -463,7 +463,7 @@ pub fn ctx_get_vertex_attrib_v4(
             if ctx_obj.gl_error == GL_NO_ERROR {
                 ctx_obj.gl_error = GL_INVALID_ENUM;
             }
-            return ERR_GL;
+            ERR_GL
         }
     }
 }

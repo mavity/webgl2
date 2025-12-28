@@ -365,6 +365,64 @@ pub fn translate_expression_component(
         Expression::Splat { size: _, value } => {
             translate_expression_component(*value, 0, ctx)?;
         }
+        Expression::As {
+            expr,
+            kind,
+            convert,
+        } => {
+            // Compile the inner expression component first
+            translate_expression_component(*expr, component_idx, ctx)?;
+
+            // Determine source scalar kind
+            let src_ty = ctx.typifier.get(*expr, &ctx.module.types);
+            let src_scalar_kind = match src_ty {
+                naga::TypeInner::Scalar(scalar) => scalar.kind,
+                naga::TypeInner::Vector { scalar, .. } => scalar.kind,
+                _ => naga::ScalarKind::Float,
+            };
+
+            if let Some(_width) = convert {
+                // Conversion with potential change of interpretation
+                match (src_scalar_kind, kind) {
+                    (naga::ScalarKind::Sint, naga::ScalarKind::Float) => {
+                        // i32 -> f32
+                        ctx.wasm_func.instruction(&Instruction::I32ReinterpretF32);
+                        ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
+                    }
+                    (naga::ScalarKind::Uint, naga::ScalarKind::Float) => {
+                        // u32 -> f32
+                        ctx.wasm_func.instruction(&Instruction::I32ReinterpretF32);
+                        ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
+                    }
+                    (naga::ScalarKind::Float, naga::ScalarKind::Sint) => {
+                        // f32 -> i32
+                        ctx.wasm_func.instruction(&Instruction::I32TruncF32S);
+                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
+                    }
+                    (naga::ScalarKind::Float, naga::ScalarKind::Uint) => {
+                        // f32 -> u32
+                        ctx.wasm_func.instruction(&Instruction::I32TruncF32U);
+                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
+                    }
+                    (naga::ScalarKind::Bool, naga::ScalarKind::Float) => {
+                        // bool -> f32 (0 or 1)
+                        ctx.wasm_func.instruction(&Instruction::I32ReinterpretF32);
+                        ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
+                    }
+                    (naga::ScalarKind::Bool, naga::ScalarKind::Sint) => {
+                        // bool -> i32: already represented as i32 (0 or 1) -- no-op
+                    }
+                    (naga::ScalarKind::Bool, naga::ScalarKind::Uint) => {
+                        // bool -> u32: no-op
+                    }
+                    _ => {
+                        // Other conversions not handled explicitly; treat as no-op for now
+                    }
+                }
+            } else {
+                // Bitcast (no-op) since values are stored as f32 bits
+            }
+        }
         Expression::CallResult(_handle) => {
             if let Some(&local_idx) = ctx.call_result_locals.get(&expr_handle) {
                 ctx.wasm_func

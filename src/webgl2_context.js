@@ -129,6 +129,17 @@ export class WasmWebGL2RenderingContext {
     this._drawingBufferHeight = height;
   }
 
+  // Set the viewport for rendering
+  viewport(x, y, width, height) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_viewport !== 'function') {
+      throw new Error('wasm_ctx_viewport not found');
+    }
+    const code = ex.wasm_ctx_viewport(this._ctxHandle, x | 0, y | 0, width >>> 0, height >>> 0);
+    _checkErr(code, this._instance);
+  }
+
   /** @type {Map<number, WasmWebGL2RenderingContext>} */
   static _contexts = new Map();
 
@@ -147,7 +158,7 @@ export class WasmWebGL2RenderingContext {
         throw e;
       }
     } else {
-        // console.log(`DEBUG: Shader instance or main missing for type ${type}. Instance: ${!!shaderInstance}`);
+      // console.log(`DEBUG: Shader instance or main missing for type ${type}. Instance: ${!!shaderInstance}`);
     }
   }
 
@@ -572,7 +583,7 @@ export class WasmWebGL2RenderingContext {
     }
     const shaderHandle = shader && typeof shader === 'object' && typeof shader._handle === 'number' ? shader._handle : (shader >>> 0);
     const val = ex.wasm_ctx_get_shader_parameter(this._ctxHandle, shaderHandle, pname >>> 0);
-    
+
     // WebGL returns boolean for status parameters
     if (pname === 0x8B81 /* COMPILE_STATUS */ || pname === 0x8B80 /* DELETE_STATUS */) {
       return !!val;
@@ -603,7 +614,7 @@ export class WasmWebGL2RenderingContext {
       throw new Error('wasm_ctx_get_shader_info_log not found');
     }
     const shaderHandle = shader && typeof shader === 'object' && typeof shader._handle === 'number' ? shader._handle : (shader >>> 0);
-    
+
     const maxLen = 1024;
     const ptr = ex.wasm_alloc(maxLen);
     if (ptr === 0) throw new Error('Failed to allocate memory for getShaderInfoLog');
@@ -913,9 +924,10 @@ export class WasmWebGL2RenderingContext {
     }
     const handle = buffer && typeof buffer === 'object' && typeof buffer._handle === 'number' ? buffer._handle : (buffer >>> 0);
     const code = ex.wasm_ctx_delete_buffer(this._ctxHandle, handle);
-    _checkErr(code, this._instance);    if (buffer && typeof buffer === 'object') {
+    _checkErr(code, this._instance); if (buffer && typeof buffer === 'object') {
       try { buffer._handle = 0; buffer._deleted = true; } catch (e) { /* ignore */ }
-    }  }
+    }
+  }
 
   bufferData(target, data, usage) {
     this._assertNotDestroyed();
@@ -1221,7 +1233,7 @@ export class WasmWebGL2RenderingContext {
       throw new Error('wasm_ctx_uniform_matrix_4fv not found');
     }
     const locHandle = loc === null ? -1 : (typeof loc === 'number' ? loc : (loc._handle >>> 0));
-    
+
     let bytes;
     if (value instanceof Float32Array) {
       bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
@@ -1262,7 +1274,7 @@ export class WasmWebGL2RenderingContext {
     try {
       const code = ex.wasm_ctx_get_vertex_attrib(this._ctxHandle, index >>> 0, pname >>> 0, ptr, len);
       if (code === 5) { // ERR_GL
-          return undefined;
+        return undefined;
       }
       _checkErr(code, this._instance);
 
@@ -1284,12 +1296,12 @@ export class WasmWebGL2RenderingContext {
       }
 
       // Other params
-      if (pname === 0x8622 /* ENABLED */ || 
-          pname === 0x886A /* NORMALIZED */ || 
-          pname === 0x88FD /* INTEGER */) {
+      if (pname === 0x8622 /* ENABLED */ ||
+        pname === 0x886A /* NORMALIZED */ ||
+        pname === 0x88FD /* INTEGER */) {
         return mem[0] !== 0;
       }
-      
+
       if (pname === 0x889F /* BUFFER_BINDING */) {
         const handle = memU[0];
         if (handle === 0) return null;

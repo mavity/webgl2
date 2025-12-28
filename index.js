@@ -92,6 +92,7 @@ export async function webGL2({ debug = process.env.WEBGL2_DEBUG === 'true', size
 
   if (size && typeof size.width === 'number' && typeof size.height === 'number') {
     gl.resize(size.width, size.height);
+    gl.viewport(0, 0, size.width, size.height);
   }
 
   return gl;
@@ -165,7 +166,7 @@ async function initWASM({ debug } = {}) {
         if (gl) {
           gl._executeShader(type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
         } else {
-            // console.log(`DEBUG: wasm_execute_shader: ctx ${ctx} not found in _contexts`);
+          // console.log(`DEBUG: wasm_execute_shader: ctx ${ctx} not found in _contexts`);
         }
       }
     }
