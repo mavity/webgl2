@@ -224,6 +224,8 @@ pub fn ctx_create_program(ctx: u32) -> u32 {
             fs_info: None,
             vs_wasm: None,
             fs_wasm: None,
+            vs_stub: None,
+            fs_stub: None,
         },
     );
     program_id
@@ -487,10 +489,13 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
         }
 
         // Compile to WASM
-        let backend = WasmBackend::new(WasmBackendConfig::default());
+        let mut config = WasmBackendConfig::default();
+        config.debug_mode = ctx_obj.debug_mode;
+        let backend = WasmBackend::new(config);
 
         if let (Some(vs), Some(vsi)) = (&p.vs_module, &p.vs_info) {
             Context::log_static(verbosity, 3, "Compiling VS to WASM");
+            let vs_name = format!("program_{}_vs.glsl", program);
             match backend.compile(crate::naga_wasm_backend::CompileConfig {
                 module: vs,
                 info: vsi,
@@ -499,7 +504,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                 attribute_locations: &attribute_locations,
                 uniform_locations: &uniform_locations,
                 varying_locations: &varying_locations,
-            }) {
+            }, Some(&vs_name)) {
                 Ok(wasm) => {
                     Context::log_static(
                         verbosity,
@@ -507,6 +512,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                         &format!("VS WASM compiled, size={}", wasm.wasm_bytes.len()),
                     );
                     p.vs_wasm = Some(wasm.wasm_bytes);
+                    p.vs_stub = wasm.debug_stub;
                 }
                 Err(e) => {
                     Context::log_static(verbosity, 1, &format!("VS Backend error: {:?}", e));
@@ -519,6 +525,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
 
         if let (Some(fs), Some(fsi)) = (&p.fs_module, &p.fs_info) {
             Context::log_static(verbosity, 3, "Compiling FS to WASM");
+            let fs_name = format!("program_{}_fs.glsl", program);
             match backend.compile(crate::naga_wasm_backend::CompileConfig {
                 module: fs,
                 info: fsi,
@@ -527,7 +534,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                 attribute_locations: &attribute_locations,
                 uniform_locations: &uniform_locations,
                 varying_locations: &varying_locations,
-            }) {
+            }, Some(&fs_name)) {
                 Ok(wasm) => {
                     Context::log_static(
                         verbosity,
@@ -535,6 +542,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                         &format!("FS WASM compiled, size={}", wasm.wasm_bytes.len()),
                     );
                     p.fs_wasm = Some(wasm.wasm_bytes);
+                    p.fs_stub = wasm.debug_stub;
                 }
                 Err(e) => {
                     Context::log_static(verbosity, 1, &format!("FS Backend error: {:?}", e));
@@ -910,5 +918,65 @@ pub fn ctx_uniform_matrix_4fv(ctx: u32, location: i32, transpose: bool, ptr: u32
     } else {
         set_last_error("invalid uniform location or data length");
         ERR_INVALID_ARGS
+    }
+}
+
+/// Get program debug stub.
+pub fn ctx_get_program_debug_stub(
+    ctx: u32,
+    program: u32,
+    shader_type: u32,
+    ptr: u32,
+    max_len: u32,
+) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return 0;
+        }
+    };
+
+    if let Some(p) = ctx_obj.programs.get(&program) {
+        let stub = match shader_type {
+            0x8B31 => &p.vs_stub, // VERTEX_SHADER
+            0x8B30 => &p.fs_stub, // FRAGMENT_SHADER
+            _ => {
+                set_last_error("invalid shader type");
+                return 0;
+            }
+        };
+
+        if let Some(s) = stub {
+            let bytes = s.as_bytes();
+            let len = bytes.len() as u32;
+            if len > max_len {
+                // Return needed length if buffer too small?
+                // Or just copy what fits?
+                // Standard pattern: if ptr is 0, return length.
+                if ptr == 0 {
+                    return len;
+                }
+                // If ptr != 0 and max_len too small, return 0 or partial?
+                // Let's return actual length copied.
+            }
+
+            if ptr != 0 {
+                let copy_len = std::cmp::min(len, max_len);
+                let dest_slice =
+                    unsafe { std::slice::from_raw_parts_mut(ptr as *mut u8, copy_len as usize) };
+                dest_slice.copy_from_slice(&bytes[..copy_len as usize]);
+                return copy_len;
+            } else {
+                return len;
+            }
+        } else {
+            return 0;
+        }
+    } else {
+        set_last_error("program not found");
+        0
     }
 }

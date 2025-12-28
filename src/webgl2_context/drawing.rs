@@ -22,7 +22,7 @@ fn get_flat_varyings_mask(ctx: &Context) -> u64 {
                             }) = &arg.binding
                             {
                                 if *interp == naga::Interpolation::Flat {
-                                    let start_bit = location * 4;
+                                    let start_bit = (location + 1) * 4;
                                     let ty = &fs_module.types[arg.ty];
                                     let count = match ty.inner {
                                         naga::TypeInner::Vector { size, .. } => size as u32,

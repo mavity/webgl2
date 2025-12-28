@@ -12,15 +12,15 @@ use wasm_encoder::{
 pub(super) fn compile_module(
     backend: &WasmBackend,
     config: CompileConfig,
+    name: Option<&str>,
 ) -> Result<WasmModule, BackendError> {
     tracing::info!(
         "Starting WASM compilation for module with {} entry points",
         config.module.entry_points.len()
     );
 
-    let module = config.module;
-    let mut compiler = Compiler::new(backend, config);
-    compiler.compile(module)?;
+    let mut compiler = Compiler::new(backend, config, name);
+    compiler.compile()?;
 
     Ok(compiler.finish())
 }
@@ -34,6 +34,8 @@ struct Compiler<'a> {
     attribute_locations: &'a HashMap<String, u32>,
     uniform_locations: &'a HashMap<String, u32>,
     varying_locations: &'a HashMap<String, u32>,
+    name: Option<&'a str>,
+    module: &'a Module,
 
     // WASM module sections
     types: TypeSection,
@@ -48,14 +50,22 @@ struct Compiler<'a> {
     function_count: u32,
     naga_function_map: HashMap<naga::Handle<naga::Function>, u32>,
     global_offsets: HashMap<naga::Handle<naga::GlobalVariable>, (u32, u32)>,
+    debug_step_idx: Option<u32>,
 
     // Debug info (if enabled)
     debug_generator: Option<super::debug::DwarfGenerator>,
 }
 
 impl<'a> Compiler<'a> {
-    fn new(backend: &'a WasmBackend, config: CompileConfig<'a>) -> Self {
-        let debug_generator = if backend.config.debug_info {
+    fn new(
+        backend: &'a WasmBackend,
+        config: CompileConfig<'a>,
+        name: Option<&'a str>,
+    ) -> Self {
+        let debug_generator = if matches!(
+            backend.config.debug_mode,
+            super::DebugMode::Rust | super::DebugMode::All
+        ) {
             Some(super::debug::DwarfGenerator::new(config.source))
         } else {
             None
@@ -69,6 +79,8 @@ impl<'a> Compiler<'a> {
             attribute_locations: config.attribute_locations,
             uniform_locations: config.uniform_locations,
             varying_locations: config.varying_locations,
+            name,
+            module: config.module,
             types: TypeSection::new(),
             imports: ImportSection::new(),
             functions: FunctionSection::new(),
@@ -79,11 +91,12 @@ impl<'a> Compiler<'a> {
             function_count: 0,
             naga_function_map: HashMap::new(),
             global_offsets: HashMap::new(),
+            debug_step_idx: None,
             debug_generator,
         }
     }
 
-    fn compile(&mut self, module: &Module) -> Result<(), BackendError> {
+    fn compile(&mut self) -> Result<(), BackendError> {
         // Import memory from host
         self.imports.import(
             "env",
@@ -96,6 +109,24 @@ impl<'a> Compiler<'a> {
                 page_size_log2: None,
             },
         );
+
+        // Import debug_step if needed
+        match self._backend.config.debug_mode {
+            super::DebugMode::Shaders | super::DebugMode::All => {
+                self.imports.import(
+                    "env",
+                    "debug_step",
+                    wasm_encoder::EntityType::Function(self.types.len()),
+                );
+                // Signature: (line: i32, func_id: i32, result_ptr: i32) -> ()
+                self.types
+                    .ty()
+                    .function(vec![ValType::I32, ValType::I32, ValType::I32], vec![]);
+                self.debug_step_idx = Some(self.function_count);
+                self.function_count += 1;
+            }
+            _ => {}
+        }
 
         // Define 5 globals for base pointers
         // 0: attr, 1: uniform, 2: varying, 3: private, 4: textures
@@ -116,7 +147,7 @@ impl<'a> Compiler<'a> {
         let _attr_offset = 0;
 
         // First pass: find gl_Position and put it at the start of varying buffer
-        for (handle, var) in module.global_variables.iter() {
+        for (handle, var) in self.module.global_variables.iter() {
             let is_position = if let Some(name) = &var.name {
                 name == "gl_Position" || name == "gl_Position_1"
             } else {
@@ -132,7 +163,7 @@ impl<'a> Compiler<'a> {
 
         // We need to know which variables are inputs/outputs
         // For now, let's look at the first entry point
-        if let Some(ep) = module.entry_points.first() {
+        if let Some(ep) = self.module.entry_points.first() {
             for _arg in &ep.function.arguments {
                 // Naga GLSL frontend often uses Private for inputs
                 // We can't easily link them back to GlobalVariable handles here
@@ -140,11 +171,11 @@ impl<'a> Compiler<'a> {
             }
         }
 
-        for (handle, var) in module.global_variables.iter() {
+        for (handle, var) in self.module.global_variables.iter() {
             if self.global_offsets.contains_key(&handle) {
                 continue;
             }
-            let size = super::types::type_size(&module.types[var.ty].inner).unwrap_or(4);
+            let size = super::types::type_size(&self.module.types[var.ty].inner).unwrap_or(4);
 
             let (offset, base_ptr) = match var.space {
                 naga::AddressSpace::Uniform | naga::AddressSpace::Handle => {
@@ -177,7 +208,10 @@ impl<'a> Compiler<'a> {
                     if is_output {
                         (0, 3)
                     } else if let Some(name) = &var.name {
-                        if let Some(&loc) = self.varying_locations.get(name) {
+                        if let Some(&loc) = self.attribute_locations.get(name) {
+                            let offset = loc * 64;
+                            (offset, 0)
+                        } else if let Some(&loc) = self.varying_locations.get(name) {
                             let offset = (loc + 1) * 16;
                             (offset, 2)
                         } else {
@@ -204,14 +238,14 @@ impl<'a> Compiler<'a> {
         }
 
         // Compile all internal functions first
-        for (handle, func) in module.functions.iter() {
-            let func_idx = self.compile_function(func, module, None)?;
+        for (handle, func) in self.module.functions.iter() {
+            let func_idx = self.compile_function(func, None)?;
             self.naga_function_map.insert(handle, func_idx);
         }
 
         // Compile each entry point
-        for (idx, entry_point) in module.entry_points.iter().enumerate() {
-            self.compile_entry_point(entry_point, module, idx)?;
+        for (idx, entry_point) in self.module.entry_points.iter().enumerate() {
+            self.compile_entry_point(entry_point, idx)?;
         }
 
         Ok(())
@@ -220,7 +254,6 @@ impl<'a> Compiler<'a> {
     fn compile_function(
         &mut self,
         func: &naga::Function,
-        module: &naga::Module,
         entry_point: Option<&naga::EntryPoint>,
     ) -> Result<u32, BackendError> {
         let func_idx = self.function_count;
@@ -245,13 +278,13 @@ impl<'a> Compiler<'a> {
         } else {
             // Internal function signature based on Naga
             for (i, arg) in func.arguments.iter().enumerate() {
-                let types = super::types::naga_to_wasm_types(&module.types[arg.ty].inner)?;
+                let types = super::types::naga_to_wasm_types(&self.module.types[arg.ty].inner)?;
                 argument_local_offsets.insert(i as u32, current_param_idx);
                 current_param_idx += types.len() as u32;
                 params.extend(types);
             }
             if let Some(ret) = &func.result {
-                let types = super::types::naga_to_wasm_types(&module.types[ret.ty].inner)?;
+                let types = super::types::naga_to_wasm_types(&self.module.types[ret.ty].inner)?;
                 results.extend(types);
             }
         }
@@ -262,7 +295,7 @@ impl<'a> Compiler<'a> {
 
         let mut typifier = Typifier::new();
         let resolve_ctx =
-            naga::proc::ResolveContext::with_locals(module, &func.local_variables, &func.arguments);
+            naga::proc::ResolveContext::with_locals(self.module, &func.local_variables, &func.arguments);
         for (handle, _expr) in func.expressions.iter() {
             // crate::js_print(&format!("DEBUG: Expr {:?}: {:?}", handle, expr));
             typifier
@@ -276,7 +309,7 @@ impl<'a> Compiler<'a> {
         let mut local_offsets = HashMap::new();
         let mut current_local_offset = 0;
         for (handle, var) in func.local_variables.iter() {
-            let size = super::types::type_size(&module.types[var.ty].inner).unwrap_or(4);
+            let size = super::types::type_size(&self.module.types[var.ty].inner).unwrap_or(4);
             local_offsets.insert(handle, current_local_offset);
             current_local_offset += size;
         }
@@ -288,9 +321,9 @@ impl<'a> Compiler<'a> {
 
         for (handle, expr) in func.expressions.iter() {
             if let naga::Expression::CallResult(func_handle) = expr {
-                let called_func = &module.functions[*func_handle];
+                let called_func = &self.module.functions[*func_handle];
                 if let Some(ret) = &called_func.result {
-                    let types = super::types::naga_to_wasm_types(&module.types[ret.ty].inner)?;
+                    let types = super::types::naga_to_wasm_types(&self.module.types[ret.ty].inner)?;
                     call_result_locals.insert(handle, next_local_idx);
                     for _ in 0..types.len() {
                         locals_types.push((1, ValType::F32));
@@ -324,12 +357,15 @@ impl<'a> Compiler<'a> {
         // Translate statements
         let mut ctx = super::TranslationContext {
             func,
-            module,
+            module: self.module,
+            source: self._source,
             wasm_func: &mut wasm_func,
             global_offsets: &self.global_offsets,
             local_offsets: &local_offsets,
             call_result_locals: &call_result_locals,
             stage,
+            debug_mode: self._backend.config.debug_mode,
+            debug_step_idx: self.debug_step_idx,
             typifier: &typifier,
             naga_function_map: &self.naga_function_map,
             argument_local_offsets: &argument_local_offsets,
@@ -340,12 +376,23 @@ impl<'a> Compiler<'a> {
             scratch_base,
         };
 
-        for stmt in &func.body {
-            super::control_flow::translate_statement(stmt, &mut ctx)?;
+        for (stmt, span) in func.body.span_iter() {
+            super::control_flow::translate_statement(stmt, span, &mut ctx)?;
         }
 
         wasm_func.instruction(&Instruction::End);
         self.code.function(&wasm_func);
+
+        // Export internal functions in debug mode
+        if entry_point.is_none() {
+            match self._backend.config.debug_mode {
+                super::DebugMode::Shaders | super::DebugMode::All => {
+                    self.exports
+                        .export(&format!("func_{}", func_idx), ExportKind::Func, func_idx);
+                }
+                _ => {}
+            }
+        }
 
         Ok(func_idx)
     }
@@ -353,10 +400,9 @@ impl<'a> Compiler<'a> {
     fn compile_entry_point(
         &mut self,
         entry_point: &naga::EntryPoint,
-        module: &naga::Module,
         _index: usize,
     ) -> Result<(), BackendError> {
-        let func_idx = self.compile_function(&entry_point.function, module, Some(entry_point))?;
+        let func_idx = self.compile_function(&entry_point.function, Some(entry_point))?;
 
         // Export the function
         self.exports
@@ -403,6 +449,16 @@ impl<'a> Compiler<'a> {
             None
         };
 
+        // Generate JS stub if enabled
+        let debug_stub = match self._backend.config.debug_mode {
+            super::DebugMode::Shaders | super::DebugMode::All => {
+                let generator =
+                    super::debug::JsStubGenerator::new(self._source, self.module, self.name);
+                Some(generator.generate())
+            }
+            _ => None,
+        };
+
         let wasm_bytes = module.finish();
 
         tracing::info!(
@@ -414,6 +470,7 @@ impl<'a> Compiler<'a> {
         WasmModule {
             wasm_bytes,
             dwarf_bytes,
+            debug_stub,
             entry_points: self.entry_points,
             memory_layout: MemoryLayout::default(),
         }

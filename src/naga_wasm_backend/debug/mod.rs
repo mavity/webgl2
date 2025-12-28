@@ -4,6 +4,8 @@
 
 pub mod dwarf;
 pub mod spans;
+pub mod stub;
 pub mod variables;
 
 pub use dwarf::DwarfGenerator;
+pub use stub::JsStubGenerator;

@@ -751,6 +751,24 @@ pub extern "C" fn wasm_ctx_set_verbosity(ctx: u32, level: u32) -> u32 {
     webgl2_context::ctx_set_verbosity(ctx, level)
 }
 
+/// Set debug mode.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_set_debug_mode(ctx: u32, mode: u32) -> u32 {
+    webgl2_context::ctx_set_debug_mode(ctx, mode)
+}
+
+/// Get program debug stub.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_get_program_debug_stub(
+    ctx: u32,
+    program: u32,
+    shader_type: u32,
+    ptr: u32,
+    len: u32,
+) -> u32 {
+    webgl2_context::ctx_get_program_debug_stub(ctx, program, shader_type, ptr, len)
+}
+
 // ---- Coverage Support (when enabled) ----
 
 #[cfg(feature = "coverage")]

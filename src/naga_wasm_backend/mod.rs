@@ -16,18 +16,31 @@ use std::collections::HashMap;
 /// Configuration for WASM generation
 #[derive(Debug, Clone)]
 pub struct WasmBackendConfig {
-    /// Include DWARF debug information
-    pub debug_info: bool,
+    /// Debugging mode
+    pub debug_mode: DebugMode,
     /// Optimize generated WASM (future: dead code elimination, constant folding)
     pub optimize: bool,
     /// Target WASM features (SIMD, threads, etc.)
     pub features: WasmFeatures,
 }
 
+/// Debugging mode for generated WASM
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DebugMode {
+    /// No debugging support
+    None,
+    /// Enable shader stepping via JS stub
+    Shaders,
+    /// Enable Rust-level debugging (DWARF)
+    Rust,
+    /// Enable both shader stepping and DWARF
+    All,
+}
+
 impl Default for WasmBackendConfig {
     fn default() -> Self {
         Self {
-            debug_info: true,
+            debug_mode: DebugMode::Shaders,
             optimize: false,
             features: WasmFeatures::default(),
         }
@@ -52,6 +65,8 @@ pub struct WasmModule {
     pub wasm_bytes: Vec<u8>,
     /// Separate DWARF debug data (optional, embedded in custom sections)
     pub dwarf_bytes: Option<Vec<u8>>,
+    /// JS debug stub (optional, for shader stepping)
+    pub debug_stub: Option<String>,
     /// Entry point function names mapped to function indices
     pub entry_points: HashMap<String, u32>,
     /// Memory layout information
@@ -114,8 +129,8 @@ impl WasmBackend {
     }
 
     /// Compile a Naga module to WASM
-    pub fn compile(&self, config: CompileConfig) -> Result<WasmModule, BackendError> {
-        backend::compile_module(self, config)
+    pub fn compile(&self, config: CompileConfig, name: Option<&str>) -> Result<WasmModule, BackendError> {
+        backend::compile_module(self, config, name)
     }
 }
 
@@ -152,6 +167,8 @@ pub struct TranslationContext<'a> {
     pub func: &'a naga::Function,
     /// The full Naga module that contains the function and its dependencies.
     pub module: &'a naga::Module,
+    /// The original source code (for line number mapping)
+    pub source: &'a str,
     /// The target WebAssembly function under construction.
     pub wasm_func: &'a mut wasm_encoder::Function,
     /// Mapping from Naga global variables to their (index, size) in the WASM
@@ -165,6 +182,10 @@ pub struct TranslationContext<'a> {
     pub call_result_locals: &'a HashMap<naga::Handle<naga::Expression>, u32>,
     /// Shader stage of the current entry point or function being translated.
     pub stage: naga::ShaderStage,
+    /// Debug mode configuration
+    pub debug_mode: DebugMode,
+    /// Index of the debug_step host function (if imported)
+    pub debug_step_idx: Option<u32>,
     /// Typifier used to query the inferred types of Naga expressions.
     pub typifier: &'a naga::front::Typifier,
     /// Mapping from Naga function handles to their corresponding WASM function

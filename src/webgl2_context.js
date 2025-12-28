@@ -103,10 +103,30 @@ export class WasmWebGL2RenderingContext {
     this._destroyed = false;
     /** @type {import('./webgl2_resources.js').WasmWebGLProgram | null} */
     this._currentProgram = null;
+    this._debugMode = 0; // 0=None, 1=Shaders, 2=Rust, 3=All
     this._drawingBufferWidth = 640;
     this._drawingBufferHeight = 480;
 
     WasmWebGL2RenderingContext._contexts.set(ctxHandle, this);
+  }
+
+  setDebugMode(mode) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_set_debug_mode !== 'function') {
+      console.warn('wasm_ctx_set_debug_mode not found');
+      return;
+    }
+    
+    let modeVal = 0;
+    if (mode === true || mode === 'all') modeVal = 3;
+    else if (mode === 'shaders') modeVal = 1;
+    else if (mode === 'rust') modeVal = 2;
+    else modeVal = 0;
+
+    this._debugMode = modeVal;
+    const code = ex.wasm_ctx_set_debug_mode(this._ctxHandle, modeVal);
+    _checkErr(code, this._instance);
   }
 
   get drawingBufferWidth() {
@@ -523,14 +543,58 @@ export class WasmWebGL2RenderingContext {
     const vsWasm = this.getProgramWasm(program, this.VERTEX_SHADER);
     const fsWasm = this.getProgramWasm(program, this.FRAGMENT_SHADER);
 
+    const createDebugEnv = (type, instanceRef) => {
+      if (this._debugMode !== 1 && this._debugMode !== 3) return {};
+      
+      const stubCode = this.getProgramDebugStub(program, type);
+      if (!stubCode) return {};
+
+      // // Add sourceURL for debugging
+      // const debugName = `shader_stub_program_${program._handle}_${type === this.VERTEX_SHADER ? 'vs' : 'fs'}.js`;
+      // const codeWithUrl = stubCode + `\n//# sourceURL=${debugName}`;
+      
+      let stubFuncs;
+      try {
+        // Eval the stub array
+        stubFuncs = (0, eval)(stubCode);
+      } catch (e) {
+        console.error("Failed to eval debug stub:", e);
+        return {};
+      }
+
+      return {
+        debug_step: (line, funcIdx, resultPtr) => {
+          const func = stubFuncs[line - 1];
+          if (func) {
+            const ctx = {
+              go: () => {
+                // Trampoline logic would go here
+                // For now we rely on WASM calling the function after debug_step returns
+              }
+            };
+            try {
+              func.call(ctx);
+            } catch (e) {
+              console.error("Error in debug stub:", e);
+            }
+          }
+        }
+      };
+    };
+
     if (vsWasm) {
       try {
         const vsModule = new WebAssembly.Module(vsWasm);
+        const instanceRef = { current: null };
+        const debugEnv = createDebugEnv(this.VERTEX_SHADER, instanceRef);
+        
         program._vsInstance = new WebAssembly.Instance(vsModule, {
           env: {
-            memory: this._instance.exports.memory
+            memory: this._instance.exports.memory,
+            ...debugEnv
           }
         });
+        instanceRef.current = program._vsInstance;
       } catch (e) {
         // console.log(`DEBUG: VS Instance creation failed: ${e}`);
       }
@@ -538,14 +602,65 @@ export class WasmWebGL2RenderingContext {
     if (fsWasm) {
       try {
         const fsModule = new WebAssembly.Module(fsWasm);
+        const instanceRef = { current: null };
+        const debugEnv = createDebugEnv(this.FRAGMENT_SHADER, instanceRef);
+
         program._fsInstance = new WebAssembly.Instance(fsModule, {
           env: {
-            memory: this._instance.exports.memory
+            memory: this._instance.exports.memory,
+            ...debugEnv
           }
         });
+        instanceRef.current = program._fsInstance;
       } catch (e) {
         // console.log(`DEBUG: FS Instance creation failed: ${e}`);
       }
+    }
+  }
+
+  getProgramDebugStub(program, shaderType) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_program_debug_stub !== 'function') {
+      return null;
+    }
+    const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
+    const len = ex.wasm_ctx_get_program_debug_stub(this._ctxHandle, programHandle, shaderType, 0, 0);
+    if (len === 0) return null;
+
+    const ptr = ex.wasm_alloc(len);
+    if (ptr === 0) return null;
+
+    try {
+      const actualLen = ex.wasm_ctx_get_program_debug_stub(this._ctxHandle, programHandle, shaderType, ptr, len);
+      const mem = new Uint8Array(ex.memory.buffer);
+      const bytes = mem.subarray(ptr, ptr + actualLen);
+      return new TextDecoder().decode(bytes);
+    } finally {
+      ex.wasm_free(ptr);
+    }
+  }
+
+  getProgramDebugStub(program, shaderType) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_program_debug_stub !== 'function') {
+      return null;
+    }
+    const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
+    const len = ex.wasm_ctx_get_program_debug_stub(this._ctxHandle, programHandle, shaderType, 0, 0);
+    if (len === 0) return null;
+
+    const ptr = ex.wasm_alloc(len);
+    if (ptr === 0) return null;
+
+    try {
+      const actualLen = ex.wasm_ctx_get_program_debug_stub(this._ctxHandle, programHandle, shaderType, ptr, len);
+      const mem = new Uint8Array(ex.memory.buffer);
+      const bytes = mem.subarray(ptr, ptr + actualLen);
+      return new TextDecoder().decode(bytes);
+    } finally {
+      ex.wasm_free(ptr);
     }
   }
 

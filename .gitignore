@@ -4,3 +4,5 @@
 /webgl2.debug.wasm
 /runner2/Cargo.lock
 /out/
+/daebug.md
+/daebug/

@@ -20,6 +20,31 @@ pub fn ctx_clear_color(ctx: u32, r: f32, g: f32, b: f32, a: f32) -> u32 {
     ERR_OK
 }
 
+/// Set debug mode.
+pub fn ctx_set_debug_mode(ctx: u32, mode: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+
+    ctx_obj.debug_mode = match mode {
+        0 => crate::naga_wasm_backend::DebugMode::None,
+        1 => crate::naga_wasm_backend::DebugMode::Shaders,
+        2 => crate::naga_wasm_backend::DebugMode::Rust,
+        3 => crate::naga_wasm_backend::DebugMode::All,
+        _ => {
+            set_last_error("invalid debug mode");
+            return ERR_INVALID_ARGS;
+        }
+    };
+    ERR_OK
+}
+
 /// Clear buffers to preset values.
 pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
     clear_last_error();

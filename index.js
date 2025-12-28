@@ -49,22 +49,25 @@ const isNode =
  * 4. Returns a WasmWebGL2RenderingContext JS wrapper
  *
  * @param {{
- *  debug?: boolean,
+ *  debug?: boolean | 'shaders' | 'rust' | 'all',
  *  size?: { width: number, height: number },
  * }} [opts] - options
  * @returns {Promise<WasmWebGL2RenderingContext>}
  * @throws {Error} if WASM loading or instantiation fails
  */
-export async function webGL2({ debug = process.env.WEBGL2_DEBUG === 'true', size } = {}) {
+export async function webGL2({ debug = (typeof process !== 'undefined' ? process?.env || {} : typeof window !== 'undefined' ? window : globalThis).WEBGL2_DEBUG === 'true', size } = {}) {
+  // Determine if we need the debug WASM binary (Rust symbols)
+  const useDebugWasm = debug === true || debug === 'rust' || debug === 'all';
+
   // Load WASM binary
-  let promise = wasmCache.get(!!debug);
+  let promise = wasmCache.get(useDebugWasm);
   if (!promise) {
-    promise = initWASM({ debug });
-    wasmCache.set(!!debug, promise);
+    promise = initWASM({ debug: useDebugWasm });
+    wasmCache.set(useDebugWasm, promise);
     // ensure success is cached but not failure
     promise.catch(() => {
-      if (wasmCache.get(!!debug) === promise) {
-        wasmCache.delete(!!debug);
+      if (wasmCache.get(useDebugWasm) === promise) {
+        wasmCache.delete(useDebugWasm);
       }
     });
   }
@@ -89,6 +92,12 @@ export async function webGL2({ debug = process.env.WEBGL2_DEBUG === 'true', size
 
   // Wrap and return
   const gl = new WasmWebGL2RenderingContext(instance, ctxHandle);
+  
+  // Set debug mode if requested
+  if (debug) {
+    gl.setDebugMode(debug);
+  }
+  
 
   if (size && typeof size.width === 'number' && typeof size.height === 'number') {
     gl.resize(size.width, size.height);
@@ -102,18 +111,19 @@ export async function webGL2({ debug = process.env.WEBGL2_DEBUG === 'true', size
  * Factory function: create a new WebGPU instance.
  *
  * @param {{
- *  debug?: boolean,
+ *  debug?: boolean | 'shaders' | 'rust' | 'all',
  * }} [opts] - options
  * @returns {Promise<GPU>}
  */
-export async function webGPU({ debug = process.env.WEBGL2_DEBUG === 'true' } = {}) {
-  let promise = wasmCache.get(!!debug);
+export async function webGPU({ debug = (typeof process !== 'undefined' ? process?.env || {} : typeof window !== 'undefined' ? window : globalThis).WEBGL2_DEBUG === 'true' } = {}) {
+  const useDebugWasm = debug === true || debug === 'rust' || debug === 'all';
+  let promise = wasmCache.get(useDebugWasm);
   if (!promise) {
-    promise = initWASM({ debug });
-    wasmCache.set(!!debug, promise);
+    promise = initWASM({ debug: useDebugWasm });
+    wasmCache.set(useDebugWasm, promise);
     promise.catch(() => {
-      if (wasmCache.get(!!debug) === promise) {
-        wasmCache.delete(!!debug);
+      if (wasmCache.get(useDebugWasm) === promise) {
+        wasmCache.delete(useDebugWasm);
       }
     });
   }

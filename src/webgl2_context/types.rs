@@ -146,6 +146,8 @@ pub(crate) struct Program {
     pub(crate) fs_info: Option<Arc<naga::valid::ModuleInfo>>,
     pub(crate) vs_wasm: Option<Vec<u8>>,
     pub(crate) fs_wasm: Option<Vec<u8>>,
+    pub(crate) vs_stub: Option<String>,
+    pub(crate) fs_stub: Option<String>,
 }
 
 /// A WebGL2 vertex array object
@@ -241,6 +243,7 @@ pub struct Context {
     pub(crate) texture_units: Vec<Option<u32>>,
     pub(crate) gl_error: u32,
     pub verbosity: u32, // 0: None, 1: Error, 2: Info, 3: Debug
+    pub debug_mode: crate::naga_wasm_backend::DebugMode,
 }
 
 impl Default for Context {
@@ -288,6 +291,7 @@ impl Default for Context {
             texture_units: vec![None; 16],
             gl_error: GL_NO_ERROR,
             verbosity: 2, // Default to Info
+            debug_mode: crate::naga_wasm_backend::DebugMode::None,
         }
     }
 }

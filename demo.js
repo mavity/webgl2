@@ -30,7 +30,7 @@ let renderContext = null;
 
 async function initializeRenderContext() {
     if (renderContext) return renderContext;
-    
+
     let loadLocal =
         isNode || (
             typeof location !== 'undefined' &&
@@ -39,13 +39,13 @@ async function initializeRenderContext() {
         );
     const { webGL2 } = await import(
         loadLocal ? './index.js' :
-        'https://esm.run/webgl2'
+            'https://esm.run/webgl2'
     );
 
-    const gl = await webGL2();
+    const gl = await webGL2({ debug: true });
     gl.verbosity = 0; // Disable debug logs for this demo
     gl.viewport(0, 0, 640, 480);
-    
+
     // Shaders
     const vsSource = `#version 300 es
     layout(location = 0) in vec3 position;
@@ -60,7 +60,7 @@ async function initializeRenderContext() {
         gl_Position = u_mvp * vec4(position, 1.0);
     }
     `;
-    
+
     const fsSource = `#version 300 es
     precision highp float;
     uniform texture2D u_texture;
@@ -73,81 +73,81 @@ async function initializeRenderContext() {
         // fragColor = vec4(v_uv, 0.0, 1.0);
     }
     `;
-    
+
     const vs = gl.createShader(gl.VERTEX_SHADER);
     gl.shaderSource(vs, vsSource);
     gl.compileShader(vs);
-    
+
     const fsShader = gl.createShader(gl.FRAGMENT_SHADER);
     gl.shaderSource(fsShader, fsSource);
     gl.compileShader(fsShader);
-    
+
     const program = gl.createProgram();
     gl.attachShader(program, vs);
     gl.attachShader(program, fsShader);
     gl.linkProgram(program);
     gl.useProgram(program);
-    
+
     // Cube data
     const vertices = new Float32Array([
         // Front face
-        -0.5, -0.5,  0.5,  0.0, 0.0,
-         0.5, -0.5,  0.5,  1.0, 0.0,
-         0.5,  0.5,  0.5,  1.0, 1.0,
-        -0.5, -0.5,  0.5,  0.0, 0.0,
-         0.5,  0.5,  0.5,  1.0, 1.0,
-        -0.5,  0.5,  0.5,  0.0, 1.0,
-        
+        -0.5, -0.5, 0.5, 0.0, 0.0,
+        0.5, -0.5, 0.5, 1.0, 0.0,
+        0.5, 0.5, 0.5, 1.0, 1.0,
+        -0.5, -0.5, 0.5, 0.0, 0.0,
+        0.5, 0.5, 0.5, 1.0, 1.0,
+        -0.5, 0.5, 0.5, 0.0, 1.0,
+
         // Back face
-        -0.5, -0.5, -0.5,  0.0, 0.0,
-        -0.5,  0.5, -0.5,  0.0, 1.0,
-         0.5,  0.5, -0.5,  1.0, 1.0,
-        -0.5, -0.5, -0.5,  0.0, 0.0,
-         0.5,  0.5, -0.5,  1.0, 1.0,
-         0.5, -0.5, -0.5,  1.0, 0.0,
-         
+        -0.5, -0.5, -0.5, 0.0, 0.0,
+        -0.5, 0.5, -0.5, 0.0, 1.0,
+        0.5, 0.5, -0.5, 1.0, 1.0,
+        -0.5, -0.5, -0.5, 0.0, 0.0,
+        0.5, 0.5, -0.5, 1.0, 1.0,
+        0.5, -0.5, -0.5, 1.0, 0.0,
+
         // Top face
-        -0.5,  0.5, -0.5,  0.0, 0.0,
-        -0.5,  0.5,  0.5,  0.0, 1.0,
-         0.5,  0.5,  0.5,  1.0, 1.0,
-        -0.5,  0.5, -0.5,  0.0, 0.0,
-         0.5,  0.5,  0.5,  1.0, 1.0,
-         0.5,  0.5, -0.5,  1.0, 0.0,
-         
+        -0.5, 0.5, -0.5, 0.0, 0.0,
+        -0.5, 0.5, 0.5, 0.0, 1.0,
+        0.5, 0.5, 0.5, 1.0, 1.0,
+        -0.5, 0.5, -0.5, 0.0, 0.0,
+        0.5, 0.5, 0.5, 1.0, 1.0,
+        0.5, 0.5, -0.5, 1.0, 0.0,
+
         // Bottom face
-        -0.5, -0.5, -0.5,  0.0, 0.0,
-         0.5, -0.5, -0.5,  1.0, 0.0,
-         0.5, -0.5,  0.5,  1.0, 1.0,
-        -0.5, -0.5, -0.5,  0.0, 0.0,
-         0.5, -0.5,  0.5,  1.0, 1.0,
-        -0.5, -0.5,  0.5,  0.0, 1.0,
-        
+        -0.5, -0.5, -0.5, 0.0, 0.0,
+        0.5, -0.5, -0.5, 1.0, 0.0,
+        0.5, -0.5, 0.5, 1.0, 1.0,
+        -0.5, -0.5, -0.5, 0.0, 0.0,
+        0.5, -0.5, 0.5, 1.0, 1.0,
+        -0.5, -0.5, 0.5, 0.0, 1.0,
+
         // Right face
-         0.5, -0.5, -0.5,  0.0, 0.0,
-         0.5,  0.5, -0.5,  0.0, 1.0,
-         0.5,  0.5,  0.5,  1.0, 1.0,
-         0.5, -0.5, -0.5,  0.0, 0.0,
-         0.5,  0.5,  0.5,  1.0, 1.0,
-         0.5, -0.5,  0.5,  1.0, 0.0,
-         
+        0.5, -0.5, -0.5, 0.0, 0.0,
+        0.5, 0.5, -0.5, 0.0, 1.0,
+        0.5, 0.5, 0.5, 1.0, 1.0,
+        0.5, -0.5, -0.5, 0.0, 0.0,
+        0.5, 0.5, 0.5, 1.0, 1.0,
+        0.5, -0.5, 0.5, 1.0, 0.0,
+
         // Left face
-        -0.5, -0.5, -0.5,  0.0, 0.0,
-        -0.5, -0.5,  0.5,  1.0, 0.0,
-        -0.5,  0.5,  0.5,  1.0, 1.0,
-        -0.5, -0.5, -0.5,  0.0, 0.0,
-        -0.5,  0.5,  0.5,  1.0, 1.0,
-        -0.5,  0.5, -0.5,  0.0, 1.0,
+        -0.5, -0.5, -0.5, 0.0, 0.0,
+        -0.5, -0.5, 0.5, 1.0, 0.0,
+        -0.5, 0.5, 0.5, 1.0, 1.0,
+        -0.5, -0.5, -0.5, 0.0, 0.0,
+        -0.5, 0.5, 0.5, 1.0, 1.0,
+        -0.5, 0.5, -0.5, 0.0, 1.0,
     ]);
-    
+
     const buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-    
+
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 20, 0);
     gl.enableVertexAttribArray(1);
     gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 20, 12);
-    
+
     // Texture
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -157,19 +157,19 @@ async function initializeRenderContext() {
             const idx = (y * 16 + x) * 4;
             const isCheck = ((x >> 2) ^ (y >> 2)) & 1;
             if (isCheck) {
-                texData[idx] = 255; texData[idx+1] = 215; texData[idx+2] = 0; texData[idx+3] = 255; // Gold
+                texData[idx] = 255; texData[idx + 1] = 215; texData[idx + 2] = 0; texData[idx + 3] = 255; // Gold
             } else {
-                texData[idx] = 100; texData[idx+1] = 149; texData[idx+2] = 237; texData[idx+3] = 255; // CornflowerBlue
+                texData[idx] = 100; texData[idx + 1] = 149; texData[idx + 2] = 237; texData[idx + 3] = 255; // CornflowerBlue
             }
         }
     }
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 16, 16, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData);
-    
+
     const uTextureLoc = gl.getUniformLocation(program, "u_texture");
     gl.uniform1i(uTextureLoc, 0);
     const uSamplerLoc = gl.getUniformLocation(program, "u_sampler");
     gl.uniform1i(uSamplerLoc, 0);
-    
+
     // Matrix math functions
     function perspective(fovy, aspect, near, far) {
         const f = 1.0 / Math.tan(fovy / 2);
@@ -181,7 +181,7 @@ async function initializeRenderContext() {
             0, 0, (2 * far * near) * nf, 0
         ];
     }
-    
+
     function multiply(a, b) {
         const out = new Float32Array(16);
         for (let col = 0; col < 4; col++) {
@@ -195,7 +195,7 @@ async function initializeRenderContext() {
         }
         return out;
     }
-    
+
     function rotateY(m, angle) {
         const c = Math.cos(angle);
         const s = Math.sin(angle);
@@ -219,7 +219,7 @@ async function initializeRenderContext() {
         ];
         return multiply(m, r);
     }
-    
+
     function translate(m, x, y, z) {
         const t = [
             1, 0, 0, 0,
@@ -229,15 +229,15 @@ async function initializeRenderContext() {
         ];
         return multiply(m, t);
     }
-    
+
     // Calculate initial MVP matrix
     let mvp = perspective(Math.PI / 4, 640 / 480, 0.1, 100.0);
     mvp = translate(mvp, 0, 0, -3);
     mvp = rotateX(mvp, 0.5);
     mvp = rotateY(mvp, 0.8);
-    
+
     const mvpLoc = gl.getUniformLocation(program, "u_mvp");
-    
+
     renderContext = {
         gl,
         program,
@@ -250,36 +250,36 @@ async function initializeRenderContext() {
         rotateY,
         multiply
     };
-    
+
     return renderContext;
 }
 
 async function renderCube(elapsedTime = 0) {
     const ctx = await initializeRenderContext();
     const { gl, program, mvpLoc, perspective, translate, rotateX, rotateY, multiply } = ctx;
-    
+
     // Calculate rotation angle: 1 full rotation (2π) in 5 seconds
     const rotationAngle = (elapsedTime / 5000) * Math.PI * 2;
-    
+
     // Recalculate MVP with time-based rotation
     let mvp = perspective(Math.PI / 4, 640 / 480, 0.1, 100.0);
     mvp = translate(mvp, 0, 0, -3);
     mvp = rotateX(mvp, 0.5);
     mvp = rotateY(mvp, 0.8 + rotationAngle);
-    
+
     // Set MVP matrix
     gl.uniformMatrix4fv(mvpLoc, false, mvp);
-    console.log("MVP Matrix:", mvp);
-    
+    // console.log("MVP Matrix:", mvp);
+
     // Render
     gl.clearColor(0.0, 0.0, 0.0, 0.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLES, 0, 36);
-    
+
     // Read pixels
     const pixels = new Uint8Array(640 * 480 * 4);
     gl.readPixels(0, 0, 640, 480, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    
+
     return { pixels, width: 640, height: 480 };
 }
 
@@ -373,9 +373,9 @@ function adler32(buf) {
 // Main entry point
 async function displayFrame(pixels, width, height) {
     if (!animationState.ctx) return;
-    
+
     const imageData = animationState.ctx.createImageData(width, height);
-    
+
     // Flip Y axis: gl.readPixels is bottom-up, canvas is top-down
     const flipped = new Uint8ClampedArray(pixels.length);
     for (let y = 0; y < height; y++) {
@@ -384,7 +384,7 @@ async function displayFrame(pixels, width, height) {
         const dstOffset = y * width * 4;
         flipped.set(pixels.subarray(srcOffset, srcOffset + width * 4), dstOffset);
     }
-    
+
     imageData.data.set(flipped);
     animationState.ctx.putImageData(imageData, 0, 0);
 }
@@ -392,7 +392,7 @@ async function displayFrame(pixels, width, height) {
 function updateFpsCounter() {
     const now = Date.now();
     const deltaTime = now - animationState.lastFpsTime;
-    
+
     if (deltaTime >= 500) {
         animationState.fps = Math.round((animationState.frameCount * 1000) / deltaTime);
         if (animationState.fpsElement) {
@@ -405,15 +405,15 @@ function updateFpsCounter() {
 
 async function animate() {
     if (!animationState.running) return;
-    
+
     const elapsedTime = Date.now() - animationState.startTime;
     const result = await renderCube(elapsedTime);
     const { pixels, width, height } = result;
-    
+
     await displayFrame(pixels, width, height);
     animationState.frameCount++;
     updateFpsCounter();
-    
+
     requestAnimationFrame(animate);
 }
 
@@ -421,7 +421,7 @@ async function main() {
     await initFS();
     const result = await renderCube();
     const { pixels, width, height } = result;
-    
+
     if (isNode) {
         // Node: Save to file
         savePNG(width, height, Buffer.from(pixels), 'output.png');
@@ -481,16 +481,16 @@ async function main() {
             }
         `;
         document.head.appendChild(style);
-        
+
         // Create title
         const h1 = document.createElement('h1');
         h1.textContent = 'WebGL2 Polymorphic Cube Renderer';
         document.body.appendChild(h1);
-        
+
         // Create controls container
         const controls = document.createElement('div');
         controls.id = 'controls';
-        
+
         // Create play/pause button
         const button = document.createElement('button');
         button.textContent = '▶ Play';
@@ -507,23 +507,23 @@ async function main() {
             }
         };
         controls.appendChild(button);
-        
+
         // Create FPS display
         const fpsDisplay = document.createElement('div');
         fpsDisplay.id = 'fps';
         fpsDisplay.textContent = 'FPS: 0';
         controls.appendChild(fpsDisplay);
-        
+
         document.body.appendChild(controls);
-        
+
         // Create canvas
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
         document.body.appendChild(canvas);
-        
+
         const ctx = canvas.getContext('2d');
-        
+
         // Store references in animationState
         animationState.button = button;
         animationState.canvas = canvas;
@@ -531,10 +531,10 @@ async function main() {
         animationState.width = width;
         animationState.height = height;
         animationState.fpsElement = fpsDisplay;
-        
+
         // Display initial frame
         await displayFrame(pixels, width, height);
-        
+
         console.log("Rendered cube to canvas");
     }
 }
