@@ -216,12 +216,12 @@ export class GPUDevice {
         if (textureHandle === 0) {
             throw new Error("Failed to create texture");
         }
-        
+
         // Create a normalized descriptor for the GPUTexture
         const normalizedDescriptor = Object.assign({}, descriptor, {
             size: { width, height, depthOrArrayLayers }
         });
-        
+
         return new GPUTexture(this.wasm, this.memory, this.ctxHandle, this.deviceHandle, textureHandle, normalizedDescriptor);
     }
 
@@ -234,24 +234,24 @@ export class GPUDevice {
         const code = descriptor.code;
         const encoder = new TextEncoder();
         const codeBytes = encoder.encode(code);
-        
+
         const ptr = this.wasm.wasm_alloc(codeBytes.length);
         const heapU8 = new Uint8Array(this.memory.buffer, ptr, codeBytes.length);
         heapU8.set(codeBytes);
-        
+
         const moduleHandle = this.wasm.wasm_webgpu_create_shader_module(
             this.ctxHandle,
             this.deviceHandle,
             ptr,
             codeBytes.length
         );
-        
+
         this.wasm.wasm_free(ptr, codeBytes.length);
-        
+
         if (moduleHandle === 0) {
             throw new Error("Failed to create shader module");
         }
-        
+
         return new GPUShaderModule(this.wasm, this.memory, this.ctxHandle, moduleHandle);
     }
 
@@ -259,20 +259,20 @@ export class GPUDevice {
         const layouts = descriptor.bindGroupLayouts.map(l => l.layoutHandle);
         const ptr = this.wasm.wasm_alloc(layouts.length * 4);
         new Uint32Array(this.memory.buffer, ptr, layouts.length).set(new Uint32Array(layouts));
-        
+
         const handle = this.wasm.wasm_webgpu_create_pipeline_layout(
             this.ctxHandle,
             this.deviceHandle,
             ptr,
             layouts.length
         );
-        
+
         this.wasm.wasm_free(ptr, layouts.length * 4);
-        
+
         if (handle === 0) {
             throw new Error("Failed to create pipeline layout");
         }
-        
+
         return new GPUPipelineLayout(this.wasm, this.memory, this.ctxHandle, handle);
     }
 
@@ -284,23 +284,23 @@ export class GPUDevice {
     createRenderPipeline(descriptor) {
         const vertexEntry = descriptor.vertex.entryPoint;
         const fragmentEntry = descriptor.fragment.entryPoint;
-        
+
         const encoder = new TextEncoder();
         const vBytes = encoder.encode(vertexEntry);
         const fBytes = encoder.encode(fragmentEntry);
-        
+
         const vPtr = this.wasm.wasm_alloc(vBytes.length);
         new Uint8Array(this.memory.buffer, vPtr, vBytes.length).set(vBytes);
-        
+
         const fPtr = this.wasm.wasm_alloc(fBytes.length);
         new Uint8Array(this.memory.buffer, fPtr, fBytes.length).set(fBytes);
-        
+
         // Encode vertex buffers
         // Format: [count, stride, stepMode, attrCount, format, offset, location, ...]
         const layoutData = [];
         const buffers = descriptor.vertex.buffers || [];
         layoutData.push(buffers.length);
-        
+
         for (const buffer of buffers) {
             layoutData.push(buffer.arrayStride);
             layoutData.push(buffer.stepMode === 'instance' ? 1 : 0);
@@ -315,13 +315,13 @@ export class GPUDevice {
                 if (attr.format === 'float32x3') formatId = 1;
                 else if (attr.format === 'float32x2') formatId = 2;
                 else if (attr.format === 'float32x4') formatId = 3;
-                
+
                 layoutData.push(formatId);
                 layoutData.push(attr.offset);
                 layoutData.push(attr.shaderLocation);
             }
         }
-        
+
         const lPtr = this.wasm.wasm_alloc(layoutData.length * 4);
         new Uint32Array(this.memory.buffer, lPtr, layoutData.length).set(layoutData);
 
@@ -343,11 +343,11 @@ export class GPUDevice {
             layoutData.length,
             layoutHandle
         );
-        
+
         this.wasm.wasm_free(vPtr, vBytes.length);
         this.wasm.wasm_free(fPtr, fBytes.length);
         this.wasm.wasm_free(lPtr, layoutData.length * 4);
-        
+
         if (pipelineHandle === 0) {
             throw new Error("Failed to create render pipeline");
         }
@@ -376,34 +376,34 @@ export class GPUDevice {
     createBindGroupLayout(descriptor) {
         const entries = descriptor.entries || [];
         const data = [entries.length];
-        
+
         for (const entry of entries) {
             data.push(entry.binding);
             data.push(entry.visibility);
-            
+
             // Type: 0=Buffer, 1=Texture, 2=Sampler
             let typeId = 0;
             if (entry.buffer) typeId = 0;
             else if (entry.texture) typeId = 1;
             else if (entry.sampler) typeId = 2;
-            
+
             data.push(typeId);
         }
-        
+
         const ptr = this.wasm.wasm_alloc(data.length * 4);
         new Uint32Array(this.memory.buffer, ptr, data.length).set(data);
-        
+
         const handle = this.wasm.wasm_webgpu_create_bind_group_layout(
             this.ctxHandle,
             this.deviceHandle,
             ptr,
             data.length
         );
-        
+
         this.wasm.wasm_free(ptr, data.length * 4);
-        
+
         if (handle === 0) throw new Error("Failed to create bind group layout");
-        
+
         return new GPUBindGroupLayout(this.wasm, this.memory, this.ctxHandle, handle);
     }
 
@@ -415,14 +415,14 @@ export class GPUDevice {
     createBindGroup(descriptor) {
         const entries = descriptor.entries || [];
         const data = [entries.length];
-        
+
         for (const entry of entries) {
             data.push(entry.binding);
-            
+
             // Resource Type: 0=Buffer, 1=TextureView, 2=Sampler
             let resType = 0;
             let resHandle = 0;
-            
+
             if (entry.resource.buffer) {
                 resType = 0;
                 resHandle = entry.resource.buffer.bufferHandle;
@@ -433,17 +433,17 @@ export class GPUDevice {
                 resType = 2;
                 resHandle = entry.resource.samplerHandle;
             } else if (entry.resource.constructor.name === 'GPUSampler') {
-                 resType = 2;
-                 resHandle = entry.resource.samplerHandle;
+                resType = 2;
+                resHandle = entry.resource.samplerHandle;
             }
-            
+
             data.push(resType);
             data.push(resHandle);
         }
-        
+
         const ptr = this.wasm.wasm_alloc(data.length * 4);
         new Uint32Array(this.memory.buffer, ptr, data.length).set(data);
-        
+
         const handle = this.wasm.wasm_webgpu_create_bind_group(
             this.ctxHandle,
             this.deviceHandle,
@@ -451,11 +451,11 @@ export class GPUDevice {
             ptr,
             data.length
         );
-        
+
         this.wasm.wasm_free(ptr, data.length * 4);
-        
+
         if (handle === 0) throw new Error("Failed to create bind group");
-        
+
         return new GPUBindGroup(this.wasm, this.memory, this.ctxHandle, handle);
     }
 
@@ -505,9 +505,9 @@ export class GPUQueue {
         const ptr = this.wasm.wasm_alloc(handles.byteLength);
         const heapU32 = new Uint32Array(this.memory.buffer, ptr, handles.length);
         heapU32.set(handles);
-        
+
         this.wasm.wasm_webgpu_queue_submit(this.ctxHandle, this.queueHandle, ptr, handles.length);
-        
+
         this.wasm.wasm_free(ptr, handles.byteLength);
     }
 
@@ -559,7 +559,7 @@ export class GPUBuffer {
             BigInt(size || this.size)
         );
         if (result !== 0) {
-             throw new Error("Failed to map buffer");
+            throw new Error("Failed to map buffer");
         }
         return Promise.resolve();
     }
@@ -782,11 +782,11 @@ export class GPURenderPassEncoder {
         const loadOp = att.loadOp === 'clear' ? 1 : 0;
         const storeOp = att.storeOp === 'discard' ? 1 : 0;
         const clearColor = att.clearValue || { r: 0, g: 0, b: 0, a: 0 };
-        
+
         const ptr = this.wasm.wasm_alloc(this.commands.length * 4);
         const heapU32 = new Uint32Array(this.memory.buffer, ptr, this.commands.length);
         heapU32.set(this.commands);
-        
+
         this.wasm.wasm_webgpu_command_encoder_run_render_pass(
             this.ctxHandle,
             this.encoderHandle,
@@ -800,7 +800,7 @@ export class GPURenderPassEncoder {
             ptr,
             this.commands.length
         );
-        
+
         this.wasm.wasm_free(ptr, this.commands.length * 4);
     }
 }
@@ -857,7 +857,7 @@ export class GPUTexture {
         }
         return new GPUTextureView(this.wasm, this.memory, this.ctxHandle, viewHandle, this);
     }
-    
+
     destroy() {
         // TODO
     }

@@ -117,7 +117,7 @@ export class WasmWebGL2RenderingContext {
       console.warn('wasm_ctx_set_debug_mode not found');
       return;
     }
-    
+
     let modeVal = 0;
     if (mode === true || mode === 'all') modeVal = 3;
     else if (mode === 'shaders') modeVal = 1;
@@ -545,14 +545,14 @@ export class WasmWebGL2RenderingContext {
 
     const createDebugEnv = (type, instanceRef) => {
       if (this._debugMode !== 1 && this._debugMode !== 3) return {};
-      
+
       const stubCode = this.getProgramDebugStub(program, type);
       if (!stubCode) return {};
 
       // // Add sourceURL for debugging
       // const debugName = `shader_stub_program_${program._handle}_${type === this.VERTEX_SHADER ? 'vs' : 'fs'}.js`;
       // const codeWithUrl = stubCode + `\n//# sourceURL=${debugName}`;
-      
+
       let stubFuncs;
       try {
         // Eval the stub array
@@ -587,7 +587,7 @@ export class WasmWebGL2RenderingContext {
         const vsModule = new WebAssembly.Module(vsWasm);
         const instanceRef = { current: null };
         const debugEnv = createDebugEnv(this.VERTEX_SHADER, instanceRef);
-        
+
         program._vsInstance = new WebAssembly.Instance(vsModule, {
           env: {
             memory: this._instance.exports.memory,
