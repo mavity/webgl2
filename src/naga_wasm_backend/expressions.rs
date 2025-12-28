@@ -4,8 +4,23 @@
 
 use super::{BackendError, TranslationContext};
 
-use naga::{BinaryOperator, Expression, Literal};
+use naga::{BinaryOperator, Expression, Literal, ScalarKind, TypeInner};
 use wasm_encoder::Instruction;
+
+/// Helper function to determine if a type should use I32 operations
+pub fn is_integer_type(type_inner: &TypeInner) -> bool {
+    match type_inner {
+        TypeInner::Scalar(s) => matches!(
+            s.kind,
+            ScalarKind::Sint | ScalarKind::Uint | ScalarKind::Bool
+        ),
+        TypeInner::Vector { scalar, .. } => matches!(
+            scalar.kind,
+            ScalarKind::Sint | ScalarKind::Uint | ScalarKind::Bool
+        ),
+        _ => false,
+    }
+}
 
 /// Translate a Naga expression component to WASM instructions
 pub fn translate_expression_component(
@@ -23,16 +38,16 @@ pub fn translate_expression_component(
                     }
                     Literal::I32(i) => {
                         ctx.wasm_func.instruction(&Instruction::I32Const(*i));
-                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
+                        // No F32ReinterpretI32 - leave as I32
                     }
                     Literal::U32(u) => {
                         ctx.wasm_func.instruction(&Instruction::I32Const(*u as i32));
-                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
+                        // No F32ReinterpretI32 - leave as I32
                     }
                     Literal::Bool(b) => {
                         ctx.wasm_func
                             .instruction(&Instruction::I32Const(if *b { 1 } else { 0 }));
-                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
+                        // No F32ReinterpretI32 - leave as I32
                     }
                     _ => {
                         return Err(BackendError::UnsupportedFeature(format!(
@@ -42,7 +57,11 @@ pub fn translate_expression_component(
                     }
                 }
             } else {
-                ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                // For padding components, use appropriate type
+                match literal {
+                    Literal::F32(_) => ctx.wasm_func.instruction(&Instruction::F32Const(0.0)),
+                    _ => ctx.wasm_func.instruction(&Instruction::I32Const(0)),
+                };
             }
         }
         Expression::Constant(c_handle) => {
@@ -111,21 +130,9 @@ pub fn translate_expression_component(
             let left_idx = if left_count > 1 { component_idx } else { 0 };
             let right_idx = if right_count > 1 { component_idx } else { 0 };
 
+            // Translate operands - they're already in their natural types (I32 or F32)
             translate_expression_component(*left, left_idx, ctx)?;
-            if matches!(
-                left_scalar_kind,
-                naga::ScalarKind::Sint | naga::ScalarKind::Uint | naga::ScalarKind::Bool
-            ) {
-                ctx.wasm_func.instruction(&Instruction::I32ReinterpretF32);
-            }
-
             translate_expression_component(*right, right_idx, ctx)?;
-            if matches!(
-                left_scalar_kind,
-                naga::ScalarKind::Sint | naga::ScalarKind::Uint | naga::ScalarKind::Bool
-            ) {
-                ctx.wasm_func.instruction(&Instruction::I32ReinterpretF32);
-            }
 
             match op {
                 BinaryOperator::Add => match left_scalar_kind {
@@ -134,7 +141,6 @@ pub fn translate_expression_component(
                     }
                     naga::ScalarKind::Sint | naga::ScalarKind::Uint => {
                         ctx.wasm_func.instruction(&Instruction::I32Add);
-                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
                     }
                     _ => {}
                 },
@@ -144,7 +150,6 @@ pub fn translate_expression_component(
                     }
                     naga::ScalarKind::Sint | naga::ScalarKind::Uint => {
                         ctx.wasm_func.instruction(&Instruction::I32Sub);
-                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
                     }
                     _ => {}
                 },
@@ -154,7 +159,6 @@ pub fn translate_expression_component(
                     }
                     naga::ScalarKind::Sint | naga::ScalarKind::Uint => {
                         ctx.wasm_func.instruction(&Instruction::I32Mul);
-                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
                     }
                     _ => {}
                 },
@@ -164,11 +168,9 @@ pub fn translate_expression_component(
                     }
                     naga::ScalarKind::Sint => {
                         ctx.wasm_func.instruction(&Instruction::I32DivS);
-                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
                     }
                     naga::ScalarKind::Uint => {
                         ctx.wasm_func.instruction(&Instruction::I32DivU);
-                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
                     }
                     _ => {}
                 },
@@ -184,7 +186,7 @@ pub fn translate_expression_component(
                         }
                         _ => {}
                     }
-                    ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
+                    // Result is already I32 (bool), no reinterpret needed
                 }
                 BinaryOperator::NotEqual => {
                     match left_scalar_kind {
@@ -198,7 +200,7 @@ pub fn translate_expression_component(
                         }
                         _ => {}
                     }
-                    ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
+                    // Result is already I32 (bool), no reinterpret needed
                 }
                 _ => {
                     return Err(BackendError::UnsupportedFeature(format!(
@@ -270,12 +272,25 @@ pub fn translate_expression_component(
                 ctx.wasm_func
                     .instruction(&Instruction::I32Const((offset + component_idx * 4) as i32));
                 ctx.wasm_func.instruction(&Instruction::I32Add);
-                ctx.wasm_func
-                    .instruction(&Instruction::F32Load(wasm_encoder::MemArg {
-                        offset: 0,
-                        align: 2,
-                        memory_index: 0,
-                    }));
+                
+                // Use I32Load for integer types, F32Load for float types
+                let arg_ty = &ctx.module.types[arg.ty].inner;
+                
+                if is_integer_type(arg_ty) {
+                    ctx.wasm_func
+                        .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                            offset: 0,
+                            align: 2,
+                            memory_index: 0,
+                        }));
+                } else {
+                    ctx.wasm_func
+                        .instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+                            offset: 0,
+                            align: 2,
+                            memory_index: 0,
+                        }));
+                }
             } else {
                 // If it's an internal function, we use LocalGet
                 let base_idx = ctx.argument_local_offsets.get(idx).cloned().unwrap_or(*idx);
@@ -296,23 +311,27 @@ pub fn translate_expression_component(
 
                 let ty = &ctx.module.global_variables[*handle].ty;
                 let inner = &ctx.module.types[*ty].inner;
-                match inner {
-                    naga::TypeInner::Image { .. } | naga::TypeInner::Sampler { .. } => {
-                        ctx.wasm_func
-                            .instruction(&Instruction::F32Load(wasm_encoder::MemArg {
-                                offset: 0,
-                                align: 2,
-                                memory_index: 0,
-                            }));
-                    }
-                    _ => {
-                        ctx.wasm_func
-                            .instruction(&Instruction::F32Load(wasm_encoder::MemArg {
-                                offset: 0,
-                                align: 2,
-                                memory_index: 0,
-                            }));
-                    }
+                
+                // Check if it's an integer type (but not Image/Sampler which are stored as F32)
+                let use_i32_load = match inner {
+                    naga::TypeInner::Image { .. } | naga::TypeInner::Sampler { .. } => false,
+                    _ => is_integer_type(inner),
+                };
+                
+                if use_i32_load {
+                    ctx.wasm_func
+                        .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                            offset: 0,
+                            align: 2,
+                            memory_index: 0,
+                        }));
+                } else {
+                    ctx.wasm_func
+                        .instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+                            offset: 0,
+                            align: 2,
+                            memory_index: 0,
+                        }));
                 }
             } else {
                 ctx.wasm_func.instruction(&Instruction::F32Const(0.0));

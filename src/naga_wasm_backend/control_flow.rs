@@ -54,18 +54,30 @@ pub fn translate_statement(
             let value_ty = ctx.typifier.get(*value, &ctx.module.types);
             let num_components = super::types::component_count(value_ty);
 
+            // Use helper to determine if we should use I32Store or F32Store
+            let use_i32_store = super::expressions::is_integer_type(value_ty);
+
             for i in 0..num_components {
                 // Evaluate pointer (address)
                 super::expressions::translate_expression(*pointer, ctx)?;
                 // Evaluate value component i
                 super::expressions::translate_expression_component(*value, i, ctx)?;
-                // Store
-                ctx.wasm_func
-                    .instruction(&Instruction::F32Store(wasm_encoder::MemArg {
-                        offset: (i * 4) as u64,
-                        align: 2,
-                        memory_index: 0,
-                    }));
+                // Store with appropriate instruction
+                if use_i32_store {
+                    ctx.wasm_func
+                        .instruction(&Instruction::I32Store(wasm_encoder::MemArg {
+                            offset: (i * 4) as u64,
+                            align: 2,
+                            memory_index: 0,
+                        }));
+                } else {
+                    ctx.wasm_func
+                        .instruction(&Instruction::F32Store(wasm_encoder::MemArg {
+                            offset: (i * 4) as u64,
+                            align: 2,
+                            memory_index: 0,
+                        }));
+                }
             }
         }
         naga::Statement::Call {
@@ -188,10 +200,8 @@ pub fn translate_statement(
             accept,
             reject,
         } => {
-            // Evaluate condition
-            // We assume translate_expression puts an F32 (bits of I32 bool) on the stack
+            // Evaluate condition - it's already I32 (bool), no reinterpret needed
             super::expressions::translate_expression(*condition, ctx)?;
-            ctx.wasm_func.instruction(&Instruction::I32ReinterpretF32);
 
             ctx.wasm_func
                 .instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
