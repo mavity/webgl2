@@ -272,10 +272,10 @@ pub fn translate_expression_component(
                 ctx.wasm_func
                     .instruction(&Instruction::I32Const((offset + component_idx * 4) as i32));
                 ctx.wasm_func.instruction(&Instruction::I32Add);
-                
+
                 // Use I32Load for integer types, F32Load for float types
                 let arg_ty = &ctx.module.types[arg.ty].inner;
-                
+
                 if is_integer_type(arg_ty) {
                     ctx.wasm_func
                         .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
@@ -311,13 +311,13 @@ pub fn translate_expression_component(
 
                 let ty = &ctx.module.global_variables[*handle].ty;
                 let inner = &ctx.module.types[*ty].inner;
-                
+
                 // Check if it's an integer type (but not Image/Sampler which are stored as F32)
                 let use_i32_load = match inner {
                     naga::TypeInner::Image { .. } | naga::TypeInner::Sampler { .. } => false,
                     _ => is_integer_type(inner),
                 };
-                
+
                 if use_i32_load {
                     ctx.wasm_func
                         .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
@@ -344,28 +344,62 @@ pub fn translate_expression_component(
                     .instruction(&Instruction::I32Const((component_idx * 4) as i32));
                 ctx.wasm_func.instruction(&Instruction::I32Add);
             }
-            ctx.wasm_func
-                .instruction(&Instruction::F32Load(wasm_encoder::MemArg {
-                    offset: 0,
-                    align: 2,
-                    memory_index: 0,
-                }));
+
+            // Determine the type being loaded from the pointer
+            let pointer_ty = ctx.typifier.get(*pointer, &ctx.module.types);
+            let load_ty = match pointer_ty {
+                TypeInner::Pointer { base, .. } => &ctx.module.types[*base].inner,
+                _ => pointer_ty,
+            };
+
+            // Use I32Load for integer types, F32Load for float types
+            if is_integer_type(load_ty) {
+                ctx.wasm_func
+                    .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                        offset: 0,
+                        align: 2,
+                        memory_index: 0,
+                    }));
+            } else {
+                ctx.wasm_func
+                    .instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+                        offset: 0,
+                        align: 2,
+                        memory_index: 0,
+                    }));
+            }
         }
         Expression::AccessIndex { base, index } => {
             let base_ty = ctx.typifier.get(*base, &ctx.module.types);
             match base_ty {
-                naga::TypeInner::Pointer { .. } => {
+                naga::TypeInner::Pointer {
+                    base: pointed_ty, ..
+                } => {
                     translate_expression(*base, ctx)?;
                     ctx.wasm_func.instruction(&Instruction::I32Const(
                         (*index * 4 + component_idx * 4) as i32,
                     ));
                     ctx.wasm_func.instruction(&Instruction::I32Add);
-                    ctx.wasm_func
-                        .instruction(&Instruction::F32Load(wasm_encoder::MemArg {
-                            offset: 0,
-                            align: 2,
-                            memory_index: 0,
-                        }));
+
+                    // Determine the type of the element being accessed
+                    let element_ty = &ctx.module.types[*pointed_ty].inner;
+
+                    // Use I32Load for integer types, F32Load for float types
+                    if is_integer_type(element_ty) {
+                        ctx.wasm_func
+                            .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                                offset: 0,
+                                align: 2,
+                                memory_index: 0,
+                            }));
+                    } else {
+                        ctx.wasm_func
+                            .instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+                                offset: 0,
+                                align: 2,
+                                memory_index: 0,
+                            }));
+                    }
                 }
                 _ => {
                     // Accessing a component of a value
@@ -404,28 +438,23 @@ pub fn translate_expression_component(
                 // Conversion with potential change of interpretation
                 match (src_scalar_kind, kind) {
                     (naga::ScalarKind::Sint, naga::ScalarKind::Float) => {
-                        // i32 -> f32
-                        ctx.wasm_func.instruction(&Instruction::I32ReinterpretF32);
+                        // i32 -> f32: value is already I32 on stack
                         ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
                     }
                     (naga::ScalarKind::Uint, naga::ScalarKind::Float) => {
-                        // u32 -> f32
-                        ctx.wasm_func.instruction(&Instruction::I32ReinterpretF32);
+                        // u32 -> f32: value is already I32 on stack
                         ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
                     }
                     (naga::ScalarKind::Float, naga::ScalarKind::Sint) => {
-                        // f32 -> i32
+                        // f32 -> i32: value is already F32 on stack
                         ctx.wasm_func.instruction(&Instruction::I32TruncF32S);
-                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
                     }
                     (naga::ScalarKind::Float, naga::ScalarKind::Uint) => {
-                        // f32 -> u32
+                        // f32 -> u32: value is already F32 on stack
                         ctx.wasm_func.instruction(&Instruction::I32TruncF32U);
-                        ctx.wasm_func.instruction(&Instruction::F32ReinterpretI32);
                     }
                     (naga::ScalarKind::Bool, naga::ScalarKind::Float) => {
-                        // bool -> f32 (0 or 1)
-                        ctx.wasm_func.instruction(&Instruction::I32ReinterpretF32);
+                        // bool -> f32 (0 or 1): value is already I32 on stack
                         ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
                     }
                     (naga::ScalarKind::Bool, naga::ScalarKind::Sint) => {
@@ -433,6 +462,10 @@ pub fn translate_expression_component(
                     }
                     (naga::ScalarKind::Bool, naga::ScalarKind::Uint) => {
                         // bool -> u32: no-op
+                    }
+                    (naga::ScalarKind::Sint, naga::ScalarKind::Uint)
+                    | (naga::ScalarKind::Uint, naga::ScalarKind::Sint) => {
+                        // i32 <-> u32: no-op (same bit representation)
                     }
                     _ => {
                         // Other conversions not handled explicitly; treat as no-op for now
