@@ -134,7 +134,6 @@ async function initWASM({ debug } = {}) {
     const fs = await import('fs');
     const { fileURLToPath } = await import('url');
     const wasmPath = path.join(path.dirname(fileURLToPath(import.meta.url)), wasmFile);
-    console.log('Loading WASM from:', wasmPath);
     if (!fs.existsSync(wasmPath)) {
       throw new Error(`WASM not found at ${wasmPath}. Run: npm run build:wasm`);
     }
@@ -277,55 +276,4 @@ if (typeof window !== 'undefined' && window) {
   } catch (e) {
     // ignore if window is not writable
   }
-}
-
-async function nodeDemo() {
-  console.log('Running index2.js demo...');
-  const gl = await webGL2();
-  console.log(`✓ Context created (handle will be managed by destroy())`);
-
-  // 1x1 texture with CornflowerBlue (100, 149, 237, 255)
-  const tex = gl.createTexture();
-  console.log(`✓ Texture created (handle: ${tex})`);
-
-  gl.bindTexture(0, tex);
-  const pixel = new Uint8Array([100, 149, 237, 255]);
-  gl.texImage2D(0, 0, 0, 1, 1, 0, 0, 0, pixel);
-  console.log(`✓ Texture uploaded`);
-
-  const fb = gl.createFramebuffer();
-  console.log(`✓ Framebuffer created (handle: ${fb})`);
-
-  gl.bindFramebuffer(0, fb);
-  gl.framebufferTexture2D(0, 0, 0, tex, 0);
-  console.log(`✓ Texture attached to framebuffer`);
-
-  const out = new Uint8Array(4);
-  gl.readPixels(0, 0, 1, 1, 0, 0, out);
-  console.log(
-    `✓ Pixel read: r=${out[0]}, g=${out[1]}, b=${out[2]}, a=${out[3]}`
-  );
-
-  if (out[0] === 100 && out[1] === 149 && out[2] === 237 && out[3] === 255) {
-    console.log('✓ Pixel matches expected CornflowerBlue!');
-  } else {
-    console.error('✗ Pixel mismatch!');
-    process.exit(1);
-  }
-
-  gl.destroy();
-  console.log('✓ Context destroyed');
-  console.log('\n✓ Demo passed!');
-  process.exit(0);
-}
-
-// CLI demo: run when executed directly in Node
-if (isNode) {
-  (async () => {
-    const { fileURLToPath } = await import('url');
-    const path = (await import('path'));
-    if (fileURLToPath(import.meta.url) === process.argv[1]) {
-      nodeDemo();
-    }
-  })();
 }
