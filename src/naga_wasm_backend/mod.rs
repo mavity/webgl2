@@ -129,7 +129,11 @@ impl WasmBackend {
     }
 
     /// Compile a Naga module to WASM
-    pub fn compile(&self, config: CompileConfig, name: Option<&str>) -> Result<WasmModule, BackendError> {
+    pub fn compile(
+        &self,
+        config: CompileConfig,
+        name: Option<&str>,
+    ) -> Result<WasmModule, BackendError> {
         backend::compile_module(self, config, name)
     }
 }

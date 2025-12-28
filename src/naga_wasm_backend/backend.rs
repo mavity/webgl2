@@ -57,11 +57,7 @@ struct Compiler<'a> {
 }
 
 impl<'a> Compiler<'a> {
-    fn new(
-        backend: &'a WasmBackend,
-        config: CompileConfig<'a>,
-        name: Option<&'a str>,
-    ) -> Self {
+    fn new(backend: &'a WasmBackend, config: CompileConfig<'a>, name: Option<&'a str>) -> Self {
         let debug_generator = if matches!(
             backend.config.debug_mode,
             super::DebugMode::Rust | super::DebugMode::All
@@ -294,8 +290,11 @@ impl<'a> Compiler<'a> {
         self.functions.function(type_idx);
 
         let mut typifier = Typifier::new();
-        let resolve_ctx =
-            naga::proc::ResolveContext::with_locals(self.module, &func.local_variables, &func.arguments);
+        let resolve_ctx = naga::proc::ResolveContext::with_locals(
+            self.module,
+            &func.local_variables,
+            &func.arguments,
+        );
         for (handle, _expr) in func.expressions.iter() {
             // crate::js_print(&format!("DEBUG: Expr {:?}: {:?}", handle, expr));
             typifier
