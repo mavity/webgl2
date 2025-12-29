@@ -7,12 +7,12 @@ use crate::wasm_gl_emu::OwnedFramebuffer;
 fn test_processed_vertex_creation() {
     let vertex = ProcessedVertex {
         position: [1.0, 2.0, 3.0, 4.0],
-        varyings: vec![0.5, 0.6, 0.7],
+        varyings: vec![0.5f32.to_bits(), 0.6f32.to_bits(), 0.7f32.to_bits()],
     };
 
     assert_eq!(vertex.position[0], 1.0);
     assert_eq!(vertex.varyings.len(), 3);
-    assert_eq!(vertex.varyings[2], 0.7);
+    assert_eq!(f32::from_bits(vertex.varyings[2]), 0.7);
 }
 
 #[test]
@@ -181,15 +181,15 @@ fn test_render_state_creation() {
 fn test_perspective_interpolation_setup() {
     let v0 = ProcessedVertex {
         position: [0.0, 0.0, 0.0, 1.0],
-        varyings: vec![1.0, 0.0, 0.0],
+        varyings: vec![1.0f32.to_bits(), 0.0f32.to_bits(), 0.0f32.to_bits()],
     };
     let v1 = ProcessedVertex {
         position: [1.0, 0.0, 0.0, 1.0],
-        varyings: vec![0.0, 1.0, 0.0],
+        varyings: vec![0.0f32.to_bits(), 1.0f32.to_bits(), 0.0f32.to_bits()],
     };
     let v2 = ProcessedVertex {
         position: [0.5, 1.0, 0.0, 1.0],
-        varyings: vec![0.0, 0.0, 1.0],
+        varyings: vec![0.0f32.to_bits(), 0.0f32.to_bits(), 1.0f32.to_bits()],
     };
 
     // Just verify we can create vertices with varyings

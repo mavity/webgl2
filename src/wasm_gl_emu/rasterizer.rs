@@ -9,8 +9,10 @@
 pub struct ProcessedVertex {
     /// Clip-space position [x, y, z, w]
     pub position: [f32; 4],
-    /// Varying data (interpolated between vertices)
-    pub varyings: Vec<f32>,
+    /// Varying data (stored as raw u32 bits to avoid NaN canonicalization)
+    /// For float varyings, these are the bit patterns of f32 values
+    /// For integer varyings, these are the actual integer values
+    pub varyings: Vec<u32>,
 }
 
 /// Memory pointers for shader execution
@@ -184,7 +186,7 @@ impl Rasterizer {
             .len()
             .min(v1.varyings.len())
             .min(v2.varyings.len());
-        let mut interp_varyings = vec![0.0f32; varying_count];
+        let mut interp_varyings = vec![0u32; varying_count];
 
         for y in min_y..=max_y {
             for x in min_x..=max_x {
@@ -210,13 +212,18 @@ impl Rasterizer {
 
                         for (k, varying) in interp_varyings.iter_mut().enumerate() {
                             if (pipeline.flat_varyings_mask & (1 << k)) != 0 {
-                                // Flat shading: use value from provoking vertex (v2)
+                                // Flat shading: copy raw bits from provoking vertex (v2)
                                 *varying = v2.varyings[k];
                             } else {
-                                *varying = (u * v0.varyings[k] * w0_inv
-                                    + v * v1.varyings[k] * w1_inv
-                                    + w * v2.varyings[k] * w2_inv)
+                                // Smooth shading: interpolate as floats, then store as bits
+                                let v0_f = f32::from_bits(v0.varyings[k]);
+                                let v1_f = f32::from_bits(v1.varyings[k]);
+                                let v2_f = f32::from_bits(v2.varyings[k]);
+                                let interp_f = (u * v0_f * w0_inv
+                                    + v * v1_f * w1_inv
+                                    + w * v2_f * w2_inv)
                                     * w_interp;
+                                *varying = interp_f.to_bits();
                             }
                         }
 
@@ -237,11 +244,11 @@ impl Rasterizer {
     /// Execute fragment shader and return RGBA color
     fn execute_fragment_shader(
         &self,
-        varyings: &[f32],
+        varyings: &[u32],
         pipeline: &RasterPipeline,
         state: &RenderState,
     ) -> [u8; 4] {
-        // Copy varyings to shader memory
+        // Copy varyings to shader memory as raw bits
         unsafe {
             std::ptr::copy_nonoverlapping(
                 varyings.as_ptr() as *const u8,
@@ -366,14 +373,14 @@ impl Rasterizer {
                 }
                 let pos: [f32; 4] = unsafe { std::mem::transmute(pos_bytes) };
 
-                // Convert varyings to f32 for interpolation
-                let varyings_f32: Vec<f32> =
-                    unsafe { std::slice::from_raw_parts(varying_bytes.as_ptr() as *const f32, 64) }
+                // Read varyings as raw u32 bits to avoid NaN canonicalization
+                let varyings_u32: Vec<u32> =
+                    unsafe { std::slice::from_raw_parts(varying_bytes.as_ptr() as *const u32, 64) }
                         .to_vec();
 
                 vertices.push(ProcessedVertex {
                     position: pos,
-                    varyings: varyings_f32,
+                    varyings: varyings_u32,
                 });
             }
 
