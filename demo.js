@@ -1,15 +1,6 @@
 // Environment detection
 const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
 
-// Import fs only in Node
-let fs;
-async function initFS() {
-    if (isNode) {
-        const fsModule = await import('fs');
-        fs = fsModule.default;
-    }
-}
-
 // Animation state for browser
 const animationState = {
     running: false,
@@ -35,7 +26,7 @@ async function initializeRenderContext() {
         isNode || (
             typeof location !== 'undefined' &&
             typeof location?.hostname === 'string' &&
-            location.hostname.toString() === 'localhost'
+            (location.hostname.toString() === 'localhost' || location.hostname.toString() === '127.0.0.1')
         );
     const { webGL2 } = await import(
         loadLocal ? './index.js' :
@@ -43,11 +34,10 @@ async function initializeRenderContext() {
     );
 
     const gl = await webGL2({ debug: true });
-    gl.verbosity = 0; // Disable debug logs for this demo
     gl.viewport(0, 0, 640, 480);
 
     // Shaders
-    const vsSource = `#version 300 es
+    const vsSource = /* glsl */`#version 300 es
     layout(location = 0) in vec3 position;
     layout(location = 1) in vec2 uv;
     
@@ -61,18 +51,28 @@ async function initializeRenderContext() {
     }
     `;
 
-    const fsSource = `#version 300 es
+    const fsSource = /* glsl */`#version 300 es
     precision highp float;
     uniform texture2D u_texture;
     uniform sampler u_sampler;
     in vec2 v_uv;
     out vec4 fragColor;
-    
+
+    void small_fn_before(float val_noop) {
+        val_noop = 1.0;
+    }
+
+    void small_fn_after(float val_noop) {
+        val_noop = 2.0;
+    }
+
     void main() {
+        small_fn_before(3.0);
+        // uncomment and it blows
+        // small_fn_after(4.0);
         fragColor = texture(sampler2D(u_texture, u_sampler), v_uv);
         // fragColor = vec4(v_uv, 0.0, 1.0);
-    }
-    `;
+    }`;
 
     const vs = gl.createShader(gl.VERTEX_SHADER);
     gl.shaderSource(vs, vsSource);
@@ -284,7 +284,7 @@ async function renderCube(elapsedTime = 0) {
 }
 
 // Matrix from PNG rendering functions
-function savePNG(width, height, pixels, filename) {
+function createPNG(width, height, pixels) {
     // PNG Signature
     const signature = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
 
@@ -295,6 +295,33 @@ function savePNG(width, height, pixels, filename) {
         const crc = Buffer.alloc(4);
         crc.writeUInt32BE(crc32(Buffer.concat([typeBuf, data])), 0);
         return Buffer.concat([len, typeBuf, data, crc]);
+    }
+
+    // CRC32 implementation
+    const crcTable = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+        let c = i;
+        for (let j = 0; j < 8; j++) {
+            c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        }
+        crcTable[i] = c;
+    }
+
+    function crc32(buf) {
+        let crc = 0xFFFFFFFF;
+        for (let i = 0; i < buf.length; i++) {
+            crc = crcTable[(crc ^ buf[i]) & 0xFF] ^ (crc >>> 8);
+        }
+        return (crc ^ 0xFFFFFFFF) >>> 0;
+    }
+
+    function adler32(buf) {
+        let s1 = 1, s2 = 0;
+        for (let i = 0; i < buf.length; i++) {
+            s1 = (s1 + buf[i]) % 65521;
+            s2 = (s2 + s1) % 65521;
+        }
+        return ((s2 << 16) | s1) >>> 0;
     }
 
     // IHDR
@@ -340,34 +367,8 @@ function savePNG(width, height, pixels, filename) {
     // IEND
     const iend = createChunk('IEND', Buffer.alloc(0));
 
-    fs.writeFileSync(filename, Buffer.concat([signature, ihdr, idat, iend]));
-}
-
-// CRC32 implementation
-const crcTable = new Uint32Array(256);
-for (let i = 0; i < 256; i++) {
-    let c = i;
-    for (let j = 0; j < 8; j++) {
-        c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
-    }
-    crcTable[i] = c;
-}
-
-function crc32(buf) {
-    let crc = 0xFFFFFFFF;
-    for (let i = 0; i < buf.length; i++) {
-        crc = crcTable[(crc ^ buf[i]) & 0xFF] ^ (crc >>> 8);
-    }
-    return (crc ^ 0xFFFFFFFF) >>> 0;
-}
-
-function adler32(buf) {
-    let s1 = 1, s2 = 0;
-    for (let i = 0; i < buf.length; i++) {
-        s1 = (s1 + buf[i]) % 65521;
-        s2 = (s2 + s1) % 65521;
-    }
-    return ((s2 << 16) | s1) >>> 0;
+    const buf = Buffer.concat([signature, ihdr, idat, iend]);
+    return buf;
 }
 
 // Main entry point
@@ -418,13 +419,21 @@ async function animate() {
 }
 
 async function main() {
-    await initFS();
     const result = await renderCube();
     const { pixels, width, height } = result;
 
     if (isNode) {
         // Node: Save to file
-        savePNG(width, height, Buffer.from(pixels), 'output.png');
+        const buf = createPNG(width, height, Buffer.from(pixels));
+
+        const fs = await import('fs');
+        const path = await import('path');
+        const { fileURLToPath } = await import('url');
+
+        const __filename = fileURLToPath(import.meta.url);
+        const __dirname = path.dirname(__filename);
+
+        fs.writeFileSync(path.resolve(__dirname, 'output.png'), buf);
         console.log("Saved output.png");
     } else {
         // Browser: Apply styles and create UI
@@ -539,9 +548,4 @@ async function main() {
     }
 }
 
-// Auto-run if this is Node, export for browser
-if (isNode) {
-    main().catch(console.error);
-}
-
-export { renderCube, main };
+main();
