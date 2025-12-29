@@ -182,7 +182,6 @@ pub fn request_adapter(ctx_handle: u32, power_preference: wgt::PowerPreference) 
         ) {
             Ok(id) => id,
             Err(e) => {
-                crate::js_log(0, &format!("Failed to request adapter: {:?}", e));
                 return super::NULL_HANDLE;
             }
         };
@@ -225,7 +224,6 @@ pub fn request_device(ctx_handle: u32, adapter_handle: u32) -> u32 {
             {
                 Ok(res) => res,
                 Err(e) => {
-                    crate::js_log(0, &format!("Failed to request device: {:?}", e));
                     return super::NULL_HANDLE;
                 }
             };

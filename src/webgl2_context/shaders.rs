@@ -404,19 +404,13 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                 // If no layout qualifier, check bindAttribLocation
                 if location.is_none() {
                     if let Some(&loc) = p.attribute_bindings.get(name) {
-                        crate::js_log(3, &format!("Attribute '{}' bound to location {} via bindAttribLocation", name, loc));
                         location = Some(loc);
-                    } else {
-                        crate::js_log(3, &format!("Attribute '{}' has no binding", name));
                     }
-                } else {
-                    crate::js_log(3, &format!("Attribute '{}' has layout location {:?}", name, location));
                 }
 
                 if let Some(loc) = location {
                     if let Some(other_name) = used_locations.get(&loc) {
                         if other_name != name {
-                            crate::js_log(0, &format!("Collision! '{}' and '{}' both at {}", name, other_name, loc));
                             p.linked = false;
                             p.info_log = format!(
                                 "Link failed: Attributes '{}' and '{}' are both bound to location {}",

@@ -53,8 +53,10 @@ pub fn translate_statement(
             // Debug: Check if storing to global
             if let naga::Expression::GlobalVariable(handle) = ctx.func.expressions[*pointer] {
                 if let Some((offset, base_ptr)) = ctx.global_offsets.get(&handle) {
-                    let name = ctx.module.global_variables[handle].name.as_deref().unwrap_or("?");
-                    crate::js_log(0, &format!("DEBUG: Store to Global '{}' (offset={}, base={})", name, offset, base_ptr));
+                    let name = ctx.module.global_variables[handle]
+                        .name
+                        .as_deref()
+                        .unwrap_or("?");
                 }
             }
 

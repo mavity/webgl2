@@ -565,8 +565,8 @@ export class WasmWebGL2RenderingContext {
       return {
         debug_step: (line, funcIdx, resultPtr) => {
           if (line === 999999) {
-             console.log(`DEBUG LOG: val=${funcIdx} (0x${(funcIdx >>> 0).toString(16)})`);
-             return;
+            console.log(`DEBUG LOG: val=${funcIdx} (0x${(funcIdx >>> 0).toString(16)})`);
+            return;
           }
           const func = stubFuncs[line - 1];
           if (func) {

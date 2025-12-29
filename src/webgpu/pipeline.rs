@@ -40,13 +40,6 @@ pub fn create_render_pipeline(
             match ctx.pipeline_layouts.get(&config.pipeline_layout_handle) {
                 Some(id) => Some(*id),
                 None => {
-                    crate::js_log(
-                        0,
-                        &format!(
-                            "Invalid pipeline layout handle: {}",
-                            config.pipeline_layout_handle
-                        ),
-                    );
                     return super::NULL_HANDLE;
                 }
             }
@@ -142,7 +135,6 @@ pub fn create_render_pipeline(
             .global
             .device_create_render_pipeline(device_id, &desc, None);
         if let Some(e) = error {
-            crate::js_log(0, &format!("Failed to create render pipeline: {:?}", e));
             return super::NULL_HANDLE;
         }
 
@@ -178,7 +170,6 @@ pub unsafe fn create_pipeline_layout(
             if let Some(id) = ctx.bind_group_layouts.get(handle) {
                 bind_group_layouts.push(*id);
             } else {
-                crate::js_log(0, &format!("Invalid bind group layout handle: {}", handle));
                 return super::NULL_HANDLE;
             }
         }
@@ -193,7 +184,6 @@ pub unsafe fn create_pipeline_layout(
             .global
             .device_create_pipeline_layout(device_id, &desc, None);
         if let Some(e) = error {
-            crate::js_log(0, &format!("Failed to create pipeline layout: {:?}", e));
             return super::NULL_HANDLE;
         }
 

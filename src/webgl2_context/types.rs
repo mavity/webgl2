@@ -404,14 +404,8 @@ impl Context {
 
         for (i, attr) in vao.attributes.iter().enumerate() {
             let base_idx = i * 4;
-            if attr.enabled {
-                 crate::js_log(0, &format!("Attr {}: enabled={}, is_integer={}, default={:?}", i, attr.enabled, attr.is_integer, attr.default_value));
-            }
             if !attr.enabled {
                 dest[base_idx..base_idx + 4].copy_from_slice(&attr.default_value);
-                if i == 0 {
-                    crate::js_log(0, &format!("Attr 0 Disabled Fetch: {:?}", &dest[base_idx..base_idx + 4]));
-                }
                 continue;
             }
 
@@ -468,9 +462,6 @@ impl Context {
                                         ),
                                         _ => 0,
                                     };
-                                    if attr.is_integer {
-                                       crate::js_log(0, &format!("Fetch Int Attr: idx={}, comp={}, type={:x}, val={:x} ({})", i, component, attr.type_, val, val as i32));
-                                    }
                                     val
                                 } else {
                                     // Float or normalized attribute

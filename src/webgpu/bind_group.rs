@@ -67,7 +67,6 @@ pub fn create_bind_group_layout(ctx_handle: u32, device_handle: u32, entries_dat
             .device_create_bind_group_layout(device_id, &desc, None);
 
         if let Some(e) = error {
-            crate::js_log(0, &format!("Failed to create bind group layout: {:?}", e));
             return super::NULL_HANDLE;
         }
 
@@ -165,7 +164,6 @@ pub fn create_bind_group(
         let (bg_id, error) = ctx.global.device_create_bind_group(device_id, &desc, None);
 
         if let Some(e) = error {
-            crate::js_log(0, &format!("Failed to create bind group: {:?}", e));
             return super::NULL_HANDLE;
         }
 

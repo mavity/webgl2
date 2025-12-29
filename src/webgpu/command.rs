@@ -18,7 +18,6 @@ pub fn create_command_encoder(ctx_handle: u32, device_handle: u32) -> u32 {
             .global
             .device_create_command_encoder(device_id, &desc, None);
         if let Some(e) = error {
-            crate::js_log(0, &format!("Failed to create command encoder: {:?}", e));
             return super::NULL_HANDLE;
         }
 
@@ -42,7 +41,6 @@ pub fn command_encoder_finish(ctx_handle: u32, encoder_handle: u32) -> u32 {
 
         let (buffer_id, error) = ctx.global.command_encoder_finish(encoder_id, &desc, None);
         if let Some(e) = error {
-            crate::js_log(0, &format!("Failed to finish command encoder: {:?}", e));
             return super::NULL_HANDLE;
         }
 
@@ -88,7 +86,6 @@ pub fn command_encoder_copy_buffer_to_buffer(
             dest_offset,
             Some(size),
         ) {
-            crate::js_log(0, &format!("Failed to copy buffer to buffer: {:?}", e));
             return super::NULL_HANDLE;
         }
 
@@ -130,10 +127,7 @@ pub fn queue_submit(ctx_handle: u32, device_handle: u32, cb_handles: &[u32]) -> 
                 );
                 super::WEBGPU_SUCCESS
             }
-            Err(e) => {
-                crate::js_log(0, &format!("Failed to submit queue: {:?}", e));
-                super::WEBGPU_ERROR_OPERATION_FAILED
-            }
+            Err(e) => super::WEBGPU_ERROR_OPERATION_FAILED,
         }
     })
 }
@@ -205,7 +199,6 @@ pub fn command_encoder_copy_texture_to_buffer(
             .global
             .command_encoder_copy_texture_to_buffer(encoder_id, &source, &dest, &size)
         {
-            crate::js_log(0, &format!("Failed to copy texture to buffer: {:?}", e));
             return super::WEBGPU_ERROR_OPERATION_FAILED;
         }
 
@@ -287,7 +280,6 @@ pub fn command_encoder_run_render_pass(
             .global
             .command_encoder_begin_render_pass(encoder_id, &desc);
         if let Some(e) = err {
-            crate::js_log(0, &format!("Failed to begin render pass: {:?}", e));
             return super::WEBGPU_ERROR_OPERATION_FAILED;
         }
 
@@ -348,7 +340,8 @@ pub fn command_encoder_run_render_pass(
                         first_vertex,
                         first_instance,
                     ) {
-                        crate::js_log(0, &format!("Failed to draw: {:?}", e));
+                        // TODO: handle properly, propagate error
+                        // crate::js_log(0, &format!("Failed to draw: {:?}", e));
                     }
                 }
                 4 => {
@@ -365,19 +358,20 @@ pub fn command_encoder_run_render_pass(
                             ctx.global
                                 .render_pass_set_bind_group(&mut pass, index, Some(*id), &[])
                         {
-                            crate::js_log(0, &format!("Failed to set bind group: {:?}", e));
+                            // TODO: handle properly, propagate error
+                            // crate::js_log(0, &format!("Failed to set bind group: {:?}", e));
                         }
                     }
                 }
                 _ => {
-                    crate::js_log(1, &format!("Unknown render pass command op: {}", op));
+                    // TODO: handle properly, propagate error
+                    // crate::js_log(1, &format!("Unknown render pass command op: {}", op));
                     break;
                 }
             }
         }
 
         if let Err(e) = ctx.global.render_pass_end(&mut pass) {
-            crate::js_log(0, &format!("Failed to end render pass: {:?}", e));
             return super::WEBGPU_ERROR_OPERATION_FAILED;
         }
 

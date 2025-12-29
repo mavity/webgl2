@@ -37,7 +37,7 @@ pub unsafe fn create_shader_module(
             .global
             .device_create_shader_module(device_id, &desc, source, None);
         if let Some(e) = error {
-            crate::js_log(0, &format!("Failed to create shader module: {:?}", e));
+            // TODO: handle properly, propagate error
             return super::NULL_HANDLE;
         }
 

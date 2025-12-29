@@ -58,7 +58,6 @@ struct Compiler<'a> {
 
 impl<'a> Compiler<'a> {
     fn new(backend: &'a WasmBackend, config: CompileConfig<'a>, name: Option<&'a str>) -> Self {
-        crate::js_log(0, &format!("DEBUG: Varying locations: {:?}", config.varying_locations.keys()));
         let debug_generator = if matches!(
             backend.config.debug_mode,
             super::DebugMode::Rust | super::DebugMode::All
@@ -141,7 +140,11 @@ impl<'a> Compiler<'a> {
         // Calculate global offsets per address space
         let mut varying_offset = 0;
         // Reserve space for FS output (fragColor) at offset 0
-        let mut private_offset = if self.stage == naga::ShaderStage::Fragment { 16 } else { 0 };
+        let mut private_offset = if self.stage == naga::ShaderStage::Fragment {
+            16
+        } else {
+            0
+        };
         let _attr_offset = 0;
 
         // First pass: find gl_Position and put it at the start of varying buffer
@@ -206,7 +209,6 @@ impl<'a> Compiler<'a> {
                     };
 
                     if is_output {
-                        crate::js_log(0, &format!("DEBUG: Output detected: {:?} space={:?}", var.name, var.space));
                         (0, 3)
                     } else if let Some(name) = &var.name {
                         if let Some(&loc) = self.attribute_locations.get(name) {
@@ -217,8 +219,9 @@ impl<'a> Compiler<'a> {
                             (offset, 2)
                         } else {
                             let o = private_offset;
-                            crate::js_log(0, &format!("DEBUG: Private var {:?} at offset {}", name, o));
-                            if name == "fragColor" { panic!("DEBUG: fragColor at offset {}", o); }
+                            if name == "fragColor" {
+                                panic!("DEBUG: fragColor at offset {}", o);
+                            }
                             private_offset += size;
                             private_offset = (private_offset + 3) & !3;
                             (o, 3)
@@ -242,16 +245,19 @@ impl<'a> Compiler<'a> {
                         // We can't check the enum variant easily if it's not imported or available,
                         // but we can infer from context or just assume non-uniform/private globals in FS are outputs?
                         // Actually, let's rely on the fact that inputs in FS are varyings, and outputs are color.
-                        
+
                         // If it has a location binding, it might be an output
                         // Note: GlobalVariable binding is Option<ResourceBinding>, which doesn't have Location.
                         // Location bindings are on FunctionArgument/FunctionResult.
                         // So we can't check location here for globals.
-                        
+
                         // Fallback to name check
                         if let Some(name) = &var.name {
                             let n = name.as_str();
-                            n == "color" || n == "fragColor" || n == "gl_FragColor" || n.ends_with("Color")
+                            n == "color"
+                                || n == "fragColor"
+                                || n == "gl_FragColor"
+                                || n.ends_with("Color")
                         } else {
                             false
                         }
@@ -283,9 +289,6 @@ impl<'a> Compiler<'a> {
         for (idx, entry_point) in self.module.entry_points.iter().enumerate() {
             self.compile_entry_point(entry_point, idx)?;
         }
-
-        crate::js_log(0, &format!("DEBUG: Global Offsets: {:?}", self.global_offsets));
-
         Ok(())
     }
 
@@ -423,17 +426,21 @@ impl<'a> Compiler<'a> {
 
         // Inject debug log for entry point
         if is_entry_point && self._backend.config.debug_mode != super::DebugMode::None {
-             if let Some(debug_step_idx) = self.debug_step_idx {
-                 if self.stage == naga::ShaderStage::Fragment {
-                     // Log fragColor (Global 3 + 0)
-                     wasm_func.instruction(&Instruction::I32Const(999999));
-                     wasm_func.instruction(&Instruction::GlobalGet(3));
-                     wasm_func.instruction(&Instruction::F32Load(wasm_encoder::MemArg { offset: 0, align: 2, memory_index: 0 }));
-                     wasm_func.instruction(&Instruction::I32ReinterpretF32);
-                     wasm_func.instruction(&Instruction::I32Const(0));
-                     wasm_func.instruction(&Instruction::Call(debug_step_idx));
-                 }
-             }
+            if let Some(debug_step_idx) = self.debug_step_idx {
+                if self.stage == naga::ShaderStage::Fragment {
+                    // Log fragColor (Global 3 + 0)
+                    wasm_func.instruction(&Instruction::I32Const(999999));
+                    wasm_func.instruction(&Instruction::GlobalGet(3));
+                    wasm_func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+                        offset: 0,
+                        align: 2,
+                        memory_index: 0,
+                    }));
+                    wasm_func.instruction(&Instruction::I32ReinterpretF32);
+                    wasm_func.instruction(&Instruction::I32Const(0));
+                    wasm_func.instruction(&Instruction::Call(debug_step_idx));
+                }
+            }
         }
 
         wasm_func.instruction(&Instruction::End);

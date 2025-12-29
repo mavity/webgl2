@@ -26,7 +26,6 @@ pub fn create_buffer(
 
         let (buffer_id, error) = ctx.global.device_create_buffer(device_id, &desc, None);
         if let Some(e) = error {
-            crate::js_log(0, &format!("Failed to create buffer: {:?}", e));
             return super::NULL_HANDLE;
         }
 
@@ -94,15 +93,11 @@ pub fn buffer_map_async(
                 // background threads, we force the update here to make the operation
                 // effectively synchronous from the JS perspective.
                 if let Err(e) = ctx.global.device_poll(device_id, wgt::PollType::Poll) {
-                    crate::js_log(0, &format!("Failed to poll device after map: {:?}", e));
                     return super::WEBGPU_ERROR_INVALID_HANDLE;
                 }
                 super::WEBGPU_SUCCESS
             }
-            Err(e) => {
-                crate::js_log(0, &format!("Failed to map buffer: {:?}", e));
-                super::WEBGPU_ERROR_INVALID_HANDLE
-            }
+            Err(e) => super::WEBGPU_ERROR_INVALID_HANDLE,
         }
     })
 }
@@ -125,10 +120,7 @@ pub fn buffer_get_mapped_range(
             .buffer_get_mapped_range(buffer_id, offset, Some(size))
         {
             Ok((ptr, _len)) => ptr.as_ptr(),
-            Err(e) => {
-                crate::js_log(0, &format!("Failed to get mapped range: {:?}", e));
-                std::ptr::null_mut()
-            }
+            Err(e) => std::ptr::null_mut(),
         }
     })
 }
@@ -143,10 +135,7 @@ pub fn buffer_unmap(ctx_handle: u32, buffer_handle: u32) -> u32 {
 
         match ctx.global.buffer_unmap(buffer_id) {
             Ok(_) => super::WEBGPU_SUCCESS,
-            Err(e) => {
-                crate::js_log(0, &format!("Failed to unmap buffer: {:?}", e));
-                super::WEBGPU_ERROR_INVALID_HANDLE
-            }
+            Err(e) => super::WEBGPU_ERROR_INVALID_HANDLE,
         }
     })
 }

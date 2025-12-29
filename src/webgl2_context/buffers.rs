@@ -185,10 +185,6 @@ pub fn ctx_buffer_data(ctx: u32, target: u32, ptr: u32, len: u32, usage: u32) ->
 
     let src_slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
 
-    if len >= 4 {
-        crate::js_log(0, &format!("Buffer Data Upload: len={}, first 4 bytes: {:02x} {:02x} {:02x} {:02x}", len, src_slice[0], src_slice[1], src_slice[2], src_slice[3]));
-    }
-
     if let Some(buf) = ctx_obj.buffers.get_mut(&buf_handle) {
         buf.data = src_slice.to_vec();
         buf.usage = usage;

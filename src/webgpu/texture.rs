@@ -50,7 +50,7 @@ pub fn create_texture(ctx_handle: u32, device_handle: u32, config: TextureConfig
 
         let (texture_id, error) = ctx.global.device_create_texture(device_id, &desc, None);
         if let Some(e) = error {
-            crate::js_log(0, &format!("Failed to create texture: {:?}", e));
+            // TODO: handle properly, propagate error
             return super::NULL_HANDLE;
         }
 
@@ -127,7 +127,7 @@ pub fn create_texture_view(ctx_handle: u32, texture_handle: u32, config: Texture
 
         let (view_id, error) = ctx.global.texture_create_view(texture_id, &desc, None);
         if let Some(e) = error {
-            crate::js_log(0, &format!("Failed to create texture view: {:?}", e));
+            // TODO: handle properly, propagate error
             return super::NULL_HANDLE;
         }
 
@@ -167,7 +167,7 @@ pub fn create_sampler(ctx_handle: u32, device_handle: u32) -> u32 {
         let (sampler_id, error) = ctx.global.device_create_sampler(device_id, &desc, None);
 
         if let Some(e) = error {
-            crate::js_log(0, &format!("Failed to create sampler: {:?}", e));
+            // TODO: handle properly, propagate error
             return super::NULL_HANDLE;
         }
 

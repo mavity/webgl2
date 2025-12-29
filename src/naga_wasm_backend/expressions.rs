@@ -309,7 +309,7 @@ pub fn translate_expression_component(
         }
         Expression::Unary { op, expr } => {
             translate_expression_component(*expr, component_idx, ctx)?;
-            
+
             let expr_ty = ctx.typifier.get(*expr, &ctx.module.types);
             let is_int = is_integer_type(expr_ty);
 
@@ -709,37 +709,35 @@ pub fn translate_expression_component(
             ctx.wasm_func.instruction(&Instruction::F32Const(255.0));
             ctx.wasm_func.instruction(&Instruction::F32Div);
         }
-        Expression::Relational { fun, argument } => {
-            match fun {
-                RelationalFunction::All => {
-                    if component_idx == 0 {
-                        translate_expression(*argument, ctx)?;
-                        let arg_ty = ctx.typifier.get(*argument, &ctx.module.types);
-                        let count = super::types::component_count(arg_ty);
-                        for _ in 1..count {
-                            ctx.wasm_func.instruction(&Instruction::I32And);
-                        }
-                    } else {
-                        ctx.wasm_func.instruction(&Instruction::I32Const(0));
+        Expression::Relational { fun, argument } => match fun {
+            RelationalFunction::All => {
+                if component_idx == 0 {
+                    translate_expression(*argument, ctx)?;
+                    let arg_ty = ctx.typifier.get(*argument, &ctx.module.types);
+                    let count = super::types::component_count(arg_ty);
+                    for _ in 1..count {
+                        ctx.wasm_func.instruction(&Instruction::I32And);
                     }
-                }
-                RelationalFunction::Any => {
-                    if component_idx == 0 {
-                        translate_expression(*argument, ctx)?;
-                        let arg_ty = ctx.typifier.get(*argument, &ctx.module.types);
-                        let count = super::types::component_count(arg_ty);
-                        for _ in 1..count {
-                            ctx.wasm_func.instruction(&Instruction::I32Or);
-                        }
-                    } else {
-                        ctx.wasm_func.instruction(&Instruction::I32Const(0));
-                    }
-                }
-                _ => {
+                } else {
                     ctx.wasm_func.instruction(&Instruction::I32Const(0));
                 }
             }
-        }
+            RelationalFunction::Any => {
+                if component_idx == 0 {
+                    translate_expression(*argument, ctx)?;
+                    let arg_ty = ctx.typifier.get(*argument, &ctx.module.types);
+                    let count = super::types::component_count(arg_ty);
+                    for _ in 1..count {
+                        ctx.wasm_func.instruction(&Instruction::I32Or);
+                    }
+                } else {
+                    ctx.wasm_func.instruction(&Instruction::I32Const(0));
+                }
+            }
+            _ => {
+                ctx.wasm_func.instruction(&Instruction::I32Const(0));
+            }
+        },
         _ => {
             ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
         }

@@ -31,7 +31,6 @@ fn get_flat_varyings_mask(ctx: &Context) -> u64 {
                                         }
                                         _ => 1,
                                     };
-                                    crate::js_log(0, &format!("DEBUG: Flat Varying: loc={} start={} count={} type={:?}", location, start_bit, count, ty.inner));
                                     for i in 0..count {
                                         if start_bit + i < 64 {
                                             mask |= 1 << (start_bit + i);
@@ -121,7 +120,6 @@ pub fn ctx_draw_arrays_instanced(
 
     // Create pipeline configuration
     let mask = get_flat_varyings_mask(ctx_obj);
-    crate::js_log(0, &format!("DEBUG: Flat Varyings Mask: {:064b}", mask));
     let pipeline = RasterPipeline {
         flat_varyings_mask: mask,
         ..Default::default()
