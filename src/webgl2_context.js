@@ -97,36 +97,19 @@ export class WasmWebGL2RenderingContext {
    * @param {WebAssembly.Instance} instance
    * @param {u32} ctxHandle
    */
-  constructor(instance, ctxHandle) {
+  constructor({ instance, ctxHandle, debugShaders = false, debugRust = false }) {
     this._instance = instance;
     this._ctxHandle = ctxHandle;
     this._destroyed = false;
     /** @type {import('./webgl2_resources.js').WasmWebGLProgram | null} */
     this._currentProgram = null;
-    this._debugMode = 0; // 0=None, 1=Shaders, 2=Rust, 3=All
+    // Explicit booleans for clarity
+    this._debugShaders = !!debugShaders;
+    this._debugRust = !!debugRust;
     this._drawingBufferWidth = 640;
     this._drawingBufferHeight = 480;
 
-    WasmWebGL2RenderingContext._contexts.set(ctxHandle, this);
-  }
-
-  setDebugMode(mode) {
-    this._assertNotDestroyed();
-    const ex = this._instance.exports;
-    if (!ex || typeof ex.wasm_ctx_set_debug_mode !== 'function') {
-      console.warn('wasm_ctx_set_debug_mode not found');
-      return;
-    }
-
-    let modeVal = 0;
-    if (mode === true || mode === 'all') modeVal = 3;
-    else if (mode === 'shaders') modeVal = 1;
-    else if (mode === 'rust') modeVal = 2;
-    else modeVal = 0;
-
-    this._debugMode = modeVal;
-    const code = ex.wasm_ctx_set_debug_mode(this._ctxHandle, modeVal);
-    _checkErr(code, this._instance);
+    WasmWebGL2RenderingContext._contexts.set(this._ctxHandle, this);
   }
 
   get drawingBufferWidth() {
@@ -544,7 +527,7 @@ export class WasmWebGL2RenderingContext {
     const fsWasm = this.getProgramWasm(program, this.FRAGMENT_SHADER);
 
     const createDebugEnv = (type, instanceRef) => {
-      if (this._debugMode !== 1 && this._debugMode !== 3) return {};
+      if (!this._debugShaders) return {};
 
       const stubCode = this.getProgramDebugStub(program, type);
       if (!stubCode) return {};

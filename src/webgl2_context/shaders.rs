@@ -492,7 +492,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
 
         // Compile to WASM
         let mut config = WasmBackendConfig::default();
-        config.debug_mode = ctx_obj.debug_mode;
+        config.debug_shaders = ctx_obj.debug_shaders;
         let backend = WasmBackend::new(config);
 
         if let (Some(vs), Some(vsi)) = (&p.vs_module, &p.vs_info) {

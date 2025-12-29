@@ -4,8 +4,8 @@
 
 | File | Lines Covered | Lines Missed | Total Lines | Coverage |
 |---|---|---|---|---|
-| src/lib.rs | 109 | 31 | 140 | 77.86% 🟡 |
-| src/naga_wasm_backend/backend.rs | 45 | 2 | 47 | 95.74% 🟢 |
+| src/lib.rs | 108 | 30 | 138 | 78.26% 🟡 |
+| src/naga_wasm_backend/backend.rs | 43 | 2 | 45 | 95.56% 🟢 |
 | src/naga_wasm_backend/control_flow.rs | 25 | 11 | 36 | 69.44% 🟡 |
 | src/naga_wasm_backend/debug/stub.rs | 20 | 0 | 20 | 100.00% 🟢 |
 | src/naga_wasm_backend/expressions.rs | 41 | 19 | 60 | 68.33% 🟡 |
@@ -18,19 +18,19 @@
 | src/webgl2_context/registry.rs | 5 | 0 | 5 | 100.00% 🟢 |
 | src/webgl2_context/renderbuffers.rs | 10 | 0 | 10 | 100.00% 🟢 |
 | src/webgl2_context/shaders.rs | 70 | 3 | 73 | 95.89% 🟢 |
-| src/webgl2_context/state.rs | 14 | 3 | 17 | 82.35% 🟢 |
+| src/webgl2_context/state.rs | 13 | 3 | 16 | 81.25% 🟢 |
 | src/webgl2_context/textures.rs | 10 | 0 | 10 | 100.00% 🟢 |
 | src/webgl2_context/types.rs | 10 | 1 | 11 | 90.91% 🟢 |
 | src/webgl2_context/vaos.rs | 37 | 0 | 37 | 100.00% 🟢 |
 | src/webgpu/adapter.rs | 3 | 0 | 3 | 100.00% 🟢 |
 | src/webgpu/backend.rs | 25 | 25 | 50 | 50.00% 🟡 |
-| **Total** | **498** | **100** | **598** | **83.28% 🟢** |
+| **Total** | **494** | **99** | **593** | **83.31% 🟢** |
 
 ## Top Missed Files
 
 | File | Lines Missed | Illustrative Line | Coverage |
 |---|---|---|---|
-| src/lib.rs | 31/140 | [516] `/// Set uniform 3f.` | 77.86% 🟡 |
+| src/lib.rs | 30/138 | [516] `/// Set uniform 3f.` | 78.26% 🟡 |
 | src/webgpu/backend.rs | 25/50 | [919] `}` | 50.00% 🟡 |
 | src/naga_wasm_backend/expressions.rs | 19/60 | [11] `pub fn is_integer_type(type_inner: &TypeInner) -> bool {` | 68.33% 🟡 |
 | src/naga_wasm_backend/control_flow.rs | 11/36 | [181] `for i in (0..types.len()).rev() {` | 69.44% 🟡 |

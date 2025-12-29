@@ -45,7 +45,7 @@ const isNode =
  * This function:
  * 1. Auto-loads webgl2.wasm (expects it next to index2.js)
  * 2. Instantiates the WASM module with memory
- * 3. Creates a Rust-owned context via wasm_create_context()
+ * 3. Creates a Rust-owned context via wasm_create_context_with_flags(flags)
  * 4. Returns a WasmWebGL2RenderingContext JS wrapper
  *
  * @param {{
@@ -83,21 +83,21 @@ export async function webGL2({ debug = (typeof process !== 'undefined' ? process
     ex.wasm_init_coverage(numEntries);
   }
 
-  // Create a context in WASM
-  const ctxHandle = ex.wasm_create_context();
+  // Determine debug flags for creation
+  const debugShaders = debug === true || debug === 'shaders' || debug === 'all';
+  const debugRust = debug === true || debug === 'rust' || debug === 'all';
+  const flags = (debugShaders ? 1 : 0); // only shader debug encoded in flags
+
+  // Create a context in WASM using the flags-aware API (mandatory)
+  const ctxHandle = ex.wasm_create_context_with_flags(flags);
+
   if (ctxHandle === 0) {
     const msg = readErrorMessage(instance);
     throw new Error(`Failed to create context: ${msg}`);
   }
 
-  // Wrap and return
-  const gl = new WasmWebGL2RenderingContext(instance, ctxHandle);
-  
-  // Set debug mode if requested
-  if (debug) {
-    gl.setDebugMode(debug);
-  }
-  
+  // Wrap and return, pass debug booleans to the JS wrapper
+  const gl = new WasmWebGL2RenderingContext({ instance, ctxHandle, debugShaders: !!debugShaders, debugRust: !!debugRust });
 
   if (size && typeof size.width === 'number' && typeof size.height === 'number') {
     gl.resize(size.width, size.height);
@@ -185,8 +185,8 @@ async function initWASM({ debug } = {}) {
 
   // Verify required exports
   const ex = instance.exports;
-  if (typeof ex.wasm_create_context !== 'function') {
-    throw new Error('WASM module missing wasm_create_context export');
+  if (typeof ex.wasm_create_context_with_flags !== 'function') {
+    throw new Error('WASM module missing wasm_create_context_with_flags export');
   }
   if (!(ex.memory instanceof WebAssembly.Memory)) {
     throw new Error('WASM module missing memory export');

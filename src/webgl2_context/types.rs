@@ -243,7 +243,7 @@ pub struct Context {
     pub(crate) texture_units: Vec<Option<u32>>,
     pub(crate) gl_error: u32,
     pub verbosity: u32, // 0: None, 1: Error, 2: Info, 3: Debug
-    pub debug_mode: crate::naga_wasm_backend::DebugMode,
+    pub debug_shaders: bool,
 }
 
 impl Default for Context {
@@ -291,7 +291,7 @@ impl Default for Context {
             texture_units: vec![None; 16],
             gl_error: GL_NO_ERROR,
             verbosity: 2, // Default to Info
-            debug_mode: crate::naga_wasm_backend::DebugMode::None,
+            debug_shaders: false,
         }
     }
 }

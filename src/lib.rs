@@ -115,11 +115,11 @@ pub use wasm_gl_emu::ShaderRuntime;
 
 // ---- Context Lifecycle ----
 
-/// Create a new WebGL2 context.
-/// Returns context handle (0 on failure; sets last_error).
+
+/// Create a context with flags (bit0 = shader debug).
 #[no_mangle]
-pub extern "C" fn wasm_create_context() -> u32 {
-    webgl2_context::create_context()
+pub extern "C" fn wasm_create_context_with_flags(flags: u32) -> u32 {
+    webgl2_context::registry::create_context_with_flags(flags)
 }
 
 /// Destroy a WebGL2 context by handle.
@@ -749,12 +749,6 @@ pub extern "C" fn wasm_ctx_draw_elements_instanced(
 #[no_mangle]
 pub extern "C" fn wasm_ctx_set_verbosity(ctx: u32, level: u32) -> u32 {
     webgl2_context::ctx_set_verbosity(ctx, level)
-}
-
-/// Set debug mode.
-#[no_mangle]
-pub extern "C" fn wasm_ctx_set_debug_mode(ctx: u32, mode: u32) -> u32 {
-    webgl2_context::ctx_set_debug_mode(ctx, mode)
 }
 
 /// Get program debug stub.

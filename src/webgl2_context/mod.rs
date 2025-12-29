@@ -13,7 +13,7 @@ pub use buffers::*;
 pub use drawing::*;
 pub use framebuffers::*;
 pub use registry::{
-    create_context, destroy_context, last_error_len, last_error_ptr, set_last_error, wasm_alloc,
+    create_context_with_flags, destroy_context, last_error_len, last_error_ptr, set_last_error, wasm_alloc,
     wasm_free,
 };
 pub use renderbuffers::*;

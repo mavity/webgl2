@@ -79,12 +79,19 @@ pub(crate) fn clear_last_error() {
 // Context Lifecycle
 // ============================================================================
 
-/// Create a new WebGL2 context and return its handle.
-/// Returns 0 on failure (sets last_error).
-pub fn create_context() -> u32 {
+
+/// Create a new WebGL2 context with flags. Flags bits:
+/// bit0 = shader debug (enable shader debug stubs).
+pub fn create_context_with_flags(flags: u32) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();
-    let ctx = Context::default();
+    let mut ctx = Context::default();
+
+    // Determine debug mode from flags: only shader debug is relevant here
+    let shader = (flags & 0x1) != 0;
+
+    ctx.debug_shaders = shader;
+
     let handle = reg.allocate_context_handle();
     reg.contexts.insert(handle, ctx);
     handle

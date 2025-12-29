@@ -58,14 +58,9 @@ struct Compiler<'a> {
 
 impl<'a> Compiler<'a> {
     fn new(backend: &'a WasmBackend, config: CompileConfig<'a>, name: Option<&'a str>) -> Self {
-        let debug_generator = if matches!(
-            backend.config.debug_mode,
-            super::DebugMode::Rust | super::DebugMode::All
-        ) {
-            Some(super::debug::DwarfGenerator::new(config.source))
-        } else {
-            None
-        };
+        // DWARF generation is currently a placeholder/stub in the backend.
+        // It is not used for coverage or runtime debugging.
+        let debug_generator = None;
 
         Self {
             _backend: backend,
@@ -106,22 +101,19 @@ impl<'a> Compiler<'a> {
             },
         );
 
-        // Import debug_step if needed
-        match self._backend.config.debug_mode {
-            super::DebugMode::Shaders | super::DebugMode::All => {
-                self.imports.import(
-                    "env",
-                    "debug_step",
-                    wasm_encoder::EntityType::Function(self.types.len()),
-                );
-                // Signature: (line: i32, func_id: i32, result_ptr: i32) -> ()
-                self.types
-                    .ty()
-                    .function(vec![ValType::I32, ValType::I32, ValType::I32], vec![]);
-                self.debug_step_idx = Some(self.function_count);
-                self.function_count += 1;
-            }
-            _ => {}
+        // Import debug_step if shader debugging is enabled for this backend
+        if self._backend.config.debug_shaders {
+            self.imports.import(
+                "env",
+                "debug_step",
+                wasm_encoder::EntityType::Function(self.types.len()),
+            );
+            // Signature: (line: i32, func_id: i32, result_ptr: i32) -> ()
+            self.types
+                .ty()
+                .function(vec![ValType::I32, ValType::I32, ValType::I32], vec![]);
+            self.debug_step_idx = Some(self.function_count);
+            self.function_count += 1;
         }
 
         // Define 5 globals for base pointers
@@ -408,7 +400,7 @@ impl<'a> Compiler<'a> {
             local_offsets: &local_offsets,
             call_result_locals: &call_result_locals,
             stage,
-            debug_mode: self._backend.config.debug_mode,
+            debug_shaders: self._backend.config.debug_shaders,
             debug_step_idx: self.debug_step_idx,
             typifier: &typifier,
             naga_function_map: &self.naga_function_map,
@@ -425,7 +417,7 @@ impl<'a> Compiler<'a> {
         }
 
         // Inject debug log for entry point
-        if is_entry_point && self._backend.config.debug_mode != super::DebugMode::None {
+        if is_entry_point && self._backend.config.debug_shaders {
             if let Some(debug_step_idx) = self.debug_step_idx {
                 if self.stage == naga::ShaderStage::Fragment {
                     // Log fragColor (Global 3 + 0)
@@ -448,12 +440,9 @@ impl<'a> Compiler<'a> {
 
         // Export internal functions in debug mode
         if entry_point.is_none() {
-            match self._backend.config.debug_mode {
-                super::DebugMode::Shaders | super::DebugMode::All => {
-                    self.exports
-                        .export(&format!("func_{}", func_idx), ExportKind::Func, func_idx);
-                }
-                _ => {}
+            if self._backend.config.debug_shaders {
+                self.exports
+                    .export(&format!("func_{}", func_idx), ExportKind::Func, func_idx);
             }
         }
 
@@ -513,13 +502,11 @@ impl<'a> Compiler<'a> {
         };
 
         // Generate JS stub if enabled
-        let debug_stub = match self._backend.config.debug_mode {
-            super::DebugMode::Shaders | super::DebugMode::All => {
-                let generator =
-                    super::debug::JsStubGenerator::new(self._source, self.module, self.name);
-                Some(generator.generate())
-            }
-            _ => None,
+        let debug_stub = if self._backend.config.debug_shaders {
+            let generator = super::debug::JsStubGenerator::new(self._source, self.module, self.name);
+            Some(generator.generate())
+        } else {
+            None
         };
 
         let wasm_bytes = module.finish();

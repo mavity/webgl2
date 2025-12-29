@@ -16,31 +16,18 @@ use std::collections::HashMap;
 /// Configuration for WASM generation
 #[derive(Debug, Clone)]
 pub struct WasmBackendConfig {
-    /// Debugging mode
-    pub debug_mode: DebugMode,
+    /// Enable shader stepping via JS stub
+    pub debug_shaders: bool,
     /// Optimize generated WASM (future: dead code elimination, constant folding)
     pub optimize: bool,
     /// Target WASM features (SIMD, threads, etc.)
     pub features: WasmFeatures,
 }
 
-/// Debugging mode for generated WASM
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DebugMode {
-    /// No debugging support
-    None,
-    /// Enable shader stepping via JS stub
-    Shaders,
-    /// Enable Rust-level debugging (DWARF)
-    Rust,
-    /// Enable both shader stepping and DWARF
-    All,
-}
-
 impl Default for WasmBackendConfig {
     fn default() -> Self {
         Self {
-            debug_mode: DebugMode::Shaders,
+            debug_shaders: true,
             optimize: false,
             features: WasmFeatures::default(),
         }
@@ -187,7 +174,7 @@ pub struct TranslationContext<'a> {
     /// Shader stage of the current entry point or function being translated.
     pub stage: naga::ShaderStage,
     /// Debug mode configuration
-    pub debug_mode: DebugMode,
+    pub debug_shaders: bool,
     /// Index of the debug_step host function (if imported)
     pub debug_step_idx: Option<u32>,
     /// Typifier used to query the inferred types of Naga expressions.

@@ -110,10 +110,8 @@ test('coverage module is available with coverage feature', async () => {
   // Since we haven't run any code yet, hits should be 0 (or 1 if initialization runs code)
   // Let's run a function to trigger coverage
   
-  // Try to find a function to run. `wasm_create_context` is a good candidate.
-  // console.log("Calling wasm_create_context...");
-  exports.wasm_create_context(0, 0);
-  // console.log("Called wasm_create_context successfully");
+  // Call a simple function to trigger coverage: create a context with flags (no debug)
+  exports.wasm_create_context_with_flags(0);
 
   const hitBuffer = new Uint8Array(memory.buffer, covPtr, covLen);
   let totalHits = 0;
