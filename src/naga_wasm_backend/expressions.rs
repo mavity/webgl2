@@ -4,7 +4,7 @@
 
 use super::{BackendError, TranslationContext};
 
-use naga::{BinaryOperator, Expression, Literal, ScalarKind, TypeInner};
+use naga::{BinaryOperator, Expression, Literal, RelationalFunction, ScalarKind, TypeInner};
 use wasm_encoder::Instruction;
 
 /// Helper function to determine if a type should use I32 operations
@@ -20,6 +20,96 @@ pub fn is_integer_type(type_inner: &TypeInner) -> bool {
         ),
         _ => false,
     }
+}
+
+/// Translate a Naga constant expression component to WASM instructions
+fn translate_const_expression_component(
+    expr_handle: naga::Handle<Expression>,
+    component_idx: u32,
+    ctx: &mut TranslationContext,
+) -> Result<(), BackendError> {
+    let expr = &ctx.module.global_expressions[expr_handle];
+    match expr {
+        Expression::Literal(literal) => {
+            if component_idx == 0 {
+                match literal {
+                    Literal::F32(f) => {
+                        ctx.wasm_func.instruction(&Instruction::F32Const(*f));
+                    }
+                    Literal::I32(i) => {
+                        ctx.wasm_func.instruction(&Instruction::I32Const(*i));
+                    }
+                    Literal::U32(u) => {
+                        ctx.wasm_func.instruction(&Instruction::I32Const(*u as i32));
+                    }
+                    Literal::Bool(b) => {
+                        ctx.wasm_func
+                            .instruction(&Instruction::I32Const(if *b { 1 } else { 0 }));
+                    }
+                    _ => {
+                        return Err(BackendError::UnsupportedFeature(format!(
+                            "Unsupported literal in constant: {:?}",
+                            literal
+                        )));
+                    }
+                }
+            } else {
+                match literal {
+                    Literal::F32(_) => ctx.wasm_func.instruction(&Instruction::F32Const(0.0)),
+                    _ => ctx.wasm_func.instruction(&Instruction::I32Const(0)),
+                };
+            }
+        }
+        Expression::Compose { ty, components } => {
+            let mut current_component_idx = component_idx;
+            let mut found = false;
+            for comp_handle in components {
+                let comp_expr = &ctx.module.global_expressions[*comp_handle];
+                let comp_count = match comp_expr {
+                    Expression::Literal(_) => 1,
+                    Expression::Compose { ty, .. } => {
+                        let inner = &ctx.module.types[*ty].inner;
+                        super::types::component_count(inner)
+                    }
+                    Expression::ZeroValue(ty) => {
+                        let inner = &ctx.module.types[*ty].inner;
+                        super::types::component_count(inner)
+                    }
+                    _ => 1,
+                };
+
+                if current_component_idx < comp_count {
+                    translate_const_expression_component(*comp_handle, current_component_idx, ctx)?;
+                    found = true;
+                    break;
+                }
+                current_component_idx -= comp_count;
+            }
+            if !found {
+                let inner = &ctx.module.types[*ty].inner;
+                if is_integer_type(inner) {
+                    ctx.wasm_func.instruction(&Instruction::I32Const(0));
+                } else {
+                    ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                }
+            }
+        }
+        Expression::ZeroValue(ty) => {
+            let inner = &ctx.module.types[*ty].inner;
+            if is_integer_type(inner) {
+                ctx.wasm_func.instruction(&Instruction::I32Const(0));
+            } else {
+                ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+            }
+        }
+        _ => {
+            return Err(BackendError::UnsupportedFeature(format!(
+                "Unsupported constant expression: {:?}",
+                expr
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Translate a Naga expression component to WASM instructions
@@ -66,15 +156,9 @@ pub fn translate_expression_component(
         }
         Expression::Constant(c_handle) => {
             let c = &ctx.module.constants[*c_handle];
-            // let init_expr = &module.global_expressions[c.init];
-            // For now, just handle scalar constants
-            if component_idx == 0 {
-                translate_expression(c.init, ctx)?;
-            } else {
-                ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
-            }
+            translate_const_expression_component(c.init, component_idx, ctx)?;
         }
-        Expression::Compose { components, .. } => {
+        Expression::Compose { ty, components } => {
             let mut current_component_idx = component_idx;
             let mut found = false;
             for &comp_handle in components {
@@ -88,6 +172,19 @@ pub fn translate_expression_component(
                 current_component_idx -= comp_count;
             }
             if !found {
+                let inner = &ctx.module.types[*ty].inner;
+                if is_integer_type(inner) {
+                    ctx.wasm_func.instruction(&Instruction::I32Const(0));
+                } else {
+                    ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                }
+            }
+        }
+        Expression::ZeroValue(ty) => {
+            let inner = &ctx.module.types[*ty].inner;
+            if is_integer_type(inner) {
+                ctx.wasm_func.instruction(&Instruction::I32Const(0));
+            } else {
                 ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
             }
         }
@@ -611,6 +708,37 @@ pub fn translate_expression_component(
             ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
             ctx.wasm_func.instruction(&Instruction::F32Const(255.0));
             ctx.wasm_func.instruction(&Instruction::F32Div);
+        }
+        Expression::Relational { fun, argument } => {
+            match fun {
+                RelationalFunction::All => {
+                    if component_idx == 0 {
+                        translate_expression(*argument, ctx)?;
+                        let arg_ty = ctx.typifier.get(*argument, &ctx.module.types);
+                        let count = super::types::component_count(arg_ty);
+                        for _ in 1..count {
+                            ctx.wasm_func.instruction(&Instruction::I32And);
+                        }
+                    } else {
+                        ctx.wasm_func.instruction(&Instruction::I32Const(0));
+                    }
+                }
+                RelationalFunction::Any => {
+                    if component_idx == 0 {
+                        translate_expression(*argument, ctx)?;
+                        let arg_ty = ctx.typifier.get(*argument, &ctx.module.types);
+                        let count = super::types::component_count(arg_ty);
+                        for _ in 1..count {
+                            ctx.wasm_func.instruction(&Instruction::I32Or);
+                        }
+                    } else {
+                        ctx.wasm_func.instruction(&Instruction::I32Const(0));
+                    }
+                }
+                _ => {
+                    ctx.wasm_func.instruction(&Instruction::I32Const(0));
+                }
+            }
         }
         _ => {
             ctx.wasm_func.instruction(&Instruction::F32Const(0.0));

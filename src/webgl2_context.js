@@ -564,6 +564,10 @@ export class WasmWebGL2RenderingContext {
 
       return {
         debug_step: (line, funcIdx, resultPtr) => {
+          if (line === 999999) {
+             console.log(`DEBUG LOG: val=${funcIdx} (0x${(funcIdx >>> 0).toString(16)})`);
+             return;
+          }
           const func = stubFuncs[line - 1];
           if (func) {
             const ctx = {
@@ -596,7 +600,7 @@ export class WasmWebGL2RenderingContext {
         });
         instanceRef.current = program._vsInstance;
       } catch (e) {
-        // console.log(`DEBUG: VS Instance creation failed: ${e}`);
+        console.log(`DEBUG: VS Instance creation failed: ${e}`);
       }
     }
     if (fsWasm) {
@@ -613,7 +617,7 @@ export class WasmWebGL2RenderingContext {
         });
         instanceRef.current = program._fsInstance;
       } catch (e) {
-        // console.log(`DEBUG: FS Instance creation failed: ${e}`);
+        console.log(`DEBUG: FS Instance creation failed: ${e}`);
       }
     }
   }

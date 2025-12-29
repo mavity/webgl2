@@ -62,6 +62,7 @@ pub fn ctx_bind_vertex_array(ctx: u32, vao: u32) -> u32 {
     };
 
     if ctx_obj.vertex_arrays.contains_key(&vao) {
+        crate::js_log(0, &format!("DEBUG: Bind VAO {}", vao));
         ctx_obj.bound_vertex_array = vao;
         ERR_OK
     } else {
@@ -100,6 +101,7 @@ pub fn ctx_enable_vertex_attrib_array(ctx: u32, index: u32) -> u32 {
     };
 
     if let Some(vao) = ctx_obj.vertex_arrays.get_mut(&ctx_obj.bound_vertex_array) {
+        crate::js_log(0, &format!("DEBUG: Enable Attr {} on VAO {} (len={})", index, ctx_obj.bound_vertex_array, vao.attributes.len()));
         if (index as usize) < vao.attributes.len() {
             vao.attributes[index as usize].enabled = true;
             ERR_OK

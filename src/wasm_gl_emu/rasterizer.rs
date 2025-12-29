@@ -186,6 +186,15 @@ impl Rasterizer {
             .len()
             .min(v1.varyings.len())
             .min(v2.varyings.len());
+        
+        // DEBUG LOG
+        if varying_count > 4 { // Only log for complex cases to avoid spam
+             crate::js_log(0, &format!("Rasterizer: varying_count={} mask={:064b}", varying_count, pipeline.flat_varyings_mask));
+             crate::js_log(0, &format!("v0.pos={:?} v1.pos={:?} v2.pos={:?}", v0.position, v1.position, v2.position));
+             crate::js_log(0, &format!("v0.varyings={:?}", &v0.varyings[0..varying_count.min(16)]));
+             crate::js_log(0, &format!("v2.varyings={:?}", &v2.varyings[0..varying_count.min(16)]));
+        }
+
         let mut interp_varyings = vec![0u32; varying_count];
 
         for y in min_y..=max_y {
@@ -284,7 +293,7 @@ impl Rasterizer {
         // But we don't have easy access to "first pixel" state here.
         // We can check if it's 0,0,0,0 which is suspicious.
         if c[3] == 0.0 {
-            // crate::js_log(3, &format!("FS Output 0 alpha! varyings[0]={}", varyings[0]));
+            crate::js_log(0, &format!("FS Output 0 alpha! varyings[0]={} varyings[4]={}", varyings[0], varyings.get(4).unwrap_or(&999)));
         }
 
         [

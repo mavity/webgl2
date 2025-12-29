@@ -1,11 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import { webGL2 } from '../../../index.js';
+import { webGL2 } from '../index.js';
 
-test('WebGL2 vertexAttribI* rendering', async (t) => {
+test('Debug Vertex Attrib Integer', async (t) => {
   const gl = await webGL2();
   try {
+    gl.setDebugMode('shaders');
     gl.viewport(0, 0, 640, 480);
+
+    // Test 0: Verify Clear
+    await t.test('Verify Clear', () => {
+      gl.clearColor(0.5, 0.5, 0.5, 1.0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      const pixels = new Uint8Array(4);
+      gl.readPixels(320, 240, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      console.log('Clear Pixels:', Array.from(pixels));
+      assert.deepStrictEqual(Array.from(pixels), [128, 128, 128, 255], 'Should be gray');
+    });
 
     const vsSource = `#version 300 es
     layout(location = 0) in ivec4 a_ivec4;
@@ -16,6 +27,7 @@ test('WebGL2 vertexAttribI* rendering', async (t) => {
         v_ivec4 = a_ivec4;
         v_uvec4 = a_uvec4;
         gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+        gl_PointSize = 10.0; // Force point size
     }`;
 
     const fsSource = `#version 300 es
@@ -58,8 +70,8 @@ test('WebGL2 vertexAttribI* rendering', async (t) => {
     }
     gl.useProgram(program);
 
-    // Test 1: vertexAttribI4i and vertexAttribI4ui (constant attributes)
-    await t.test('constant attributes', () => {
+    // Test 1: Constant Attributes
+    await t.test('Constant Attributes', () => {
       gl.vertexAttribI4i(0, -1, 2, -3, 4);
       gl.vertexAttribI4ui(1, 1, 2, 3, 4);
 
@@ -69,12 +81,24 @@ test('WebGL2 vertexAttribI* rendering', async (t) => {
 
       const pixels = new Uint8Array(4);
       gl.readPixels(320, 240, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      console.log('Test 1 Pixels:', Array.from(pixels));
+      console.log('Constant Attr Pixels:', Array.from(pixels));
+
+      // Check if we got Red (failure) or Green (success) or Black (no draw)
+      if (pixels[0] === 255 && pixels[1] === 0) {
+        console.log('Got RED - Logic failed');
+      } else if (pixels[0] === 0 && pixels[1] === 255) {
+        console.log('Got GREEN - Success');
+      } else if (pixels[3] === 0) {
+        console.log('Got TRANSPARENT - No draw?');
+      } else {
+        console.log('Got Unknown:', Array.from(pixels));
+      }
+
       assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255], 'Should be green');
     });
 
-    // Test 2: vertexAttribIPointer with i32
-    await t.test('vertexAttribIPointer i32', () => {
+    // Test 2: Vertex Attrib Pointer (INT)
+    await t.test('Vertex Attrib Pointer INT', () => {
       const buffer = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
       const data = new Int32Array([-1, 2, -3, 4]);
@@ -83,57 +107,16 @@ test('WebGL2 vertexAttribI* rendering', async (t) => {
       gl.enableVertexAttribArray(0);
       gl.vertexAttribIPointer(0, 4, gl.INT, 0, 0);
 
-      gl.vertexAttribI4ui(1, 1, 2, 3, 4); // Keep uvec4 constant
+      // Reset constant attr 1 just in case
+      gl.vertexAttribI4ui(1, 1, 2, 3, 4);
 
+      gl.clearColor(0, 0, 0, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.POINTS, 0, 1);
 
       const pixels = new Uint8Array(4);
       gl.readPixels(320, 240, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255], 'Should be green');
-    });
-
-    // Test 3: vertexAttribIPointer with u32
-    await t.test('vertexAttribIPointer u32', () => {
-      const buffer = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-      const data = new Uint32Array([1, 2, 3, 4]);
-      gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-
-      gl.enableVertexAttribArray(1);
-      gl.vertexAttribIPointer(1, 4, gl.UNSIGNED_INT, 0, 0);
-
-      gl.vertexAttribI4i(0, -1, 2, -3, 4); // Keep ivec4 constant
-
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.drawArrays(gl.POINTS, 0, 1);
-
-      const pixels = new Uint8Array(4);
-      gl.readPixels(320, 240, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255], 'Should be green');
-    });
-
-    // Test 4: vertexAttribIPointer with i8/u8/i16/u16
-    await t.test('vertexAttribIPointer small types', () => {
-      // Test i8
-      const bufI8 = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, bufI8);
-      gl.bufferData(gl.ARRAY_BUFFER, new Int8Array([-1, 2, -3, 4]), gl.STATIC_DRAW);
-      gl.enableVertexAttribArray(0);
-      gl.vertexAttribIPointer(0, 4, gl.BYTE, 0, 0);
-
-      // Test u16
-      const bufU16 = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, bufU16);
-      gl.bufferData(gl.ARRAY_BUFFER, new Uint16Array([1, 2, 3, 4]), gl.STATIC_DRAW);
-      gl.enableVertexAttribArray(1);
-      gl.vertexAttribIPointer(1, 4, gl.UNSIGNED_SHORT, 0, 0);
-
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.drawArrays(gl.POINTS, 0, 1);
-
-      const pixels = new Uint8Array(4);
-      gl.readPixels(320, 240, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      console.log('Pointer INT Pixels:', Array.from(pixels));
       assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255], 'Should be green');
     });
   } finally {

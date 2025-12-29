@@ -58,6 +58,7 @@ struct Compiler<'a> {
 
 impl<'a> Compiler<'a> {
     fn new(backend: &'a WasmBackend, config: CompileConfig<'a>, name: Option<&'a str>) -> Self {
+        crate::js_log(0, &format!("DEBUG: Varying locations: {:?}", config.varying_locations.keys()));
         let debug_generator = if matches!(
             backend.config.debug_mode,
             super::DebugMode::Rust | super::DebugMode::All
@@ -139,7 +140,8 @@ impl<'a> Compiler<'a> {
 
         // Calculate global offsets per address space
         let mut varying_offset = 0;
-        let mut private_offset = 0;
+        // Reserve space for FS output (fragColor) at offset 0
+        let mut private_offset = if self.stage == naga::ShaderStage::Fragment { 16 } else { 0 };
         let _attr_offset = 0;
 
         // First pass: find gl_Position and put it at the start of varying buffer
@@ -204,7 +206,7 @@ impl<'a> Compiler<'a> {
                     };
 
                     if is_output {
-                        println!("DEBUG: Output detected: {:?} space={:?}", var.name, var.space);
+                        crate::js_log(0, &format!("DEBUG: Output detected: {:?} space={:?}", var.name, var.space));
                         (0, 3)
                     } else if let Some(name) = &var.name {
                         if let Some(&loc) = self.attribute_locations.get(name) {
@@ -215,6 +217,7 @@ impl<'a> Compiler<'a> {
                             (offset, 2)
                         } else {
                             let o = private_offset;
+                            crate::js_log(0, &format!("DEBUG: Private var {:?} at offset {}", name, o));
                             if name == "fragColor" { panic!("DEBUG: fragColor at offset {}", o); }
                             private_offset += size;
                             private_offset = (private_offset + 3) & !3;
@@ -280,6 +283,8 @@ impl<'a> Compiler<'a> {
         for (idx, entry_point) in self.module.entry_points.iter().enumerate() {
             self.compile_entry_point(entry_point, idx)?;
         }
+
+        crate::js_log(0, &format!("DEBUG: Global Offsets: {:?}", self.global_offsets));
 
         Ok(())
     }
@@ -414,6 +419,21 @@ impl<'a> Compiler<'a> {
 
         for (stmt, span) in func.body.span_iter() {
             super::control_flow::translate_statement(stmt, span, &mut ctx)?;
+        }
+
+        // Inject debug log for entry point
+        if is_entry_point && self._backend.config.debug_mode != super::DebugMode::None {
+             if let Some(debug_step_idx) = self.debug_step_idx {
+                 if self.stage == naga::ShaderStage::Fragment {
+                     // Log fragColor (Global 3 + 0)
+                     wasm_func.instruction(&Instruction::I32Const(999999));
+                     wasm_func.instruction(&Instruction::GlobalGet(3));
+                     wasm_func.instruction(&Instruction::F32Load(wasm_encoder::MemArg { offset: 0, align: 2, memory_index: 0 }));
+                     wasm_func.instruction(&Instruction::I32ReinterpretF32);
+                     wasm_func.instruction(&Instruction::I32Const(0));
+                     wasm_func.instruction(&Instruction::Call(debug_step_idx));
+                 }
+             }
         }
 
         wasm_func.instruction(&Instruction::End);
