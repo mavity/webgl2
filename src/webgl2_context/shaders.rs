@@ -478,6 +478,8 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                         if name != "color"
                             && name != "gl_FragColor"
                             && name != "gl_FragColor_1"
+                            && name != "fragColor"
+                            && !name.ends_with("Color")
                             && !varying_locations.contains_key(name)
                         {
                             varying_locations.insert(name.clone(), next_varying_loc);

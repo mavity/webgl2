@@ -190,10 +190,12 @@ impl<'a> Compiler<'a> {
                     // Check if it's an output in FS
                     let is_output = if self.stage == naga::ShaderStage::Fragment {
                         if let Some(name) = &var.name {
-                            name == "color"
-                                || name == "gl_FragColor"
-                                || name == "fragColor"
-                                || name == "gl_FragColor_1"
+                            let n = name.as_str();
+                            n == "color"
+                                || n == "gl_FragColor"
+                                || n == "fragColor"
+                                || n == "gl_FragColor_1"
+                                || n.ends_with("Color")
                         } else {
                             false
                         }
@@ -202,6 +204,7 @@ impl<'a> Compiler<'a> {
                     };
 
                     if is_output {
+                        println!("DEBUG: Output detected: {:?} space={:?}", var.name, var.space);
                         (0, 3)
                     } else if let Some(name) = &var.name {
                         if let Some(&loc) = self.attribute_locations.get(name) {
@@ -212,6 +215,7 @@ impl<'a> Compiler<'a> {
                             (offset, 2)
                         } else {
                             let o = private_offset;
+                            if name == "fragColor" { panic!("DEBUG: fragColor at offset {}", o); }
                             private_offset += size;
                             private_offset = (private_offset + 3) & !3;
                             (o, 3)
@@ -223,11 +227,44 @@ impl<'a> Compiler<'a> {
                         (o, 3)
                     }
                 }
+                // Handle explicit In/Out address spaces (used in newer Naga versions)
+                // Note: We can't match directly on AddressSpace::In/Out if they don't exist in this version,
+                // but we can use a catch-all with a check if we knew the enum variants.
+                // Since we are in a match, we'll assume anything else that looks like an input/output
+                // falls here.
                 _ => {
-                    let o = varying_offset;
-                    varying_offset += size;
-                    varying_offset = (varying_offset + 3) & !3;
-                    (o, 2)
+                    // Check if it's an output in FS (AddressSpace::Out)
+                    let is_fs_output = if self.stage == naga::ShaderStage::Fragment {
+                        // If it's AddressSpace::Out (which falls here), it's an output
+                        // We can't check the enum variant easily if it's not imported or available,
+                        // but we can infer from context or just assume non-uniform/private globals in FS are outputs?
+                        // Actually, let's rely on the fact that inputs in FS are varyings, and outputs are color.
+                        
+                        // If it has a location binding, it might be an output
+                        // Note: GlobalVariable binding is Option<ResourceBinding>, which doesn't have Location.
+                        // Location bindings are on FunctionArgument/FunctionResult.
+                        // So we can't check location here for globals.
+                        
+                        // Fallback to name check
+                        if let Some(name) = &var.name {
+                            let n = name.as_str();
+                            n == "color" || n == "fragColor" || n == "gl_FragColor" || n.ends_with("Color")
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    if is_fs_output {
+                        (0, 3) // private_ptr for FS output
+                    } else {
+                        // Otherwise assume varying (VS output or FS input)
+                        let o = varying_offset;
+                        varying_offset += size;
+                        varying_offset = (varying_offset + 3) & !3;
+                        (o, 2)
+                    }
                 }
             };
             self.global_offsets.insert(handle, (offset, base_ptr));

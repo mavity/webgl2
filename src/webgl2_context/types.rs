@@ -444,7 +444,7 @@ impl Context {
                             if src_off + type_size as usize <= buffer.data.len() {
                                 let bits = if attr.is_integer {
                                     // Pure integer attribute
-                                    match attr.type_ {
+                                    let val = match attr.type_ {
                                         0x1400 => (buffer.data[src_off] as i8) as i32 as u32,
                                         0x1401 => buffer.data[src_off] as u32,
                                         0x1402 => i16::from_le_bytes(
@@ -461,8 +461,15 @@ impl Context {
                                             buffer.data[src_off..src_off + 4].try_into().unwrap(),
                                         ),
                                         _ => 0,
+                                    };
+                                    if i == 0 && component == 0 {
+                                        // crate::js_log(0, &format!("Fetch Int Attr: idx={}, comp={}, type={:x}, val={:x} ({})", i, component, attr.type_, val, val as i32));
+                                        panic!("Fetch Int Attr reached!");
                                     }
+                                    val
                                 } else {
+                                    // Float or normalized attribute
+                                    let val: f32 = match attr.type_ {
                                     // Float or normalized attribute
                                     let val: f32 = match attr.type_ {
                                         0x1406 => f32::from_le_bytes(
@@ -547,6 +554,9 @@ impl Context {
                                         }
                                         _ => 0.0,
                                     };
+                                    if i == 0 && component == 0 {
+                                        crate::js_log(0, &format!("Fetch Float Attr: idx={}, comp={}, type={:x}, val={}", i, component, attr.type_, val));
+                                    }
                                     val.to_bits()
                                 };
                                 dest[base_idx + component] = bits;
