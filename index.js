@@ -88,8 +88,12 @@ export async function webGL2({ debug = (typeof process !== 'undefined' ? process
   const debugRust = debug === true || debug === 'rust' || debug === 'all';
   const flags = (debugShaders ? 1 : 0); // only shader debug encoded in flags
 
+  // Default size to 640x480 if not provided
+  const width = size?.width ?? 640;
+  const height = size?.height ?? 480;
+
   // Create a context in WASM using the flags-aware API (mandatory)
-  const ctxHandle = ex.wasm_create_context_with_flags(flags);
+  const ctxHandle = ex.wasm_create_context_with_flags(flags, width, height);
 
   if (ctxHandle === 0) {
     const msg = readErrorMessage(instance);
@@ -97,7 +101,7 @@ export async function webGL2({ debug = (typeof process !== 'undefined' ? process
   }
 
   // Wrap and return, pass debug booleans to the JS wrapper
-  const gl = new WasmWebGL2RenderingContext({ instance, ctxHandle, debugShaders: !!debugShaders, debugRust: !!debugRust });
+  const gl = new WasmWebGL2RenderingContext({ instance, ctxHandle, width, height, debugShaders: !!debugShaders });
 
   if (size && typeof size.width === 'number' && typeof size.height === 'number') {
     gl.resize(size.width, size.height);

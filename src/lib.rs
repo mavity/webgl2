@@ -118,8 +118,8 @@ pub use wasm_gl_emu::ShaderRuntime;
 
 /// Create a context with flags (bit0 = shader debug).
 #[no_mangle]
-pub extern "C" fn wasm_create_context_with_flags(flags: u32) -> u32 {
-    webgl2_context::registry::create_context_with_flags(flags)
+pub extern "C" fn wasm_create_context_with_flags(flags: u32, width: u32, height: u32) -> u32 {
+    webgl2_context::registry::create_context_with_flags(flags, width, height)
 }
 
 /// Destroy a WebGL2 context by handle.

@@ -20,11 +20,11 @@
 | src/webgl2_context/shaders.rs | 70 | 3 | 73 | 95.89% 🟢 |
 | src/webgl2_context/state.rs | 13 | 3 | 16 | 81.25% 🟢 |
 | src/webgl2_context/textures.rs | 10 | 0 | 10 | 100.00% 🟢 |
-| src/webgl2_context/types.rs | 10 | 1 | 11 | 90.91% 🟢 |
+| src/webgl2_context/types.rs | 11 | 1 | 12 | 91.67% 🟢 |
 | src/webgl2_context/vaos.rs | 37 | 0 | 37 | 100.00% 🟢 |
 | src/webgpu/adapter.rs | 3 | 0 | 3 | 100.00% 🟢 |
 | src/webgpu/backend.rs | 25 | 25 | 50 | 50.00% 🟡 |
-| **Total** | **494** | **99** | **593** | **83.31% 🟢** |
+| **Total** | **495** | **99** | **594** | **83.33% 🟢** |
 
 ## Top Missed Files
 

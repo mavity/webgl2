@@ -96,8 +96,11 @@ export class WasmWebGL2RenderingContext {
   /**
    * @param {WebAssembly.Instance} instance
    * @param {u32} ctxHandle
+   * @param {number} width
+   * @param {number} height
+   * @param {boolean} [debugShaders]
    */
-  constructor({ instance, ctxHandle, debugShaders = false, debugRust = false }) {
+  constructor({ instance, ctxHandle, width, height, debugShaders = false }) {
     this._instance = instance;
     this._ctxHandle = ctxHandle;
     this._destroyed = false;
@@ -105,9 +108,8 @@ export class WasmWebGL2RenderingContext {
     this._currentProgram = null;
     // Explicit booleans for clarity
     this._debugShaders = !!debugShaders;
-    this._debugRust = !!debugRust;
-    this._drawingBufferWidth = 640;
-    this._drawingBufferHeight = 480;
+    this._drawingBufferWidth = width;
+    this._drawingBufferHeight = height;
 
     WasmWebGL2RenderingContext._contexts.set(this._ctxHandle, this);
   }

@@ -246,8 +246,8 @@ pub struct Context {
     pub debug_shaders: bool,
 }
 
-impl Default for Context {
-    fn default() -> Self {
+impl Context {
+    pub fn new(width: u32, height: u32) -> Self {
         let mut vertex_arrays = HashMap::new();
         vertex_arrays.insert(0, VertexArray::default());
 
@@ -277,12 +277,12 @@ impl Default for Context {
 
             uniform_data: vec![0; 4096], // 4KB for uniforms
 
-            default_framebuffer: crate::wasm_gl_emu::OwnedFramebuffer::new(640, 480),
+            default_framebuffer: crate::wasm_gl_emu::OwnedFramebuffer::new(width, height),
             rasterizer: crate::wasm_gl_emu::Rasterizer::default(),
 
             clear_color: [0.0, 0.0, 0.0, 0.0],
-            viewport: (0, 0, 640, 480),
-            scissor_box: (0, 0, 640, 480),
+            viewport: (0, 0, width, height),
+            scissor_box: (0, 0, width, height),
             scissor_test_enabled: false,
             depth_test_enabled: false,
             depth_func: 0x0203, // GL_LEQUAL
@@ -293,6 +293,12 @@ impl Default for Context {
             verbosity: 2, // Default to Info
             debug_shaders: false,
         }
+    }
+}
+
+impl Default for Context {
+    fn default() -> Self {
+        Self::new(640, 480)
     }
 }
 
