@@ -36,14 +36,16 @@ test('Debug Vertex Attrib Integer', async (t) => {
     out vec4 fragColor;
     void main() {
         bool ok = true;
-        if (v_ivec4 != ivec4(-1, 2, -3, 4)) ok = false;
-        if (v_uvec4 != uvec4(1u, 2u, 3u, 4u)) ok = false;
-        
-        if (ok) {
-            fragColor = vec4(0.0, 1.0, 0.0, 1.0); // Green
-        } else {
-            fragColor = vec4(1.0, 0.0, 0.0, 1.0); // Red
+        if (v_ivec4 != ivec4(-1, 2, -3, 4)) {
+            fragColor = vec4(0.0, 0.0, 1.0, 1.0); // Blue: ivec4 failed
+            return;
         }
+        if (v_uvec4 != uvec4(1u, 2u, 3u, 4u)) {
+            fragColor = vec4(1.0, 1.0, 0.0, 1.0); // Yellow: uvec4 failed
+            return;
+        }
+        
+        fragColor = vec4(0.0, 1.0, 0.0, 1.0); // Green
     }`;
 
     const vs = gl.createShader(gl.VERTEX_SHADER);
