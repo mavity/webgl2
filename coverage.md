@@ -3,7 +3,7 @@
 > **Legend:** 🟢 ≥80% | 🟡 ≥50% (or ≤6 lines) | 🟠 ≥20% | 🔴 <20%
 
 | File | Lines Covered | Lines Missed | Total Lines | Coverage |
-|---|---|---|---|---|
+|---|---|---|---|---:|
 | src/lib.rs | 108 | 30 | 138 | 78.26% 🟡 |
 | src/naga_wasm_backend/backend.rs | 43 | 2 | 45 | 95.56% 🟢 |
 | src/naga_wasm_backend/control_flow.rs | 25 | 11 | 36 | 69.44% 🟡 |
@@ -29,7 +29,7 @@
 ## Top Missed Files
 
 | File | Lines Missed | Illustrative Line | Coverage |
-|---|---|---|---|
+|---|---|---|---:|
 | src/lib.rs | 30/138 | [516] `/// Set uniform 3f.` | 78.26% 🟡 |
 | src/webgpu/backend.rs | 25/50 | [919] `}` | 50.00% 🟡 |
 | src/naga_wasm_backend/expressions.rs | 19/60 | [11] `pub fn is_integer_type(type_inner: &TypeInner) -> bool {` | 68.33% 🟡 |
