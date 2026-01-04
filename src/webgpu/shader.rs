@@ -37,7 +37,11 @@ pub unsafe fn create_shader_module(
             .global
             .device_create_shader_module(device_id, &desc, source, None);
         if let Some(e) = error {
-            // TODO: handle properly, propagate error
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_VALIDATION,
+                format!("Failed to create shader module: {}", e),
+            );
             return super::NULL_HANDLE;
         }
 

@@ -26,6 +26,11 @@ pub fn create_buffer(
 
         let (buffer_id, error) = ctx.global.device_create_buffer(device_id, &desc, None);
         if let Some(e) = error {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_VALIDATION,
+                format!("Failed to create buffer: {}", e),
+            );
             return super::NULL_HANDLE;
         }
 

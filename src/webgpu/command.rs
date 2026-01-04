@@ -340,6 +340,11 @@ pub fn command_encoder_run_render_pass(
                         first_vertex,
                         first_instance,
                     ) {
+                        crate::error::set_error(
+                            crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                            super::WEBGPU_ERROR_VALIDATION,
+                            format!("Failed to draw: {}", e),
+                        );
                         // TODO: handle properly, propagate error
                     }
                 }
@@ -357,11 +362,21 @@ pub fn command_encoder_run_render_pass(
                             ctx.global
                                 .render_pass_set_bind_group(&mut pass, index, Some(*id), &[])
                         {
+                            crate::error::set_error(
+                                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                                super::WEBGPU_ERROR_VALIDATION,
+                                format!("Failed to set bind group: {}", e),
+                            );
                             // TODO: handle properly, propagate error
                         }
                     }
                 }
                 _ => {
+                    crate::error::set_error(
+                        crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                        super::WEBGPU_ERROR_VALIDATION,
+                        "Unknown render command",
+                    );
                     // TODO: handle properly, propagate error
                     break;
                 }
@@ -369,6 +384,11 @@ pub fn command_encoder_run_render_pass(
         }
 
         if let Err(e) = ctx.global.render_pass_end(&mut pass) {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_OPERATION_FAILED,
+                format!("Failed to end render pass: {}", e),
+            );
             return super::WEBGPU_ERROR_OPERATION_FAILED;
         }
 
