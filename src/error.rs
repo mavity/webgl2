@@ -9,6 +9,9 @@ use std::cell::RefCell;
 use std::ffi::CString;
 use std::os::raw::c_char;
 
+// Log level constants
+const LOG_LEVEL_ERROR: u32 = 0;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ErrorSource {
     WebGL,
@@ -88,12 +91,12 @@ pub fn set_error(source: ErrorSource, code: u32, msg: impl ToString) {
 
                 if !captured {
                     // Uncaptured error: Log immediately or trigger global handler
-                    crate::js_log(0, &format!("Uncaptured WebGPU Error: {}", error.message));
+                    crate::js_log(LOG_LEVEL_ERROR, &format!("Uncaptured WebGPU Error: {}", error.message));
                 }
             }
             _ => {
                 // System/Other: Log immediately
-                crate::js_log(0, &format!("System Error: {}", error.message));
+                crate::js_log(LOG_LEVEL_ERROR, &format!("System Error: {}", error.message));
             }
         }
     });
@@ -135,7 +138,8 @@ pub extern "C" fn wasm_get_last_error_msg_ptr() -> *const c_char {
         
         // Get WebGL error for this specific API
         if let Some(err) = &state.webgl_last_error {
-            let c_str = CString::new(err.message.clone()).unwrap_or_default();
+            let c_str = CString::new(err.message.clone())
+                .unwrap_or_else(|_| CString::default());
             let ptr = c_str.as_ptr();
             state.ffi_buffer = Some(c_str); // Keep alive
             ptr

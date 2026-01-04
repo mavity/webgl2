@@ -49,6 +49,7 @@ pub fn command_encoder_finish(ctx_handle: u32, encoder_handle: u32) -> u32 {
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
                 super::WEBGPU_ERROR_VALIDATION,
+                // Note: Using {:?} because error is a tuple type without Display impl
                 format!("Failed to finish command encoder: {:?}", e),
             );
             return super::NULL_HANDLE;
