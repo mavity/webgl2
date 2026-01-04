@@ -11,7 +11,7 @@ test('Varying integer component checks', async (t) => {
     const vs = `#version 300 es
     layout(location=0) in ivec4 a;
     flat out ivec4 v0;
-    void main(){ v0 = a; gl_Position = vec4(0.0); gl_PointSize = 1.0; }`;
+    void main(){ v0 = a; gl_Position = vec4(0.0, 0.0, 0.0, 1.0); gl_PointSize = 1.0; }`;
 
     const fs = `#version 300 es
     precision highp float;

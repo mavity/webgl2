@@ -195,7 +195,6 @@ impl<'a> Compiler<'a> {
                     };
 
                     if is_output {
-                        // crate::js_print(&format!("Found output variable: {:?}", var.name));
                         (0, 3)
                     } else if let Some(name) = &var.name {
                         if let Some(&loc) = self.attribute_locations.get(name) {
