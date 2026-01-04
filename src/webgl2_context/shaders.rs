@@ -660,8 +660,10 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
         }
 
         // Compile to WASM
-        let mut config = WasmBackendConfig::default();
-        config.debug_shaders = ctx_obj.debug_shaders;
+        let config = WasmBackendConfig {
+            debug_shaders: ctx_obj.debug_shaders,
+            ..Default::default()
+        };
         let backend = WasmBackend::new(config);
 
         if let (Some(vs), Some(vsi)) = (&p.vs_module, &p.vs_info) {
@@ -1139,12 +1141,12 @@ pub fn ctx_get_program_debug_stub(
                 let dest_slice =
                     unsafe { std::slice::from_raw_parts_mut(ptr as *mut u8, copy_len as usize) };
                 dest_slice.copy_from_slice(&bytes[..copy_len as usize]);
-                return copy_len;
+                copy_len
             } else {
-                return len;
+                len
             }
         } else {
-            return 0;
+            0
         }
     } else {
         set_last_error("program not found");

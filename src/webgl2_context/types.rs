@@ -449,7 +449,7 @@ impl Context {
                             if src_off + type_size as usize <= buffer.data.len() {
                                 let bits = if attr.is_integer {
                                     // Pure integer attribute
-                                    let val = match attr.type_ {
+                                    match attr.type_ {
                                         0x1400 => (buffer.data[src_off] as i8) as i32 as u32,
                                         0x1401 => buffer.data[src_off] as u32,
                                         0x1402 => i16::from_le_bytes(
@@ -466,8 +466,7 @@ impl Context {
                                             buffer.data[src_off..src_off + 4].try_into().unwrap(),
                                         ),
                                         _ => 0,
-                                    };
-                                    val
+                                    }
                                 } else {
                                     // Float or normalized attribute
                                     let val: f32 = match attr.type_ {

@@ -41,12 +41,12 @@ struct ErrorState {
 }
 
 thread_local! {
-    static STATE: RefCell<ErrorState> = RefCell::new(ErrorState {
+    static STATE: RefCell<ErrorState> = const { RefCell::new(ErrorState {
         webgl_last_error: None,
         webgpu_scope_stack: Vec::new(),
         webgpu_popped_error: None,
         ffi_buffer: None,
-    });
+    }) };
 }
 
 pub fn set_error(source: ErrorSource, code: u32, msg: impl ToString) {

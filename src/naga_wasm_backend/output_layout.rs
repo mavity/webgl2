@@ -76,7 +76,7 @@ pub fn compute_output_destination(binding: &Binding, stage: ShaderStage) -> (u32
         // to coexist in the same shader.
         // Color outputs: private_ptr + 0, 16, 32, ... (up to ~1024 bytes for 64 color targets)
         // FragDepth: private_ptr + 4096
-        Binding::BuiltIn(BuiltIn::FragDepth { .. }) => (0x1000, PRIVATE_PTR_GLOBAL),
+        Binding::BuiltIn(BuiltIn::FragDepth) => (0x1000, PRIVATE_PTR_GLOBAL),
 
         // PointSize could be handled here if needed
         Binding::BuiltIn(BuiltIn::PointSize) => {
@@ -131,7 +131,7 @@ pub fn is_binding_valid(binding: &Binding, stage: ShaderStage) -> bool {
         (Binding::BuiltIn(BuiltIn::Position { .. }), ShaderStage::Vertex) => true,
 
         // FragDepth is only valid in fragment shaders
-        (Binding::BuiltIn(BuiltIn::FragDepth { .. }), ShaderStage::Fragment) => true,
+        (Binding::BuiltIn(BuiltIn::FragDepth), ShaderStage::Fragment) => true,
 
         // PointSize is only valid in vertex shaders
         (Binding::BuiltIn(BuiltIn::PointSize), ShaderStage::Vertex) => true,

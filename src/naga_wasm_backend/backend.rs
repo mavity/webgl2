@@ -412,11 +412,9 @@ impl<'a> Compiler<'a> {
         self.code.function(&wasm_func);
 
         // Export internal functions in debug mode
-        if entry_point.is_none() {
-            if self._backend.config.debug_shaders {
-                self.exports
-                    .export(&format!("func_{}", func_idx), ExportKind::Func, func_idx);
-            }
+        if entry_point.is_none() && self._backend.config.debug_shaders {
+            self.exports
+                .export(&format!("func_{}", func_idx), ExportKind::Func, func_idx);
         }
 
         Ok(func_idx)

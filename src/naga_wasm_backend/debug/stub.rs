@@ -126,10 +126,10 @@ impl<'a> JsStubGenerator<'a> {
             } else {
                 js.push_str(&format!("({}) => {{}},", params));
             }
-            js.push_str("\n");
+            js.push('\n');
         }
 
-        js.push_str("]");
+        js.push(']');
 
         // Construct Source Map JSON
         // We need to escape the source content for JSON string
