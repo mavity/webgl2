@@ -1,10 +1,99 @@
 //! Control flow translation from Naga IR to WASM
 //!
-//! Phase 0: Placeholder for future implementation
+//! This module handles translation of Naga control flow statements (if, return, etc.)
+//! into WebAssembly instructions, with special handling for shader output values.
 
-use super::{BackendError, TranslationContext};
+use super::{output_layout, BackendError, TranslationContext};
 
 use wasm_encoder::Instruction;
+
+// Global indices for shader memory pointers
+#[allow(dead_code)]
+const ATTR_PTR_GLOBAL: u32 = 0;
+#[allow(dead_code)]
+const UNIFORM_PTR_GLOBAL: u32 = 1;
+const VARYING_PTR_GLOBAL: u32 = output_layout::VARYING_PTR_GLOBAL;
+const PRIVATE_PTR_GLOBAL: u32 = output_layout::PRIVATE_PTR_GLOBAL;
+#[allow(dead_code)]
+const TEXTURE_PTR_GLOBAL: u32 = 4;
+
+/// Helper function to determine output destination and offset for a binding.
+///
+/// This is a thin wrapper around the centralized output_layout module,
+/// maintaining compatibility with the existing control flow code.
+///
+/// Returns a tuple `(offset, base_ptr_index)` where:
+/// - `offset`: Byte offset within the memory region
+/// - `base_ptr_index`: Global index of the memory pointer (2=varying_ptr, 3=private_ptr)
+fn get_output_destination(binding: &naga::Binding, ctx: &TranslationContext) -> (u32, u32) {
+    output_layout::compute_output_destination(binding, ctx.stage)
+}
+
+/// Helper function to store components to memory.
+///
+/// # Parameters
+/// - `offset`: Byte offset within the memory region pointed to by base_ptr
+/// - `base_ptr`: Global index of memory pointer (2=varying_ptr, 3=private_ptr)
+/// - `num_components`: Number of components (floats or ints) to store
+/// - `is_int`: Whether components are integers (true) or floats (false)
+/// - `ctx`: Translation context containing WASM function builder
+///
+/// This function pops values from the WASM stack (in reverse order) and stores them
+/// to the specified memory location using either I32Store or F32Store instructions.
+fn store_components_to_memory(
+    offset: u32,
+    base_ptr: u32,
+    num_components: u32,
+    is_int: bool,
+    ctx: &mut TranslationContext,
+) {
+    if base_ptr == VARYING_PTR_GLOBAL || base_ptr == PRIVATE_PTR_GLOBAL {
+        // Handle varyings and fragment outputs
+        // Store components in reverse order
+        for i in (0..num_components).rev() {
+            // Pop value to scratch
+            if is_int {
+                ctx.wasm_func
+                    .instruction(&Instruction::LocalSet(ctx.scratch_base));
+            } else {
+                ctx.wasm_func
+                    .instruction(&Instruction::LocalSet(ctx.scratch_base + 32));
+            }
+
+            // Calculate byte offset for this component
+            let comp_offset = offset + (i * 4);
+
+            // Load base pointer from global
+            ctx.wasm_func.instruction(&Instruction::GlobalGet(base_ptr));
+
+            // Push value from scratch and store
+            if is_int {
+                ctx.wasm_func
+                    .instruction(&Instruction::LocalGet(ctx.scratch_base));
+                ctx.wasm_func
+                    .instruction(&Instruction::I32Store(wasm_encoder::MemArg {
+                        offset: comp_offset as u64,
+                        align: 2,
+                        memory_index: 0,
+                    }));
+            } else {
+                ctx.wasm_func
+                    .instruction(&Instruction::LocalGet(ctx.scratch_base + 32));
+                ctx.wasm_func
+                    .instruction(&Instruction::F32Store(wasm_encoder::MemArg {
+                        offset: comp_offset as u64,
+                        align: 2,
+                        memory_index: 0,
+                    }));
+            }
+        }
+    } else {
+        // Drop values if not handled
+        for _ in 0..num_components {
+            ctx.wasm_func.instruction(&Instruction::Drop);
+        }
+    }
+}
 
 /// Translate a Naga statement to WASM instructions
 pub fn translate_statement(
@@ -62,7 +151,7 @@ pub fn translate_statement(
 
             // Determine how many components to store
             let value_ty = ctx.typifier.get(*value, &ctx.module.types);
-            let num_components = super::types::component_count(value_ty);
+            let num_components = super::types::component_count(value_ty, &ctx.module.types);
 
             // Use helper to determine if we should use I32Store or F32Store
             let use_i32_store = super::expressions::is_integer_type(value_ty);
@@ -199,7 +288,69 @@ pub fn translate_statement(
         }
         naga::Statement::Return { value } => {
             if let Some(expr_handle) = value {
-                if !ctx.is_entry_point {
+                if ctx.is_entry_point {
+                    // Translate expression to push results to stack
+                    super::expressions::translate_expression(*expr_handle, ctx)?;
+
+                    // Store results to memory
+                    if let Some(result) = &ctx.func.result {
+                        let ty = &ctx.module.types[result.ty];
+                        match &ty.inner {
+                            naga::TypeInner::Struct { members, .. } => {
+                                // Iterate in reverse order because stack is LIFO
+                                for member in members.iter().rev() {
+                                    let member_ty = &ctx.module.types[member.ty];
+                                    let num_components = super::types::component_count(
+                                        &member_ty.inner,
+                                        &ctx.module.types,
+                                    );
+                                    let is_int =
+                                        super::expressions::is_integer_type(&member_ty.inner);
+
+                                    // Determine offset and base pointer based on binding and shader stage
+                                    let (offset, base_ptr) = if let Some(binding) = &member.binding
+                                    {
+                                        get_output_destination(binding, ctx)
+                                    } else {
+                                        (0, 0)
+                                    };
+
+                                    store_components_to_memory(
+                                        offset,
+                                        base_ptr,
+                                        num_components,
+                                        is_int,
+                                        ctx,
+                                    );
+                                }
+                            }
+                            _ => {
+                                // Handle single return value with binding (WGSL Case B)
+                                if let Some(binding) = &result.binding {
+                                    let num_components =
+                                        super::types::component_count(&ty.inner, &ctx.module.types);
+                                    let is_int = super::expressions::is_integer_type(&ty.inner);
+
+                                    let (offset, base_ptr) = get_output_destination(binding, ctx);
+                                    store_components_to_memory(
+                                        offset,
+                                        base_ptr,
+                                        num_components,
+                                        is_int,
+                                        ctx,
+                                    );
+                                } else {
+                                    // No binding, drop the values
+                                    let num_components =
+                                        super::types::component_count(&ty.inner, &ctx.module.types);
+                                    for _ in 0..num_components {
+                                        ctx.wasm_func.instruction(&Instruction::Drop);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
                     super::expressions::translate_expression(*expr_handle, ctx)?;
                 }
             }

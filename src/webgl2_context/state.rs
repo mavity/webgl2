@@ -41,10 +41,10 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
     };
 
     if (mask & GL_COLOR_BUFFER_BIT) != 0 {
-        let r = (ctx_obj.clear_color[0] * 255.0) as u8;
-        let g = (ctx_obj.clear_color[1] * 255.0) as u8;
-        let b = (ctx_obj.clear_color[2] * 255.0) as u8;
-        let a = (ctx_obj.clear_color[3] * 255.0) as u8;
+        let r = (ctx_obj.clear_color[0] * 255.0).round() as u8;
+        let g = (ctx_obj.clear_color[1] * 255.0).round() as u8;
+        let b = (ctx_obj.clear_color[2] * 255.0).round() as u8;
+        let a = (ctx_obj.clear_color[3] * 255.0).round() as u8;
 
         if let Some(fb_handle) = ctx_obj.bound_framebuffer {
             // We need to clone the attachment info to avoid borrowing issues

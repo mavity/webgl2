@@ -6,3 +6,7 @@
 /out/
 /daebug.md
 /daebug/
+# Ignore temporary test-generated wasm artifacts
+debug_*.wasm
+wasm_*.wasm
+wasm_debug_*.wasm

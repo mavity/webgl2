@@ -148,6 +148,11 @@ pub(crate) struct Program {
     pub(crate) fs_wasm: Option<Vec<u8>>,
     pub(crate) vs_stub: Option<String>,
     pub(crate) fs_stub: Option<String>,
+    // Varying meta populated at link time (name -> location)
+    pub(crate) varying_locations: HashMap<String, u32>,
+    // Varying types populated at link time (name -> (type_code, components))
+    // type_code: 0=float, 1=int (signed), 2=uint
+    pub(crate) varying_types: HashMap<String, (u8, u32)>,
 }
 
 /// A WebGL2 vertex array object

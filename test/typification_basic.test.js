@@ -49,7 +49,6 @@ test('Basic integer typification', async (t) => {
 
     const pixels = new Uint8Array(4);
     gl.readPixels(320, 240, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    console.log('Literal true test pixels:', Array.from(pixels));
     assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255], 'Should be green');
   });
 
@@ -106,7 +105,6 @@ test('Basic integer typification', async (t) => {
 
     const pixels = new Uint8Array(4);
     gl.readPixels(320, 240, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    console.log('Integer vertex attribute test pixels:', Array.from(pixels));
     assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255], 'Should be green');
   });
 });

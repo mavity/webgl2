@@ -69,11 +69,11 @@ fn translate_const_expression_component(
                     Expression::Literal(_) => 1,
                     Expression::Compose { ty, .. } => {
                         let inner = &ctx.module.types[*ty].inner;
-                        super::types::component_count(inner)
+                        super::types::component_count(inner, &ctx.module.types)
                     }
                     Expression::ZeroValue(ty) => {
                         let inner = &ctx.module.types[*ty].inner;
-                        super::types::component_count(inner)
+                        super::types::component_count(inner, &ctx.module.types)
                     }
                     _ => 1,
                 };
@@ -163,7 +163,7 @@ pub fn translate_expression_component(
             let mut found = false;
             for &comp_handle in components {
                 let comp_ty = ctx.typifier.get(comp_handle, &ctx.module.types);
-                let comp_count = super::types::component_count(comp_ty);
+                let comp_count = super::types::component_count(comp_ty, &ctx.module.types);
                 if current_component_idx < comp_count {
                     translate_expression_component(comp_handle, current_component_idx, ctx)?;
                     found = true;
@@ -221,8 +221,8 @@ pub fn translate_expression_component(
                 }
             }
 
-            let left_count = super::types::component_count(left_ty);
-            let right_count = super::types::component_count(right_ty);
+            let left_count = super::types::component_count(left_ty, &ctx.module.types);
+            let right_count = super::types::component_count(right_ty, &ctx.module.types);
 
             let left_idx = if left_count > 1 { component_idx } else { 0 };
             let right_idx = if right_count > 1 { component_idx } else { 0 };
@@ -299,6 +299,12 @@ pub fn translate_expression_component(
                     }
                     // Result is already I32 (bool), no reinterpret needed
                 }
+                BinaryOperator::LogicalAnd => {
+                    ctx.wasm_func.instruction(&Instruction::I32And);
+                }
+                BinaryOperator::LogicalOr => {
+                    ctx.wasm_func.instruction(&Instruction::I32Or);
+                }
                 _ => {
                     return Err(BackendError::UnsupportedFeature(format!(
                         "Unsupported binary operator: {:?}",
@@ -364,6 +370,13 @@ pub fn translate_expression_component(
                             found_location = true;
                         }
                     }
+                } else if ctx.stage == naga::ShaderStage::Fragment {
+                    if let Some(name) = &arg.name {
+                        if let Some(&location) = ctx.varying_locations.get(name) {
+                            offset = (location + 1) * 16;
+                            found_location = true;
+                        }
+                    }
                 }
 
                 if !found_location {
@@ -425,33 +438,8 @@ pub fn translate_expression_component(
                         .instruction(&Instruction::I32Const(final_offset as i32));
                     ctx.wasm_func.instruction(&Instruction::I32Add);
                 }
-
-                let ty = &ctx.module.global_variables[*handle].ty;
-                let inner = &ctx.module.types[*ty].inner;
-
-                // Check if it's an integer type (but not Image/Sampler which are stored as F32)
-                let use_i32_load = match inner {
-                    naga::TypeInner::Image { .. } | naga::TypeInner::Sampler { .. } => false,
-                    _ => is_integer_type(inner),
-                };
-
-                if use_i32_load {
-                    ctx.wasm_func
-                        .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-                            offset: 0,
-                            align: 2,
-                            memory_index: 0,
-                        }));
-                } else {
-                    ctx.wasm_func
-                        .instruction(&Instruction::F32Load(wasm_encoder::MemArg {
-                            offset: 0,
-                            align: 2,
-                            memory_index: 0,
-                        }));
-                }
             } else {
-                ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                ctx.wasm_func.instruction(&Instruction::I32Const(0));
             }
         }
         Expression::Load { pointer } => {
@@ -564,11 +552,11 @@ pub fn translate_expression_component(
                     }
                     (naga::ScalarKind::Float, naga::ScalarKind::Sint) => {
                         // f32 -> i32: value is already F32 on stack
-                        ctx.wasm_func.instruction(&Instruction::I32TruncF32S);
+                        ctx.wasm_func.instruction(&Instruction::I32TruncSatF32S);
                     }
                     (naga::ScalarKind::Float, naga::ScalarKind::Uint) => {
                         // f32 -> u32: value is already F32 on stack
-                        ctx.wasm_func.instruction(&Instruction::I32TruncF32U);
+                        ctx.wasm_func.instruction(&Instruction::I32TruncSatF32U);
                     }
                     (naga::ScalarKind::Bool, naga::ScalarKind::Float) => {
                         // bool -> f32 (0 or 1): value is already I32 on stack
@@ -606,7 +594,17 @@ pub fn translate_expression_component(
             // Basic 2D texture sampling
             // 1. Get texture unit index (from uniform)
             translate_expression_component(*image, 0, ctx)?;
-            ctx.wasm_func.instruction(&Instruction::I32TruncF32S);
+
+            // If the image expression is a GlobalVariable, we have its address on the stack.
+            // We need to load the value (texture unit index, which is i32).
+            if let Expression::GlobalVariable(_) = ctx.func.expressions[*image] {
+                ctx.wasm_func
+                    .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                        offset: 0,
+                        align: 2,
+                        memory_index: 0,
+                    }));
+            }
 
             // 2. Calculate descriptor address: texture_ptr + unit_idx * 32
             ctx.wasm_func.instruction(&Instruction::I32Const(32));
@@ -654,30 +652,52 @@ pub fn translate_expression_component(
             // 5. Calculate texel coordinates
             // u = coordinate.x, v = coordinate.y
             translate_expression_component(*coordinate, 0, ctx)?;
-            // Clamp u to [0, 0.9999] to avoid out of bounds at 1.0
-            ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
-            ctx.wasm_func.instruction(&Instruction::F32Max);
-            ctx.wasm_func.instruction(&Instruction::F32Const(0.9999));
-            ctx.wasm_func.instruction(&Instruction::F32Min);
+            // Scale by width: u * width
             ctx.wasm_func
                 .instruction(&Instruction::LocalGet(ctx.scratch_base + 1)); // width
             ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
             ctx.wasm_func.instruction(&Instruction::F32Mul);
-            ctx.wasm_func.instruction(&Instruction::I32TruncF32S);
+            // Floor
+            ctx.wasm_func.instruction(&Instruction::F32Floor);
+            // Clamp to [0.0, width - 1.0]
+            ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+            ctx.wasm_func.instruction(&Instruction::F32Max);
+
+            ctx.wasm_func
+                .instruction(&Instruction::LocalGet(ctx.scratch_base + 1)); // width
+            ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
+            ctx.wasm_func.instruction(&Instruction::F32Const(1.0));
+            ctx.wasm_func.instruction(&Instruction::F32Sub);
+            ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+            ctx.wasm_func.instruction(&Instruction::F32Max);
+            ctx.wasm_func.instruction(&Instruction::F32Min);
+
+            ctx.wasm_func.instruction(&Instruction::I32TruncSatF32S);
             ctx.wasm_func
                 .instruction(&Instruction::LocalSet(ctx.scratch_base + 4)); // scratch_base + 4 is texel_x
 
             translate_expression_component(*coordinate, 1, ctx)?;
-            // Clamp v to [0, 0.9999]
-            ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
-            ctx.wasm_func.instruction(&Instruction::F32Max);
-            ctx.wasm_func.instruction(&Instruction::F32Const(0.9999));
-            ctx.wasm_func.instruction(&Instruction::F32Min);
+            // Scale by height: v * height
             ctx.wasm_func
                 .instruction(&Instruction::LocalGet(ctx.scratch_base + 2)); // height
             ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
             ctx.wasm_func.instruction(&Instruction::F32Mul);
-            ctx.wasm_func.instruction(&Instruction::I32TruncF32S);
+            // Floor
+            ctx.wasm_func.instruction(&Instruction::F32Floor);
+            // Clamp to [0.0, height - 1.0]
+            ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+            ctx.wasm_func.instruction(&Instruction::F32Max);
+
+            ctx.wasm_func
+                .instruction(&Instruction::LocalGet(ctx.scratch_base + 2)); // height
+            ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
+            ctx.wasm_func.instruction(&Instruction::F32Const(1.0));
+            ctx.wasm_func.instruction(&Instruction::F32Sub);
+            ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+            ctx.wasm_func.instruction(&Instruction::F32Max);
+            ctx.wasm_func.instruction(&Instruction::F32Min);
+
+            ctx.wasm_func.instruction(&Instruction::I32TruncSatF32S);
             ctx.wasm_func
                 .instruction(&Instruction::LocalSet(ctx.scratch_base + 5)); // scratch_base + 5 is texel_y
 
@@ -714,7 +734,7 @@ pub fn translate_expression_component(
                 if component_idx == 0 {
                     translate_expression(*argument, ctx)?;
                     let arg_ty = ctx.typifier.get(*argument, &ctx.module.types);
-                    let count = super::types::component_count(arg_ty);
+                    let count = super::types::component_count(arg_ty, &ctx.module.types);
                     for _ in 1..count {
                         ctx.wasm_func.instruction(&Instruction::I32And);
                     }
@@ -726,7 +746,7 @@ pub fn translate_expression_component(
                 if component_idx == 0 {
                     translate_expression(*argument, ctx)?;
                     let arg_ty = ctx.typifier.get(*argument, &ctx.module.types);
-                    let count = super::types::component_count(arg_ty);
+                    let count = super::types::component_count(arg_ty, &ctx.module.types);
                     for _ in 1..count {
                         ctx.wasm_func.instruction(&Instruction::I32Or);
                     }
@@ -807,7 +827,7 @@ pub fn translate_expression(
     }
 
     // Otherwise, it's a value. Loop over components.
-    let count = super::types::component_count(ty);
+    let count = super::types::component_count(ty, &ctx.module.types);
     for i in 0..count {
         translate_expression_component(expr_handle, i, ctx)?;
     }

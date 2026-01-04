@@ -131,12 +131,6 @@ impl<'a> Compiler<'a> {
 
         // Calculate global offsets per address space
         let mut varying_offset = 0;
-        // Reserve space for FS output (fragColor) at offset 0
-        let mut private_offset = if self.stage == naga::ShaderStage::Fragment {
-            16
-        } else {
-            0
-        };
         let _attr_offset = 0;
 
         // First pass: find gl_Position and put it at the start of varying buffer
@@ -201,6 +195,7 @@ impl<'a> Compiler<'a> {
                     };
 
                     if is_output {
+                        // crate::js_print(&format!("Found output variable: {:?}", var.name));
                         (0, 3)
                     } else if let Some(name) = &var.name {
                         if let Some(&loc) = self.attribute_locations.get(name) {
@@ -210,19 +205,16 @@ impl<'a> Compiler<'a> {
                             let offset = (loc + 1) * 16;
                             (offset, 2)
                         } else {
-                            let o = private_offset;
-                            if name == "fragColor" {
-                                panic!("DEBUG: fragColor at offset {}", o);
-                            }
-                            private_offset += size;
-                            private_offset = (private_offset + 3) & !3;
-                            (o, 3)
+                            return Err(BackendError::InternalError(format!(
+                                "Varying '{}' has no assigned location",
+                                name
+                            )));
                         }
                     } else {
-                        let o = private_offset;
-                        private_offset += size;
-                        private_offset = (private_offset + 3) & !3;
-                        (o, 3)
+                        return Err(BackendError::InternalError(
+                            "Unmapped anonymous global in Private/Function address space"
+                                .to_string(),
+                        ));
                     }
                 }
                 // Handle explicit In/Out address spaces (used in newer Naga versions)
@@ -416,25 +408,6 @@ impl<'a> Compiler<'a> {
             super::control_flow::translate_statement(stmt, span, &mut ctx)?;
         }
 
-        // Inject debug log for entry point
-        if is_entry_point && self._backend.config.debug_shaders {
-            if let Some(debug_step_idx) = self.debug_step_idx {
-                if self.stage == naga::ShaderStage::Fragment {
-                    // Log fragColor (Global 3 + 0)
-                    wasm_func.instruction(&Instruction::I32Const(999999));
-                    wasm_func.instruction(&Instruction::GlobalGet(3));
-                    wasm_func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
-                        offset: 0,
-                        align: 2,
-                        memory_index: 0,
-                    }));
-                    wasm_func.instruction(&Instruction::I32ReinterpretF32);
-                    wasm_func.instruction(&Instruction::I32Const(0));
-                    wasm_func.instruction(&Instruction::Call(debug_step_idx));
-                }
-            }
-        }
-
         wasm_func.instruction(&Instruction::End);
         self.code.function(&wasm_func);
 
@@ -503,7 +476,8 @@ impl<'a> Compiler<'a> {
 
         // Generate JS stub if enabled
         let debug_stub = if self._backend.config.debug_shaders {
-            let generator = super::debug::JsStubGenerator::new(self._source, self.module, self.name);
+            let generator =
+                super::debug::JsStubGenerator::new(self._source, self.module, self.name);
             Some(generator.generate())
         } else {
             None

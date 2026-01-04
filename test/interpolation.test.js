@@ -78,7 +78,6 @@ await t.test('Flat Int Triangle', async () => {
 
       const pixels = new Uint8Array(4);
       gl.readPixels(5, 5, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      console.log('Flat Int Triangle:', Array.from(pixels));
       assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255]);
     } finally {
       gl.destroy();
@@ -136,7 +135,6 @@ await t.test('Flat IVec2 Triangle', async () => {
 
       const pixels = new Uint8Array(4);
       gl.readPixels(5, 5, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      console.log('Flat IVec2 Triangle:', Array.from(pixels));
       assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255]);
     } finally { gl.destroy(); }
     });
@@ -192,7 +190,6 @@ await t.test('Flat IVec3 Triangle', async () => {
 
       const pixels = new Uint8Array(4);
       gl.readPixels(5, 5, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      console.log('Flat IVec3 Triangle:', Array.from(pixels));
       assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255]);
     } finally { gl.destroy(); }
     });
@@ -248,7 +245,6 @@ await t.test('Flat IVec4 Triangle', async () => {
 
       const pixels = new Uint8Array(4);
       gl.readPixels(5, 5, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      console.log('Flat IVec4 Triangle:', Array.from(pixels));
       assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255]);
     } finally { gl.destroy(); }
     });
@@ -303,7 +299,7 @@ await t.test('Flat IVec4 Triangle', async () => {
 
         const pixels = new Uint8Array(4);
         gl.readPixels(5, 5, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-        console.log('Flat IVec4 Triangle (White):', Array.from(pixels));
+
         assert.deepStrictEqual(Array.from(pixels), [255, 255, 255, 255]);
       } finally { gl.destroy(); }
     });

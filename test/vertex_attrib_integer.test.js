@@ -13,7 +13,6 @@ test('Debug Vertex Attrib Integer', async (t) => {
       gl.clear(gl.COLOR_BUFFER_BIT);
       const pixels = new Uint8Array(4);
       gl.readPixels(320, 240, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      console.log('Clear Pixels:', Array.from(pixels));
       assert.deepStrictEqual(Array.from(pixels), [128, 128, 128, 255], 'Should be gray');
     });
 
@@ -82,18 +81,6 @@ test('Debug Vertex Attrib Integer', async (t) => {
 
       const pixels = new Uint8Array(4);
       gl.readPixels(320, 240, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      console.log('Constant Attr Pixels:', Array.from(pixels));
-
-      // Check if we got Red (failure) or Green (success) or Black (no draw)
-      if (pixels[0] === 255 && pixels[1] === 0) {
-        console.log('Got RED - Logic failed');
-      } else if (pixels[0] === 0 && pixels[1] === 255) {
-        console.log('Got GREEN - Success');
-      } else if (pixels[3] === 0) {
-        console.log('Got TRANSPARENT - No draw?');
-      } else {
-        console.log('Got Unknown:', Array.from(pixels));
-      }
 
       assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255], 'Should be green');
     });
@@ -117,7 +104,6 @@ test('Debug Vertex Attrib Integer', async (t) => {
 
       const pixels = new Uint8Array(4);
       gl.readPixels(320, 240, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      console.log('Pointer INT Pixels:', Array.from(pixels));
       assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255], 'Should be green');
     });
   } finally {

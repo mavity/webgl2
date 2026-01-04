@@ -79,7 +79,6 @@ pub(crate) fn clear_last_error() {
 // Context Lifecycle
 // ============================================================================
 
-
 /// Create a new WebGL2 context with flags. Flags bits:
 /// bit0 = shader debug (enable shader debug stubs).
 pub fn create_context_with_flags(flags: u32, width: u32, height: u32) -> u32 {

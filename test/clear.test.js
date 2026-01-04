@@ -19,10 +19,10 @@ test('clear fills the bound framebuffer with clear color', async () => {
     const out = new Uint8Array(4);
     gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out);
     
-    // 0.5 * 255 = 127.5 -> 127
-    assert.strictEqual(out[0], 127);
-    assert.strictEqual(out[1], 127);
-    assert.strictEqual(out[2], 127);
+    // 0.5 * 255 = 127.5 -> 128 (Round to nearest)
+    assert.strictEqual(out[0], 128);
+    assert.strictEqual(out[1], 128);
+    assert.strictEqual(out[2], 128);
     assert.strictEqual(out[3], 255);
   } finally { gl.destroy(); }
 });

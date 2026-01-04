@@ -1250,3 +1250,471 @@ test('Cube Test 22: Multiple frames with different rotation angles', async () =>
     assert.strictEqual(isDifferent, true, `Frame ${i} should differ from frame ${i + 1}`);
   }
 });
+
+// ============================================================================
+// Phase 6: Feature Reproduction (Demo.js parity)
+// ============================================================================
+
+test('Feature: Vec3 Attributes + Texture + Complex Matrix + Large Viewport', async () => {
+  const gl = await webGL2();
+  try {
+    gl.viewport(0, 0, 640, 480);
+
+    const vsSource = `#version 300 es
+    layout(location = 0) in vec3 position;
+    layout(location = 1) in vec2 uv;
+    uniform mat4 u_mvp;
+    out vec2 v_uv;
+    void main() {
+        v_uv = uv;
+        gl_Position = u_mvp * vec4(position, 1.0);
+    }
+    `;
+
+    const fsSource = `#version 300 es
+    precision highp float;
+    in vec2 v_uv;
+    uniform texture2D u_texture;
+    uniform sampler u_sampler;
+    out vec4 fragColor;
+    void main() {
+        fragColor = texture(sampler2D(u_texture, u_sampler), v_uv);
+    }
+    `;
+
+    const vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, vsSource);
+    gl.compileShader(vs);
+    if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) {
+        throw new Error('VS compile failed: ' + gl.getShaderInfoLog(vs));
+    }
+
+    const fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, fsSource);
+    gl.compileShader(fs);
+    if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
+        throw new Error('FS compile failed: ' + gl.getShaderInfoLog(fs));
+    }
+
+    const program = gl.createProgram();
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    gl.useProgram(program);
+
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    const texData = new Uint8Array([
+        255, 0, 0, 255,   0, 255, 0, 255,
+        0, 0, 255, 255,   255, 255, 255, 255
+    ]);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+    const vertices = new Float32Array([
+      -0.5, -0.5, 0.0, 0.0, 0.0,
+       0.5, -0.5, 0.0, 1.0, 0.0,
+       0.0,  0.5, 0.0, 0.5, 1.0,
+    ]);
+
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 20, 0);
+    
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 20, 12);
+
+    // Matrix functions from demo.js
+    function perspective(fovy, aspect, near, far) {
+        const f = 1.0 / Math.tan(fovy / 2);
+        const nf = 1 / (near - far);
+        return [
+            f / aspect, 0, 0, 0,
+            0, f, 0, 0,
+            0, 0, (far + near) * nf, -1,
+            0, 0, (2 * far * near) * nf, 0
+        ];
+    }
+
+    function multiply(a, b) {
+        const out = new Float32Array(16);
+        for (let col = 0; col < 4; col++) {
+            for (let row = 0; row < 4; row++) {
+                let sum = 0;
+                for (let k = 0; k < 4; k++) {
+                    sum += a[k * 4 + row] * b[col * 4 + k];
+                }
+                out[col * 4 + row] = sum;
+            }
+        }
+        return out;
+    }
+
+    function translate(m, x, y, z) {
+        const t = [
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            x, y, z, 1
+        ];
+        return multiply(m, t);
+    }
+
+    // Setup Matrix
+    // Aspect 640/480
+    let mvp = perspective(Math.PI / 4, 640 / 480, 0.1, 100.0);
+    mvp = translate(mvp, 0, 0, -3);
+
+    const u_mvp = gl.getUniformLocation(program, 'u_mvp');
+    gl.uniformMatrix4fv(u_mvp, false, new Float32Array(mvp));
+
+    const u_texture = gl.getUniformLocation(program, 'u_texture');
+    gl.uniform1i(u_texture, 0);
+    const u_sampler = gl.getUniformLocation(program, 'u_sampler');
+    gl.uniform1i(u_sampler, 0);
+
+    gl.clearColor(0.2, 0.2, 0.2, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    // Read pixel at center (320, 240)
+    const pixels = new Uint8Array(4);
+    gl.readPixels(320, 240, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    
+    // Should be textured (not background)
+    assert.ok(pixels[0] !== 51 || pixels[1] !== 51 || pixels[2] !== 51, 'Should draw something (not background color)');
+
+  } finally {
+    gl.destroy();
+  }
+});
+
+test('Feature: Shader Function Calls (mimicking demo.js)', async () => {
+  const gl = await webGL2();
+  try {
+    gl.viewport(0, 0, 64, 64);
+
+    const vsSource = `#version 300 es
+    layout(location = 0) in vec3 position;
+    void main() {
+        gl_Position = vec4(position, 1.0);
+    }
+    `;
+
+    // Fragment shader with function calls, exactly like demo.js
+    const fsSource = `#version 300 es
+    precision highp float;
+    out vec4 fragColor;
+
+    void small_fn_before(float val_noop) {
+        val_noop = 1.0;
+    }
+
+    void small_fn_after(float val_noop) {
+        val_noop = 2.0;
+    }
+
+    void main() {
+        small_fn_before(3.0);
+        // small_fn_after(4.0); // Commented out in demo.js too
+        fragColor = vec4(0.0, 1.0, 0.0, 1.0); // Green
+    }
+    `;
+
+    const vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, vsSource);
+    gl.compileShader(vs);
+    if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) {
+        throw new Error('VS compile failed: ' + gl.getShaderInfoLog(vs));
+    }
+
+    const fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, fsSource);
+    gl.compileShader(fs);
+    if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
+        throw new Error('FS compile failed: ' + gl.getShaderInfoLog(fs));
+    }
+
+    const program = gl.createProgram();
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    gl.useProgram(program);
+
+    const vertices = new Float32Array([
+      -0.5, -0.5, 0.0,
+       0.5, -0.5, 0.0,
+       0.0,  0.5, 0.0,
+    ]);
+
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+
+    gl.clearColor(0.2, 0.0, 0.0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    const pixels = new Uint8Array(4);
+    gl.readPixels(32, 32, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    
+    console.log('Function Call Test Pixel:', pixels);
+
+    // Should be Green (0, 255, 0, 255)
+    assert.strictEqual(pixels[0], 0, 'Red should be 0');
+    assert.strictEqual(pixels[1], 255, 'Green should be 255');
+    assert.strictEqual(pixels[2], 0, 'Blue should be 0');
+
+  } finally {
+    gl.destroy();
+  }
+});
+
+test('Feature: Full Demo Reproduction', async () => {
+  const gl = await webGL2();
+  try {
+    gl.viewport(0, 0, 640, 480);
+
+    // Shaders from demo.js
+    const vsSource = `#version 300 es
+    layout(location = 0) in vec3 position;
+    layout(location = 1) in vec2 uv;
+    
+    uniform mat4 u_mvp;
+    
+    out vec2 v_uv;
+    
+    void main() {
+        v_uv = uv;
+        gl_Position = u_mvp * vec4(position, 1.0);
+    }
+    `;
+
+    const fsSource = `#version 300 es
+    precision highp float;
+    uniform texture2D u_texture;
+    uniform sampler u_sampler;
+    in vec2 v_uv;
+    out vec4 fragColor;
+
+    void small_fn_before(float val_noop) {
+        val_noop = 1.0;
+    }
+
+    void small_fn_after(float val_noop) {
+        val_noop = 2.0;
+    }
+
+    void main() {
+        small_fn_before(3.0);
+        // uncomment and it blows
+        // small_fn_after(4.0);
+        fragColor = texture(sampler2D(u_texture, u_sampler), v_uv);
+        // fragColor = vec4(v_uv, 0.0, 1.0);
+    }`;
+
+    const vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, vsSource);
+    gl.compileShader(vs);
+    if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) {
+        throw new Error('VS compile failed: ' + gl.getShaderInfoLog(vs));
+    }
+
+    const fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, fsSource);
+    gl.compileShader(fs);
+    if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
+        throw new Error('FS compile failed: ' + gl.getShaderInfoLog(fs));
+    }
+
+    const program = gl.createProgram();
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    gl.useProgram(program);
+
+    // Cube data from demo.js
+    const vertices = new Float32Array([
+        // Front face
+        -0.5, -0.5, 0.5, 0.0, 0.0,
+        0.5, -0.5, 0.5, 1.0, 0.0,
+        0.5, 0.5, 0.5, 1.0, 1.0,
+        -0.5, -0.5, 0.5, 0.0, 0.0,
+        0.5, 0.5, 0.5, 1.0, 1.0,
+        -0.5, 0.5, 0.5, 0.0, 1.0,
+
+        // Back face
+        -0.5, -0.5, -0.5, 0.0, 0.0,
+        -0.5, 0.5, -0.5, 0.0, 1.0,
+        0.5, 0.5, -0.5, 1.0, 1.0,
+        -0.5, -0.5, -0.5, 0.0, 0.0,
+        0.5, 0.5, -0.5, 1.0, 1.0,
+        0.5, -0.5, -0.5, 1.0, 0.0,
+
+        // Top face
+        -0.5, 0.5, -0.5, 0.0, 0.0,
+        -0.5, 0.5, 0.5, 0.0, 1.0,
+        0.5, 0.5, 0.5, 1.0, 1.0,
+        -0.5, 0.5, -0.5, 0.0, 0.0,
+        0.5, 0.5, 0.5, 1.0, 1.0,
+        0.5, 0.5, -0.5, 1.0, 0.0,
+
+        // Bottom face
+        -0.5, -0.5, -0.5, 0.0, 0.0,
+        0.5, -0.5, -0.5, 1.0, 0.0,
+        0.5, -0.5, 0.5, 1.0, 1.0,
+        -0.5, -0.5, -0.5, 0.0, 0.0,
+        0.5, -0.5, 0.5, 1.0, 1.0,
+        -0.5, -0.5, 0.5, 0.0, 1.0,
+
+        // Right face
+        0.5, -0.5, -0.5, 0.0, 0.0,
+        0.5, 0.5, -0.5, 0.0, 1.0,
+        0.5, 0.5, 0.5, 1.0, 1.0,
+        0.5, -0.5, -0.5, 0.0, 0.0,
+        0.5, 0.5, 0.5, 1.0, 1.0,
+        0.5, -0.5, 0.5, 1.0, 0.0,
+
+        // Left face
+        -0.5, -0.5, -0.5, 0.0, 0.0,
+        -0.5, -0.5, 0.5, 1.0, 0.0,
+        -0.5, 0.5, 0.5, 1.0, 1.0,
+        -0.5, -0.5, -0.5, 0.0, 0.0,
+        -0.5, 0.5, 0.5, 1.0, 1.0,
+        -0.5, 0.5, -0.5, 0.0, 1.0,
+    ]);
+
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 20, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 20, 12);
+
+    // Texture from demo.js
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    const texData = new Uint8Array(16 * 16 * 4);
+    for (let y = 0; y < 16; y++) {
+        for (let x = 0; x < 16; x++) {
+            const idx = (y * 16 + x) * 4;
+            const isCheck = ((x >> 2) ^ (y >> 2)) & 1;
+            if (isCheck) {
+                texData[idx] = 255; texData[idx + 1] = 215; texData[idx + 2] = 0; texData[idx + 3] = 255; // Gold
+            } else {
+                texData[idx] = 100; texData[idx + 1] = 149; texData[idx + 2] = 237; texData[idx + 3] = 255; // CornflowerBlue
+            }
+        }
+    }
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 16, 16, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData);
+
+    const uTextureLoc = gl.getUniformLocation(program, "u_texture");
+
+    gl.uniform1i(uTextureLoc, 0);
+    const uSamplerLoc = gl.getUniformLocation(program, "u_sampler");
+    gl.uniform1i(uSamplerLoc, 0);
+
+    // Matrix functions from demo.js
+    function perspective(fovy, aspect, near, far) {
+        const f = 1.0 / Math.tan(fovy / 2);
+        const nf = 1 / (near - far);
+        return [
+            f / aspect, 0, 0, 0,
+            0, f, 0, 0,
+            0, 0, (far + near) * nf, -1,
+            0, 0, (2 * far * near) * nf, 0
+        ];
+    }
+
+    function multiply(a, b) {
+        const out = new Float32Array(16);
+        for (let col = 0; col < 4; col++) {
+            for (let row = 0; row < 4; row++) {
+                let sum = 0;
+                for (let k = 0; k < 4; k++) {
+                    sum += a[k * 4 + row] * b[col * 4 + k];
+                }
+                out[col * 4 + row] = sum;
+            }
+        }
+        return out;
+    }
+
+    function rotateY(m, angle) {
+        const c = Math.cos(angle);
+        const s = Math.sin(angle);
+        const r = [
+            c, 0, -s, 0,
+            0, 1, 0, 0,
+            s, 0, c, 0,
+            0, 0, 0, 1
+        ];
+        return multiply(m, r);
+    }
+
+    function rotateX(m, angle) {
+        const c = Math.cos(angle);
+        const s = Math.sin(angle);
+        const r = [
+            1, 0, 0, 0,
+            0, c, s, 0,
+            0, -s, c, 0,
+            0, 0, 0, 1
+        ];
+        return multiply(m, r);
+    }
+
+    function translate(m, x, y, z) {
+        const t = [
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            x, y, z, 1
+        ];
+        return multiply(m, t);
+    }
+
+    // Calculate initial MVP matrix
+    let mvp = perspective(Math.PI / 4, 640 / 480, 0.1, 100.0);
+    mvp = translate(mvp, 0, 0, -3);
+    mvp = rotateX(mvp, 0.5);
+    mvp = rotateY(mvp, 0.8);
+
+    const mvpLoc = gl.getUniformLocation(program, "u_mvp");
+    gl.uniformMatrix4fv(mvpLoc, false, mvp);
+
+    // Render
+    gl.clearColor(0.0, 0.0, 0.0, 0.0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 36);
+
+    // Read pixels
+    const pixels = new Uint8Array(640 * 480 * 4);
+    gl.readPixels(0, 0, 640, 480, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+    // Check if any pixel is not transparent black
+    let hasContent = false;
+    for (let i = 0; i < pixels.length; i += 4) {
+        if (pixels[i+3] !== 0) { // Check alpha
+            hasContent = true;
+            break;
+        }
+    }
+    
+    assert.ok(hasContent, 'Should render something (non-transparent pixels)');
+
+  } finally {
+    gl.destroy();
+  }
+});

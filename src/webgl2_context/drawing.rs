@@ -15,6 +15,8 @@ fn get_flat_varyings_mask(ctx: &Context) -> u64 {
                 for ep in fs_module.entry_points.iter() {
                     if ep.stage == naga::ShaderStage::Fragment {
                         for arg in &ep.function.arguments {
+                            // If the shader explicitly marked this varying as Flat, preserve that.
+                            let mut make_flat = false;
                             if let Some(naga::Binding::Location {
                                 location,
                                 interpolation: Some(interp),
@@ -22,19 +24,60 @@ fn get_flat_varyings_mask(ctx: &Context) -> u64 {
                             }) = &arg.binding
                             {
                                 if *interp == naga::Interpolation::Flat {
-                                    let start_bit = (location + 1) * 4;
-                                    let ty = &fs_module.types[arg.ty];
-                                    let count = match ty.inner {
-                                        naga::TypeInner::Vector { size, .. } => size as u32,
-                                        naga::TypeInner::Matrix { columns, rows, .. } => {
-                                            columns as u32 * rows as u32
-                                        }
-                                        _ => 1,
-                                    };
-                                    for i in 0..count {
-                                        if start_bit + i < 64 {
-                                            mask |= 1 << (start_bit + i);
-                                        }
+                                    make_flat = true;
+                                }
+                            }
+
+                            // Additionally, integer/unsigned integer varyings must be flat by the spec.
+                            // Detect integer scalar/vector types and mark them flat as well.
+                            let ty = &fs_module.types[arg.ty];
+                            match ty.inner {
+                                naga::TypeInner::Scalar(scalar) => {
+                                    if scalar.kind == naga::ScalarKind::Sint
+                                        || scalar.kind == naga::ScalarKind::Uint
+                                    {
+                                        make_flat = true;
+                                    }
+                                }
+                                naga::TypeInner::Vector { size, scalar, .. } => {
+                                    if scalar.kind == naga::ScalarKind::Sint
+                                        || scalar.kind == naga::ScalarKind::Uint
+                                    {
+                                        make_flat = true;
+                                    }
+                                }
+                                _ => {}
+                            }
+
+                            if make_flat {
+                                let start_bit = if let Some(name) = &arg.name {
+                                    if let Some(&loc) = program.varying_locations.get(name) {
+                                        (loc + 1) * 4
+                                    } else if let Some(naga::Binding::Location {
+                                        location, ..
+                                    }) = &arg.binding
+                                    {
+                                        (location + 1) * 4
+                                    } else {
+                                        4
+                                    }
+                                } else if let Some(naga::Binding::Location { location, .. }) =
+                                    &arg.binding
+                                {
+                                    (location + 1) * 4
+                                } else {
+                                    4
+                                };
+                                let count = match ty.inner {
+                                    naga::TypeInner::Vector { size, .. } => size as u32,
+                                    naga::TypeInner::Matrix { columns, rows, .. } => {
+                                        columns as u32 * rows as u32
+                                    }
+                                    _ => 1,
+                                };
+                                for i in 0..count {
+                                    if start_bit + i < 64 {
+                                        mask |= 1 << (start_bit + i);
                                     }
                                 }
                             }
@@ -120,10 +163,32 @@ pub fn ctx_draw_arrays_instanced(
 
     // Create pipeline configuration
     let mask = get_flat_varyings_mask(ctx_obj);
-    let pipeline = RasterPipeline {
+    // Build pipeline and include varying debug info if shaders debugging is enabled
+    let mut pipeline = RasterPipeline {
         flat_varyings_mask: mask,
         ..Default::default()
     };
+
+    if ctx_obj.debug_shaders || ctx_obj.verbosity >= 3 {
+        if let Some(program_id) = ctx_obj.current_program {
+            if let Some(program) = ctx_obj.programs.get(&program_id) {
+                let mut dbg = Vec::new();
+                for (name, &loc) in program.varying_locations.iter() {
+                    if let Some(&(type_code, comps)) = program.varying_types.get(name) {
+                        dbg.push(crate::wasm_gl_emu::rasterizer::VaryingDebug {
+                            name: name.clone(),
+                            location: loc,
+                            type_code,
+                            components: comps,
+                        });
+                    }
+                }
+                if !dbg.is_empty() {
+                    pipeline.varying_debug = Some(dbg);
+                }
+            }
+        }
+    }
 
     // Prepare textures once
     ctx_obj.prepare_texture_metadata(pipeline.memory.texture_ptr);

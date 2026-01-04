@@ -8,6 +8,7 @@ mod builtins;
 mod control_flow;
 pub mod debug;
 mod expressions;
+pub mod output_layout;
 pub mod types;
 
 use naga::{valid::ModuleInfo, Module};

@@ -341,7 +341,6 @@ pub fn command_encoder_run_render_pass(
                         first_instance,
                     ) {
                         // TODO: handle properly, propagate error
-                        // crate::js_log(0, &format!("Failed to draw: {:?}", e));
                     }
                 }
                 4 => {
@@ -359,13 +358,11 @@ pub fn command_encoder_run_render_pass(
                                 .render_pass_set_bind_group(&mut pass, index, Some(*id), &[])
                         {
                             // TODO: handle properly, propagate error
-                            // crate::js_log(0, &format!("Failed to set bind group: {:?}", e));
                         }
                     }
                 }
                 _ => {
                     // TODO: handle properly, propagate error
-                    // crate::js_log(1, &format!("Unknown render pass command op: {}", op));
                     break;
                 }
             }

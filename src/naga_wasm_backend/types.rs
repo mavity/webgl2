@@ -45,7 +45,7 @@ pub fn naga_to_wasm_types(type_inner: &TypeInner) -> Result<Vec<ValType>, Backen
 }
 
 /// Get the number of components in a type
-pub fn component_count(type_inner: &TypeInner) -> u32 {
+pub fn component_count(type_inner: &TypeInner, types: &naga::UniqueArena<naga::Type>) -> u32 {
     match type_inner {
         TypeInner::Scalar(_) => 1,
         TypeInner::Vector { size, .. } => vector_component_count(*size),
@@ -54,9 +54,13 @@ pub fn component_count(type_inner: &TypeInner) -> u32 {
         }
         TypeInner::Array {
             size: naga::ArraySize::Constant(count),
+            base,
             ..
-        } => count.get(),
-        TypeInner::Array { .. } => 1,
+        } => count.get() * component_count(&types[*base].inner, types),
+        TypeInner::Struct { members, .. } => members
+            .iter()
+            .map(|m| component_count(&types[m.ty].inner, types))
+            .sum(),
         _ => 1,
     }
 }

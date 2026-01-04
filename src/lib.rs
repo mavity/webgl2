@@ -115,7 +115,6 @@ pub use wasm_gl_emu::ShaderRuntime;
 
 // ---- Context Lifecycle ----
 
-
 /// Create a context with flags (bit0 = shader debug).
 #[no_mangle]
 pub extern "C" fn wasm_create_context_with_flags(flags: u32, width: u32, height: u32) -> u32 {
@@ -1016,7 +1015,6 @@ pub unsafe extern "C" fn wasm_webgpu_create_bind_group_layout(
     entries_ptr: *const u32,
     entries_len: usize,
 ) -> u32 {
-    js_log(3, "wasm_webgpu_create_bind_group_layout called");
     let entries = std::slice::from_raw_parts(entries_ptr, entries_len);
     webgpu::bind_group::create_bind_group_layout(ctx_handle, device_handle, entries)
 }
@@ -1034,7 +1032,6 @@ pub unsafe extern "C" fn wasm_webgpu_create_bind_group(
     entries_ptr: *const u32,
     entries_len: usize,
 ) -> u32 {
-    js_log(3, "wasm_webgpu_create_bind_group called");
     let entries = std::slice::from_raw_parts(entries_ptr, entries_len);
     webgpu::bind_group::create_bind_group(ctx_handle, device_handle, layout_handle, entries)
 }

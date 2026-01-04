@@ -75,8 +75,6 @@ test('Integer Attribute Values Probe', async (t) => {
         const pixels = new Uint8Array(4);
         gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
 
-        console.log('Read pixels:', pixels);
-
         // Allow for small rounding errors
         assert.ok(Math.abs(pixels[0] - 10) <= 1, `Red channel (x) should be ~10, got ${pixels[0]}`);
         assert.ok(Math.abs(pixels[1] - 20) <= 1, `Green channel (y) should be ~20, got ${pixels[1]}`);
@@ -84,7 +82,6 @@ test('Integer Attribute Values Probe', async (t) => {
         assert.ok(Math.abs(pixels[3] - 40) <= 1, `Alpha channel (w) should be ~40, got ${pixels[3]}`);
 
         // --- Test 2: Unsigned Int Attributes ---
-        console.log('--- Test 2: Unsigned Int Attributes ---');
         const vsSourceU = `#version 300 es
     in uvec4 a_val;
     flat out uvec4 v_val;
@@ -131,26 +128,22 @@ test('Integer Attribute Values Probe', async (t) => {
 
         gl.drawArrays(gl.POINTS, 0, 1);
         gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-        console.log('Read pixels (Uint):', pixels);
         assert.ok(Math.abs(pixels[0] - 50) <= 1, `Red (x) ~50, got ${pixels[0]}`);
         assert.ok(Math.abs(pixels[1] - 60) <= 1, `Green (y) ~60, got ${pixels[1]}`);
         assert.ok(Math.abs(pixels[2] - 70) <= 1, `Blue (z) ~70, got ${pixels[2]}`);
         assert.ok(Math.abs(pixels[3] - 80) <= 1, `Alpha (w) ~80, got ${pixels[3]}`);
 
         // --- Test 3: Constant Attributes ---
-        console.log('--- Test 3: Constant Attributes ---');
         gl.disableVertexAttribArray(locU);
         gl.vertexAttribI4ui(locU, 90, 100, 110, 120);
         gl.drawArrays(gl.POINTS, 0, 1);
         gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-        console.log('Read pixels (Const Uint):', pixels);
         assert.ok(Math.abs(pixels[0] - 90) <= 1, `Red (x) ~90, got ${pixels[0]}`);
         assert.ok(Math.abs(pixels[1] - 100) <= 1, `Green (y) ~100, got ${pixels[1]}`);
         assert.ok(Math.abs(pixels[2] - 110) <= 1, `Blue (z) ~110, got ${pixels[2]}`);
         assert.ok(Math.abs(pixels[3] - 120) <= 1, `Alpha (w) ~120, got ${pixels[3]}`);
 
         // --- Test 4: Triangles (Interpolation) ---
-        console.log('--- Test 4: Triangles (Interpolation) ---');
         // Use the first program (ivec4)
         gl.useProgram(program);
         const locT = gl.getAttribLocation(program, 'a_val');
@@ -214,7 +207,6 @@ test('Integer Attribute Values Probe', async (t) => {
 
         gl.drawArrays(gl.TRIANGLES, 0, 3);
         gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-        console.log('Read pixels (Triangle):', pixels);
         assert.ok(Math.abs(pixels[0] - 10) <= 1, `Red (x) ~10, got ${pixels[0]}`);
         assert.ok(Math.abs(pixels[1] - 20) <= 1, `Green (y) ~20, got ${pixels[1]}`);
         assert.ok(Math.abs(pixels[2] - 30) <= 1, `Blue (z) ~30, got ${pixels[2]}`);

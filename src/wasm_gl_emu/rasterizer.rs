@@ -67,6 +67,13 @@ pub trait VertexFetcher {
 
 /// Pipeline configuration for rasterization
 /// Decouples from WebGL's Program object to support WebGPU
+pub struct VaryingDebug {
+    pub name: String,
+    pub location: u32,
+    pub type_code: u8,   // 0=float, 1=int, 2=uint
+    pub components: u32, // number of scalar components
+}
+
 pub struct RasterPipeline {
     /// Shader function table indices or identifiers
     pub vertex_shader_type: u32,
@@ -75,6 +82,8 @@ pub struct RasterPipeline {
     pub memory: ShaderMemoryLayout,
     /// Bitmask of flat varyings (1 = flat, 0 = smooth)
     pub flat_varyings_mask: u64,
+    /// Optional debug info describing varyings (temporary)
+    pub varying_debug: Option<Vec<VaryingDebug>>,
 }
 
 impl Default for RasterPipeline {
@@ -84,6 +93,7 @@ impl Default for RasterPipeline {
             fragment_shader_type: 0x8B30, // GL_FRAGMENT_SHADER
             memory: ShaderMemoryLayout::default(),
             flat_varyings_mask: 0,
+            varying_debug: None,
         }
     }
 }
@@ -227,6 +237,20 @@ impl Rasterizer {
                             }
                         }
 
+                        // Debug: decode interpolated varyings if debug info available
+                        if let Some(ref dbg) = pipeline.varying_debug {
+                            for info in dbg {
+                                let base = ((info.location + 1) * 4) as usize;
+                                let mut uvec = Vec::new();
+                                for i in 0..info.components as usize {
+                                    if base + i < interp_varyings.len() {
+                                        let w = interp_varyings[base + i];
+                                        uvec.push((w, w as i32, f32::from_bits(w)));
+                                    }
+                                }
+                            }
+                        }
+
                         // Execute fragment shader and get color
                         let color = self.execute_fragment_shader(&interp_varyings, pipeline, state);
 
@@ -332,6 +356,7 @@ impl Rasterizer {
                         config.pipeline.memory.uniform_ptr as *mut u8,
                         config.state.uniform_data.len(),
                     );
+
                     // Prepare textures
                     if let Some(ref prepare) = config.state.prepare_textures {
                         prepare(config.pipeline.memory.texture_ptr);
@@ -385,6 +410,20 @@ impl Rasterizer {
                         vx as f32 + (v.position[0] / v.position[3] + 1.0) * 0.5 * vw as f32;
                     let screen_y =
                         vy as f32 + (v.position[1] / v.position[3] + 1.0) * 0.5 * vh as f32;
+
+                    // Debug: decode varyings being passed to FS for this point (if debug info present)
+                    if let Some(ref dbg) = config.pipeline.varying_debug {
+                        for info in dbg {
+                            let base = ((info.location + 1) * 4) as usize;
+                            let mut uvec = Vec::new();
+                            for i in 0..info.components as usize {
+                                if base + i < v.varyings.len() {
+                                    let w = v.varyings[base + i];
+                                    uvec.push((w, w as i32, f32::from_bits(w)));
+                                }
+                            }
+                        }
+                    }
 
                     // Run FS
                     let color =

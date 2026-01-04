@@ -47,7 +47,6 @@ test('Granular Debugging', async (t) => {
 
     const pixels = new Uint8Array(4);
     gl.readPixels(5, 5, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    console.log('Simple Color:', Array.from(pixels));
     assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255]);
   });
 
@@ -74,7 +73,6 @@ test('Granular Debugging', async (t) => {
 
     const pixels = new Uint8Array(4);
     gl.readPixels(5, 5, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    console.log('Float Varying:', Array.from(pixels));
     // 0.5 * 255 = 127.5 -> 127 or 128
     const val = pixels[0];
     assert.ok(val >= 127 && val <= 128, `Expected ~127, got ${val}`);
@@ -105,7 +103,6 @@ test('Granular Debugging', async (t) => {
 
     const pixels = new Uint8Array(4);
     gl.readPixels(5, 5, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    console.log('Int Varying:', Array.from(pixels));
     assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255]);
   });
 
@@ -133,7 +130,6 @@ test('Granular Debugging', async (t) => {
 
     const pixels = new Uint8Array(4);
     gl.readPixels(5, 5, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    console.log('IVec4 Varying:', Array.from(pixels));
     assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255]);
   });
 });

@@ -162,8 +162,6 @@ export class WasmWebGL2RenderingContext {
         console.error(`  attrPtr: ${attrPtr}, uniformPtr: ${uniformPtr}, varyingPtr: ${varyingPtr}, privatePtr: ${privatePtr}, texturePtr: ${texturePtr}`);
         throw e;
       }
-    } else {
-      // console.log(`DEBUG: Shader instance or main missing for type ${type}. Instance: ${!!shaderInstance}`);
     }
   }
 
@@ -518,9 +516,15 @@ export class WasmWebGL2RenderingContext {
     const code = ex.wasm_ctx_link_program(this._ctxHandle, programHandle);
     _checkErr(code, this._instance);
 
-    // After linking, we need to instantiate the WASM modules on the host
+    // After linking, we need to instantiate the WASM modules on the host.
+    // According to the WebGL 2.0 Spec (https://registry.khronos.org/webgl/specs/latest/2.0/#3.7.6),
+    // linkProgram sets the LINK_STATUS parameter. If linking fails, no executable is generated.
+    // We must check LINK_STATUS before attempting to instantiate the WASM, as getProgramWasm will return null.
     if (program && typeof program === 'object') {
-      this._instantiateProgramShaders(program);
+      const linkStatus = this.getProgramParameter(program, this.LINK_STATUS);
+      if (linkStatus) {
+        this._instantiateProgramShaders(program);
+      }
     }
   }
 
@@ -571,40 +575,29 @@ export class WasmWebGL2RenderingContext {
       };
     };
 
-    if (vsWasm) {
-      try {
-        const vsModule = new WebAssembly.Module(vsWasm);
-        const instanceRef = { current: null };
-        const debugEnv = createDebugEnv(this.VERTEX_SHADER, instanceRef);
+    const vsModule = new WebAssembly.Module(vsWasm);
+    const vsInstanceRef = { current: null };
+    const vsDebugEnv = createDebugEnv(this.VERTEX_SHADER, vsInstanceRef);
 
-        program._vsInstance = new WebAssembly.Instance(vsModule, {
-          env: {
-            memory: this._instance.exports.memory,
-            ...debugEnv
-          }
-        });
-        instanceRef.current = program._vsInstance;
-      } catch (e) {
-        console.log(`DEBUG: VS Instance creation failed: ${e}`);
+    program._vsInstance = new WebAssembly.Instance(vsModule, {
+      env: {
+        memory: this._instance.exports.memory,
+        ...vsDebugEnv
       }
-    }
-    if (fsWasm) {
-      try {
-        const fsModule = new WebAssembly.Module(fsWasm);
-        const instanceRef = { current: null };
-        const debugEnv = createDebugEnv(this.FRAGMENT_SHADER, instanceRef);
+    });
+    vsInstanceRef.current = program._vsInstance;
 
-        program._fsInstance = new WebAssembly.Instance(fsModule, {
-          env: {
-            memory: this._instance.exports.memory,
-            ...debugEnv
-          }
-        });
-        instanceRef.current = program._fsInstance;
-      } catch (e) {
-        console.log(`DEBUG: FS Instance creation failed: ${e}`);
+    const fsModule = new WebAssembly.Module(fsWasm);
+    const fsInstanceRef = { current: null };
+    const fsDebugEnv = createDebugEnv(this.FRAGMENT_SHADER, fsInstanceRef);
+
+    program._fsInstance = new WebAssembly.Instance(fsModule, {
+      env: {
+        memory: this._instance.exports.memory,
+        ...fsDebugEnv
       }
-    }
+    });
+    fsInstanceRef.current = program._fsInstance;
   }
 
   getProgramDebugStub(program, shaderType) {
@@ -1352,7 +1345,8 @@ export class WasmWebGL2RenderingContext {
     try {
       const mem = new Uint8Array(ex.memory.buffer);
       mem.set(bytes, ptr);
-      const code = ex.wasm_ctx_uniform_matrix_4fv(this._ctxHandle, locHandle, transpose ? 1 : 0, ptr, len);
+      const count = len / 4;
+      const code = ex.wasm_ctx_uniform_matrix_4fv(this._ctxHandle, locHandle, transpose ? 1 : 0, ptr, count);
       _checkErr(code, this._instance);
     } finally {
       ex.wasm_free(ptr);
