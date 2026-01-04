@@ -102,7 +102,7 @@ pub fn ctx_compile_shader(ctx: u32, shader: u32) -> u32 {
 
         let mut frontend = Frontend::default();
         let options = Options::from(stage);
-        let verbosity = ctx_obj.verbosity;
+        let _verbosity = ctx_obj.verbosity;
 
         match frontend.parse(&options, &s.source) {
             Ok(module) => {

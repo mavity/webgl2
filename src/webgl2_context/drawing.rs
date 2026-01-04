@@ -18,7 +18,7 @@ fn get_flat_varyings_mask(ctx: &Context) -> u64 {
                             // If the shader explicitly marked this varying as Flat, preserve that.
                             let mut make_flat = false;
                             if let Some(naga::Binding::Location {
-                                location,
+                                location: _,
                                 interpolation: Some(interp),
                                 ..
                             }) = &arg.binding
@@ -39,7 +39,9 @@ fn get_flat_varyings_mask(ctx: &Context) -> u64 {
                                         make_flat = true;
                                     }
                                 }
-                                naga::TypeInner::Vector { size, scalar, .. } => {
+                                naga::TypeInner::Vector {
+                                    size: _, scalar, ..
+                                } => {
                                     if scalar.kind == naga::ScalarKind::Sint
                                         || scalar.kind == naga::ScalarKind::Uint
                                     {
