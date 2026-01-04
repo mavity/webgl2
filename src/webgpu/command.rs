@@ -18,6 +18,11 @@ pub fn create_command_encoder(ctx_handle: u32, device_handle: u32) -> u32 {
             .global
             .device_create_command_encoder(device_id, &desc, None);
         if let Some(e) = error {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_VALIDATION,
+                format!("Failed to create command encoder: {}", e),
+            );
             return super::NULL_HANDLE;
         }
 
@@ -41,6 +46,11 @@ pub fn command_encoder_finish(ctx_handle: u32, encoder_handle: u32) -> u32 {
 
         let (buffer_id, error) = ctx.global.command_encoder_finish(encoder_id, &desc, None);
         if let Some(e) = error {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_VALIDATION,
+                format!("Failed to finish command encoder: {:?}", e),
+            );
             return super::NULL_HANDLE;
         }
 
@@ -86,6 +96,11 @@ pub fn command_encoder_copy_buffer_to_buffer(
             dest_offset,
             Some(size),
         ) {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_OPERATION_FAILED,
+                format!("Failed to copy buffer to buffer: {}", e),
+            );
             return super::NULL_HANDLE;
         }
 
@@ -199,6 +214,11 @@ pub fn command_encoder_copy_texture_to_buffer(
             .global
             .command_encoder_copy_texture_to_buffer(encoder_id, &source, &dest, &size)
         {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_OPERATION_FAILED,
+                format!("Failed to copy texture to buffer: {}", e),
+            );
             return super::WEBGPU_ERROR_OPERATION_FAILED;
         }
 
@@ -280,6 +300,11 @@ pub fn command_encoder_run_render_pass(
             .global
             .command_encoder_begin_render_pass(encoder_id, &desc);
         if let Some(e) = err {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_OPERATION_FAILED,
+                format!("Failed to begin render pass: {}", e),
+            );
             return super::WEBGPU_ERROR_OPERATION_FAILED;
         }
 

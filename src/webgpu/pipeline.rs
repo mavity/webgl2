@@ -135,6 +135,11 @@ pub fn create_render_pipeline(
             .global
             .device_create_render_pipeline(device_id, &desc, None);
         if let Some(e) = error {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_VALIDATION,
+                format!("Failed to create render pipeline: {}", e),
+            );
             return super::NULL_HANDLE;
         }
 
@@ -184,6 +189,11 @@ pub unsafe fn create_pipeline_layout(
             .global
             .device_create_pipeline_layout(device_id, &desc, None);
         if let Some(e) = error {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_VALIDATION,
+                format!("Failed to create pipeline layout: {}", e),
+            );
             return super::NULL_HANDLE;
         }
 
