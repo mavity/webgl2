@@ -10,6 +10,7 @@
 //! - [`glsl_introspection`] - GLSL parser with annotation extraction
 //! - [`js_codegen`] - TypeScript harness code generator
 
+pub mod error;
 pub mod glsl_introspection;
 pub mod js_codegen;
 pub mod naga_wasm_backend;
