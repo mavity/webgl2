@@ -52,9 +52,10 @@ pub fn create_texture(ctx_handle: u32, device_handle: u32, config: TextureConfig
         if let Some(e) = error {
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                super::WEBGPU_ERROR_VALIDATION,
-                format!("Failed to create texture: {}", e),
+                super::WEBGPU_ERROR_INVALID_HANDLE,
+                e,
             );
+            // TODO: Return poisoned handle
             return super::NULL_HANDLE;
         }
 
@@ -133,8 +134,8 @@ pub fn create_texture_view(ctx_handle: u32, texture_handle: u32, config: Texture
         if let Some(e) = error {
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                super::WEBGPU_ERROR_VALIDATION,
-                format!("Failed to create texture view: {}", e),
+                super::WEBGPU_ERROR_INVALID_HANDLE,
+                e,
             );
             return super::NULL_HANDLE;
         }
@@ -177,8 +178,8 @@ pub fn create_sampler(ctx_handle: u32, device_handle: u32) -> u32 {
         if let Some(e) = error {
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                super::WEBGPU_ERROR_VALIDATION,
-                format!("Failed to create sampler: {}", e),
+                super::WEBGPU_ERROR_INVALID_HANDLE,
+                e,
             );
             return super::NULL_HANDLE;
         }

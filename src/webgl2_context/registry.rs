@@ -48,28 +48,24 @@ impl Registry {
 // Public API (exported to WASM)
 // ============================================================================
 
-/// Set last error message (internal helper) - delegates to unified error system
+/// Set last error message (internal helper)
 pub fn set_last_error(msg: &str) {
-    crate::error::set_error(
-        crate::error::ErrorSource::WebGL,
-        super::types::GL_INVALID_OPERATION,
-        msg,
-    );
+    crate::error::set_error(crate::error::ErrorSource::WebGL, 0, msg);
 }
 
-/// Get pointer to last error string (UTF-8) - delegates to unified error system
+/// Get pointer to last error string (UTF-8)
 pub fn last_error_ptr() -> *const u8 {
     crate::error::wasm_get_last_error_msg_ptr() as *const u8
 }
 
-/// Get length of last error string - delegates to unified error system
+/// Get length of last error string
 pub fn last_error_len() -> u32 {
-    crate::error::wasm_get_last_error_msg_len() as u32
+    crate::error::wasm_get_last_error_msg_len()
 }
 
-/// Clear last error - delegates to unified error system
+/// Clear last error
 pub(crate) fn clear_last_error() {
-    crate::error::clear_webgl_error();
+    crate::error::clear_error();
 }
 
 // ============================================================================

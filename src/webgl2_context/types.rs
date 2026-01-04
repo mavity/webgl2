@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -73,11 +72,6 @@ pub const GL_STENCIL_INDEX8: u32 = 0x8D48;
 // Handle constants
 pub(crate) const INVALID_HANDLE: u32 = 0;
 pub(crate) const FIRST_HANDLE: u32 = 1;
-
-// Last error buffer (thread-local would be better, but we're single-threaded WASM)
-thread_local! {
-    pub(crate) static LAST_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
-}
 
 /// A WebGL2 texture resource
 #[derive(Clone)]

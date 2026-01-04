@@ -23,7 +23,8 @@ test('Check Attribute Locations', async (t) => {
                 const bytes = mem.subarray(ptr, ptr + len);
                 console.log(new TextDecoder('utf-8').decode(bytes));
             },
-            wasm_execute_shader: () => {}
+            wasm_execute_shader: () => {},
+            dispatch_uncaptured_error: () => {}
         }
     };
     instance = await WebAssembly.instantiate(wasmModule, importObject);

@@ -73,10 +73,38 @@ if (typeof globalThis !== 'undefined') {
     if (!globalThis.GPUShaderStage) globalThis.GPUShaderStage = GPUShaderStage;
 }
 
+const activeDevices = new Set();
+
+export class GPUUncapturedErrorEvent extends Event {
+    constructor(type, eventInitDict) {
+        super(type, eventInitDict);
+        this.error = eventInitDict.error;
+    }
+}
+
 /**
  * Wrapper around a WebAssembly-backed WebGPU implementation.
  */
 export class GPU {
+
+    static dispatchUncapturedError(msg) {
+        // In Node.js, Event might not be available globally or might behave differently.
+        // But we are using 'node:test' which implies Node environment.
+        // If Event is not defined, we might need a polyfill or just call the handler directly.
+        
+        const error = new GPUError(msg);
+        
+        for (const device of activeDevices) {
+            if (typeof device.onuncapturederror === 'function') {
+                device.onuncapturederror({ error });
+            }
+            // Also dispatch as event if supported
+            if (typeof Event !== 'undefined') {
+                 const event = new GPUUncapturedErrorEvent('uncapturederror', { error });
+                 device.dispatchEvent(event);
+            }
+        }
+    }
 
     /**
      * @param {*} wasmModule - WebAssembly module exports implementing WebGPU.
@@ -149,7 +177,7 @@ export class GPUAdapter {
     }
 }
 
-export class GPUDevice {
+export class GPUDevice extends (typeof EventTarget !== 'undefined' ? EventTarget : Object) {
     /**
      * @param {*} wasmModule
      * @param {WebAssembly.Memory} wasmMemory
@@ -157,12 +185,33 @@ export class GPUDevice {
      * @param {number} deviceHandle
      */
     constructor(wasmModule, wasmMemory, ctxHandle, deviceHandle) {
+        super();
         this.wasm = wasmModule;
         this.memory = wasmMemory;
         this.ctxHandle = ctxHandle;
         this.deviceHandle = deviceHandle;
         this.queue = new GPUQueue(wasmModule, wasmMemory, ctxHandle, deviceHandle);
         this._destroyed = false;
+        activeDevices.add(this);
+    }
+
+    pushErrorScope(filter) {
+        let filterCode = 0;
+        if (filter === 'validation') filterCode = 0;
+        else if (filter === 'out-of-memory') filterCode = 1;
+        else if (filter === 'internal') filterCode = 2;
+        
+        this.wasm.wasm_webgpu_push_error_scope(filterCode);
+    }
+
+    async popErrorScope() {
+        const hasError = this.wasm.wasm_webgpu_pop_error_scope();
+        if (hasError) {
+            const ptr = this.wasm.wasm_get_webgpu_error_msg_ptr();
+            const msg = readString(this.memory, ptr);
+            return new GPUError(msg);
+        }
+        return null;
     }
 
     /**
@@ -179,7 +228,7 @@ export class GPUDevice {
             descriptor.mappedAtCreation || false
         );
         if (bufferHandle === 0) {
-            throw new Error("Failed to create buffer");
+            // throw new Error("Failed to create buffer");
         }
         return new GPUBuffer(this.wasm, this.memory, this.ctxHandle, this.deviceHandle, bufferHandle, descriptor.size);
     }
@@ -214,7 +263,7 @@ export class GPUDevice {
             descriptor.usage
         );
         if (textureHandle === 0) {
-            throw new Error("Failed to create texture");
+            // throw new Error("Failed to create texture");
         }
 
         // Create a normalized descriptor for the GPUTexture
@@ -249,7 +298,7 @@ export class GPUDevice {
         this.wasm.wasm_free(ptr, codeBytes.length);
 
         if (moduleHandle === 0) {
-            throw new Error("Failed to create shader module");
+            // throw new Error("Failed to create shader module");
         }
 
         return new GPUShaderModule(this.wasm, this.memory, this.ctxHandle, moduleHandle);
@@ -270,7 +319,7 @@ export class GPUDevice {
         this.wasm.wasm_free(ptr, layouts.length * 4);
 
         if (handle === 0) {
-            throw new Error("Failed to create pipeline layout");
+            // throw new Error("Failed to create pipeline layout");
         }
 
         return new GPUPipelineLayout(this.wasm, this.memory, this.ctxHandle, handle);
@@ -349,7 +398,7 @@ export class GPUDevice {
         this.wasm.wasm_free(lPtr, layoutData.length * 4);
 
         if (pipelineHandle === 0) {
-            throw new Error("Failed to create render pipeline");
+            // throw new Error("Failed to create render pipeline");
         }
 
         return new GPURenderPipeline(this.wasm, this.memory, this.ctxHandle, pipelineHandle);
@@ -363,7 +412,7 @@ export class GPUDevice {
     createCommandEncoder(descriptor = {}) {
         const encoderHandle = this.wasm.wasm_webgpu_create_command_encoder(this.ctxHandle, this.deviceHandle);
         if (encoderHandle === 0) {
-            throw new Error("Failed to create command encoder");
+            // throw new Error("Failed to create command encoder");
         }
         return new GPUCommandEncoder(this.wasm, this.memory, this.ctxHandle, encoderHandle);
     }
@@ -402,7 +451,9 @@ export class GPUDevice {
 
         this.wasm.wasm_free(ptr, data.length * 4);
 
-        if (handle === 0) throw new Error("Failed to create bind group layout");
+        if (handle === 0) {
+            // throw new Error("Failed to create bind group layout");
+        }
 
         return new GPUBindGroupLayout(this.wasm, this.memory, this.ctxHandle, handle);
     }
@@ -454,7 +505,9 @@ export class GPUDevice {
 
         this.wasm.wasm_free(ptr, data.length * 4);
 
-        if (handle === 0) throw new Error("Failed to create bind group");
+        if (handle === 0) {
+            // throw new Error("Failed to create bind group");
+        }
 
         return new GPUBindGroup(this.wasm, this.memory, this.ctxHandle, handle);
     }
@@ -466,7 +519,9 @@ export class GPUDevice {
      */
     createSampler(descriptor = {}) {
         const handle = this.wasm.wasm_webgpu_create_sampler(this.ctxHandle, this.deviceHandle);
-        if (handle === 0) throw new Error("Failed to create sampler");
+        if (handle === 0) {
+            // throw new Error("Failed to create sampler");
+        }
         return new GPUSampler(this.wasm, this.memory, this.ctxHandle, handle);
     }
 
@@ -475,6 +530,7 @@ export class GPUDevice {
      */
     destroy() {
         if (this._destroyed) return;
+        activeDevices.delete(this);
         if (typeof this.wasm.wasm_webgpu_destroy_context === 'function') {
             this.wasm.wasm_webgpu_destroy_context(this.ctxHandle);
         }
@@ -594,7 +650,7 @@ export class GPUBuffer {
      * Destroy the buffer
      */
     destroy() {
-        // TODO: Call wasm function to destroy buffer
+        this.wasm.wasm_webgpu_buffer_destroy(this.ctxHandle, this.bufferHandle);
     }
 }
 
@@ -853,7 +909,7 @@ export class GPUTexture {
             this.textureHandle
         );
         if (viewHandle === 0) {
-            throw new Error("Failed to create texture view");
+            // throw new Error("Failed to create texture view");
         }
         return new GPUTextureView(this.wasm, this.memory, this.ctxHandle, viewHandle, this);
     }
@@ -923,5 +979,19 @@ export class GPUPipelineLayout {
         this.memory = wasmMemory;
         this.ctxHandle = ctxHandle;
         this.layoutHandle = layoutHandle;
+    }
+}
+
+function readString(memory, ptr) {
+    if (!ptr) return null;
+    const view = new Uint8Array(memory.buffer);
+    let end = ptr;
+    while (view[end]) end++;
+    return new TextDecoder().decode(view.subarray(ptr, end));
+}
+
+export class GPUError {
+    constructor(message) {
+        this.message = message;
     }
 }

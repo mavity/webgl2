@@ -25,6 +25,7 @@ pub mod coverage;
 #[link(wasm_import_module = "env")]
 extern "C" {
     fn print(ptr: *const u8, len: usize);
+    fn dispatch_uncaptured_error(ptr: *const u8, len: usize);
     fn wasm_execute_shader(
         ctx: u32,
         type_: u32,
@@ -38,6 +39,9 @@ extern "C" {
 
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn print(_ptr: *const u8, _len: usize) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn dispatch_uncaptured_error(_ptr: *const u8, _len: usize) {}
 
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn wasm_execute_shader(
@@ -54,6 +58,12 @@ unsafe fn wasm_execute_shader(
 pub fn js_print(s: &str) {
     unsafe {
         print(s.as_ptr(), s.len());
+    }
+}
+
+pub fn js_dispatch_uncaptured_error(s: &str) {
+    unsafe {
+        dispatch_uncaptured_error(s.as_ptr(), s.len());
     }
 }
 
@@ -825,6 +835,25 @@ pub extern "C" fn wasm_webgpu_request_device(ctx_handle: u32, adapter_handle: u3
 #[no_mangle]
 pub extern "C" fn wasm_webgpu_destroy_device(ctx_handle: u32, device_handle: u32) -> u32 {
     webgpu::adapter::destroy_device(ctx_handle, device_handle)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_push_error_scope(filter: u32) {
+    let filter_enum = match filter {
+        0 => crate::error::WebGPUErrorFilter::Validation,
+        1 => crate::error::WebGPUErrorFilter::OutOfMemory,
+        2 => crate::error::WebGPUErrorFilter::Internal,
+        _ => crate::error::WebGPUErrorFilter::Validation,
+    };
+    crate::error::webgpu_push_error_scope(filter_enum);
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_pop_error_scope() -> u32 {
+    match crate::error::webgpu_pop_error_scope() {
+        Some(_) => 1,
+        None => 0,
+    }
 }
 
 #[no_mangle]

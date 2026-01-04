@@ -182,6 +182,16 @@ async function initWASM({ debug } = {}) {
         } else {
           // console.log(`DEBUG: wasm_execute_shader: ctx ${ctx} not found in _contexts`);
         }
+      },
+      dispatch_uncaptured_error: (ptr, len) => {
+        const mem = new Uint8Array(instance.exports.memory.buffer);
+        const bytes = mem.subarray(ptr, ptr + len);
+        const msg = new TextDecoder('utf-8').decode(bytes);
+        if (typeof GPU !== 'undefined' && typeof GPU.dispatchUncapturedError === 'function') {
+            GPU.dispatchUncapturedError(msg);
+        } else {
+            console.error("GPU.dispatchUncapturedError not available", msg);
+        }
       }
     }
   };

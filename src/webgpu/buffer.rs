@@ -28,9 +28,10 @@ pub fn create_buffer(
         if let Some(e) = error {
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                super::WEBGPU_ERROR_VALIDATION,
-                format!("Failed to create buffer: {}", e),
+                super::WEBGPU_ERROR_INVALID_HANDLE,
+                e,
             );
+            // TODO: Return poisoned handle
             return super::NULL_HANDLE;
         }
 
@@ -49,6 +50,11 @@ pub fn destroy_buffer(ctx_handle: u32, buffer_handle: u32) -> u32 {
             ctx.global.buffer_destroy(id);
             super::WEBGPU_SUCCESS
         } else {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_INVALID_HANDLE,
+                "Invalid buffer handle",
+            );
             super::WEBGPU_ERROR_INVALID_HANDLE
         }
     })
@@ -99,9 +105,11 @@ pub fn buffer_map_async(
                 // effectively synchronous from the JS perspective.
                 if let Err(e) = ctx.global.device_poll(device_id, wgt::PollType::Poll) {
                     crate::error::set_error(
-                        crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                        crate::error::ErrorSource::WebGPU(
+                            crate::error::WebGPUErrorFilter::Internal,
+                        ),
                         super::WEBGPU_ERROR_INVALID_HANDLE,
-                        format!("Failed to poll device after buffer map: {}", e),
+                        e,
                     );
                     return super::WEBGPU_ERROR_INVALID_HANDLE;
                 }
@@ -111,7 +119,7 @@ pub fn buffer_map_async(
                 crate::error::set_error(
                     crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
                     super::WEBGPU_ERROR_INVALID_HANDLE,
-                    format!("Failed to map buffer: {}", e),
+                    e,
                 );
                 super::WEBGPU_ERROR_INVALID_HANDLE
             }
@@ -141,7 +149,7 @@ pub fn buffer_get_mapped_range(
                 crate::error::set_error(
                     crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
                     super::WEBGPU_ERROR_INVALID_HANDLE,
-                    format!("Failed to get mapped range: {}", e),
+                    e,
                 );
                 std::ptr::null_mut()
             }
@@ -163,7 +171,7 @@ pub fn buffer_unmap(ctx_handle: u32, buffer_handle: u32) -> u32 {
                 crate::error::set_error(
                     crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
                     super::WEBGPU_ERROR_INVALID_HANDLE,
-                    format!("Failed to unmap buffer: {}", e),
+                    e,
                 );
                 super::WEBGPU_ERROR_INVALID_HANDLE
             }

@@ -183,9 +183,9 @@ pub fn request_adapter(ctx_handle: u32, power_preference: wgt::PowerPreference) 
             Ok(id) => id,
             Err(e) => {
                 crate::error::set_error(
-                    crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                    super::WEBGPU_ERROR_VALIDATION,
-                    format!("Failed to request adapter: {}", e),
+                    crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Internal),
+                    super::WEBGPU_ERROR_OPERATION_FAILED,
+                    e,
                 );
                 return super::NULL_HANDLE;
             }
@@ -230,9 +230,11 @@ pub fn request_device(ctx_handle: u32, adapter_handle: u32) -> u32 {
                 Ok(res) => res,
                 Err(e) => {
                     crate::error::set_error(
-                        crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                        super::WEBGPU_ERROR_VALIDATION,
-                        format!("Failed to request device: {}", e),
+                        crate::error::ErrorSource::WebGPU(
+                            crate::error::WebGPUErrorFilter::Internal,
+                        ),
+                        super::WEBGPU_ERROR_OPERATION_FAILED,
+                        e,
                     );
                     return super::NULL_HANDLE;
                 }

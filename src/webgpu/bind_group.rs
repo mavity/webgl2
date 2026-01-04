@@ -69,8 +69,8 @@ pub fn create_bind_group_layout(ctx_handle: u32, device_handle: u32, entries_dat
         if let Some(e) = error {
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                super::WEBGPU_ERROR_VALIDATION,
-                format!("Failed to create bind group layout: {}", e),
+                super::WEBGPU_ERROR_INVALID_HANDLE,
+                e,
             );
             return super::NULL_HANDLE;
         }
@@ -171,8 +171,8 @@ pub fn create_bind_group(
         if let Some(e) = error {
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                super::WEBGPU_ERROR_VALIDATION,
-                format!("Failed to create bind group: {}", e),
+                super::WEBGPU_ERROR_INVALID_HANDLE,
+                e,
             );
             return super::NULL_HANDLE;
         }

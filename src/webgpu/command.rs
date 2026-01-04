@@ -9,7 +9,14 @@ pub fn create_command_encoder(ctx_handle: u32, device_handle: u32) -> u32 {
     with_context(ctx_handle, |ctx| {
         let device_id = match ctx.devices.get(&device_handle) {
             Some(id) => *id,
-            None => return super::NULL_HANDLE,
+            None => {
+                crate::error::set_error(
+                    crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                    super::WEBGPU_ERROR_INVALID_HANDLE,
+                    "Invalid device handle",
+                );
+                return super::NULL_HANDLE;
+            }
         };
 
         let desc = wgt::CommandEncoderDescriptor { label: None };
@@ -20,8 +27,8 @@ pub fn create_command_encoder(ctx_handle: u32, device_handle: u32) -> u32 {
         if let Some(e) = error {
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                super::WEBGPU_ERROR_VALIDATION,
-                format!("Failed to create command encoder: {}", e),
+                super::WEBGPU_ERROR_INVALID_HANDLE,
+                e.to_string(),
             );
             return super::NULL_HANDLE;
         }
@@ -39,7 +46,14 @@ pub fn command_encoder_finish(ctx_handle: u32, encoder_handle: u32) -> u32 {
     with_context(ctx_handle, |ctx| {
         let encoder_id = match ctx.command_encoders.remove(&encoder_handle) {
             Some(id) => id,
-            None => return super::NULL_HANDLE,
+            None => {
+                crate::error::set_error(
+                    crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                    super::WEBGPU_ERROR_INVALID_HANDLE,
+                    "Invalid command encoder handle",
+                );
+                return super::NULL_HANDLE;
+            }
         };
 
         let desc = wgt::CommandBufferDescriptor { label: None };
@@ -48,9 +62,8 @@ pub fn command_encoder_finish(ctx_handle: u32, encoder_handle: u32) -> u32 {
         if let Some(e) = error {
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                super::WEBGPU_ERROR_VALIDATION,
-                // Note: Using {:?} because error is a tuple type without Display impl
-                format!("Failed to finish command encoder: {:?}", e),
+                super::WEBGPU_ERROR_INVALID_HANDLE,
+                format!("{}: {}", e.0, e.1),
             );
             return super::NULL_HANDLE;
         }
@@ -76,17 +89,38 @@ pub fn command_encoder_copy_buffer_to_buffer(
     with_context(ctx_handle, |ctx| {
         let encoder_id = match ctx.command_encoders.get(&encoder_handle) {
             Some(id) => *id,
-            None => return super::NULL_HANDLE,
+            None => {
+                crate::error::set_error(
+                    crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                    super::WEBGPU_ERROR_INVALID_HANDLE,
+                    "Invalid command encoder handle",
+                );
+                return super::NULL_HANDLE;
+            }
         };
 
         let source_id = match ctx.buffers.get(&source_handle) {
             Some(id) => *id,
-            None => return super::NULL_HANDLE,
+            None => {
+                crate::error::set_error(
+                    crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                    super::WEBGPU_ERROR_INVALID_HANDLE,
+                    "Invalid source buffer handle",
+                );
+                return super::NULL_HANDLE;
+            }
         };
 
         let dest_id = match ctx.buffers.get(&dest_handle) {
             Some(id) => *id,
-            None => return super::NULL_HANDLE,
+            None => {
+                crate::error::set_error(
+                    crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                    super::WEBGPU_ERROR_INVALID_HANDLE,
+                    "Invalid destination buffer handle",
+                );
+                return super::NULL_HANDLE;
+            }
         };
 
         if let Err(e) = ctx.global.command_encoder_copy_buffer_to_buffer(
@@ -100,7 +134,7 @@ pub fn command_encoder_copy_buffer_to_buffer(
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
                 super::WEBGPU_ERROR_OPERATION_FAILED,
-                format!("Failed to copy buffer to buffer: {}", e),
+                e,
             );
             return super::NULL_HANDLE;
         }
@@ -143,7 +177,14 @@ pub fn queue_submit(ctx_handle: u32, device_handle: u32, cb_handles: &[u32]) -> 
                 );
                 super::WEBGPU_SUCCESS
             }
-            Err(e) => super::WEBGPU_ERROR_OPERATION_FAILED,
+            Err(e) => {
+                crate::error::set_error(
+                    crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                    super::WEBGPU_ERROR_OPERATION_FAILED,
+                    format!("Submission index {}: {}", e.0, e.1),
+                );
+                super::WEBGPU_ERROR_OPERATION_FAILED
+            }
         }
     })
 }
@@ -218,7 +259,7 @@ pub fn command_encoder_copy_texture_to_buffer(
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
                 super::WEBGPU_ERROR_OPERATION_FAILED,
-                format!("Failed to copy texture to buffer: {}", e),
+                e,
             );
             return super::WEBGPU_ERROR_OPERATION_FAILED;
         }
@@ -304,7 +345,7 @@ pub fn command_encoder_run_render_pass(
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
                 super::WEBGPU_ERROR_OPERATION_FAILED,
-                format!("Failed to begin render pass: {}", e),
+                e,
             );
             return super::WEBGPU_ERROR_OPERATION_FAILED;
         }
@@ -367,11 +408,12 @@ pub fn command_encoder_run_render_pass(
                         first_instance,
                     ) {
                         crate::error::set_error(
-                            crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                            super::WEBGPU_ERROR_VALIDATION,
-                            format!("Failed to draw: {}", e),
+                            crate::error::ErrorSource::WebGPU(
+                                crate::error::WebGPUErrorFilter::Validation,
+                            ),
+                            super::WEBGPU_ERROR_OPERATION_FAILED,
+                            e,
                         );
-                        // TODO: handle properly, propagate error
                     }
                 }
                 4 => {
@@ -389,20 +431,16 @@ pub fn command_encoder_run_render_pass(
                                 .render_pass_set_bind_group(&mut pass, index, Some(*id), &[])
                         {
                             crate::error::set_error(
-                                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                                super::WEBGPU_ERROR_VALIDATION,
-                                format!("Failed to set bind group: {}", e),
+                                crate::error::ErrorSource::WebGPU(
+                                    crate::error::WebGPUErrorFilter::Validation,
+                                ),
+                                super::WEBGPU_ERROR_OPERATION_FAILED,
+                                e,
                             );
-                            // TODO: handle properly, propagate error
                         }
                     }
                 }
                 _ => {
-                    crate::error::set_error(
-                        crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                        super::WEBGPU_ERROR_VALIDATION,
-                        "Unknown render command",
-                    );
                     // TODO: handle properly, propagate error
                     break;
                 }
@@ -413,7 +451,7 @@ pub fn command_encoder_run_render_pass(
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
                 super::WEBGPU_ERROR_OPERATION_FAILED,
-                format!("Failed to end render pass: {}", e),
+                e,
             );
             return super::WEBGPU_ERROR_OPERATION_FAILED;
         }

@@ -137,8 +137,8 @@ pub fn create_render_pipeline(
         if let Some(e) = error {
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                super::WEBGPU_ERROR_VALIDATION,
-                format!("Failed to create render pipeline: {}", e),
+                super::WEBGPU_ERROR_INVALID_HANDLE,
+                e,
             );
             return super::NULL_HANDLE;
         }
@@ -191,8 +191,8 @@ pub unsafe fn create_pipeline_layout(
         if let Some(e) = error {
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                super::WEBGPU_ERROR_VALIDATION,
-                format!("Failed to create pipeline layout: {}", e),
+                super::WEBGPU_ERROR_INVALID_HANDLE,
+                e,
             );
             return super::NULL_HANDLE;
         }
