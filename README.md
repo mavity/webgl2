@@ -34,6 +34,8 @@ npm test
 - **Rust-Owned Context**: All WebGL2 state (textures, buffers, framebuffers) lives in Rust for deterministic resource management.
 - **GLSL to WASM Compiler**: Compiles GLSL shaders directly to WebAssembly using Naga IR.
 - **Integrated Debugging**: Generates DWARF debug information for shaders, enabling step-through debugging in browser DevTools.
+- **Shader Breakpoints**: Set breakpoints directly in GLSL shaders and inspect variables using standard browser DevTools.
+- **WebGPU Support**: Early prototype implementation of the WebGPU API sharing the same robust WASM backend.
 - **Software Rasterizer**: A full software-based WebGL2 implementation for headless testing and GPU-independent execution.
 - **JS Thin-Forwarder**: Ergonomic JavaScript bindings that forward calls to the WASM core with minimal overhead.
 
@@ -63,11 +65,20 @@ The platform follows a "Rust-first" architecture where the GPU state and shader 
 **Current Phase: Phase 1 - Core Emulator & Compiler** ✅
 
 - [x] Rust-owned WebGL2 Context & Resource Registry
-- [ ] Naga-to-WASM backend with DWARF support - partially done
-- [ ] Software Rasterizer for shader emulation - partially done
+- [x] WebGPU implementation (Early)
+- [x] Rust Test Coverage (~81%) - see [coverage.md](coverage.md)
+- [-] Naga-to-WASM backend with DWARF support - partially done
+- [-] Software Rasterizer for shader emulation - partially done
 - [x] JS/TS ergonomic bindings - substantially working
-- [ ] Extensive WebGL2 API test coverage - partially done (>100 tests)
-- [ ] Browser DevTools integration validation (in progress)
+- [-] Extensive WebGL2 API test coverage - partially done (>100 tests)
+- [-] Browser DevTools integration (in progress)
+
+## 🔮 Outstanding Issues & Next Steps
+
+- **WebGPU Completion**: The WebGPU implementation is currently experimental. Many TODOs remain in `src/webgpu/` regarding format mapping and error handling.
+- **Debugger Integration**: Finalize the DWARF generation and Source Map integration to make the "Shader Breakpoints" feature fully seamless.
+- **Performance**: Optimize the software rasterizer for better frame rates in the emulator.
+- **Test Coverage**: Continue increasing Rust test coverage (currently ~81%) and add more WebGL2 conformance tests.
 
 ## Quick demo
 
@@ -92,16 +103,14 @@ Uses a simple texture shader to render a cube into an `output.png` file.
 
 ## 🧪 Testing
 
+Tests are expressed in JS, although they exercise Rust code mostly.
+
+The coverage is collected against the Rust code however. We maintain high test coverage to ensure reliability.
+
+- **Rust Test Coverage**: ~81% (See [Coverage Report](coverage.md))
+
 ```bash
-# Run Rust tests
-cargo test
-
-# Run JS tests
 npm test
-
-# Test with a simple shader (prototype, experimental)
-cargo run --bin webgl2 -- compile tests/fixtures/simple.vert --debug -o output.wasm
-cargo run --bin webgl2 -- run output.wasm
 ```
 
 ## 📄 License
