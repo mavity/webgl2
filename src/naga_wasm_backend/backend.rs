@@ -1,6 +1,6 @@
 //! Core WASM code generation logic
 
-use super::{BackendError, CompileConfig, MemoryLayout, WasmBackend, WasmModule};
+use super::{output_layout, BackendError, CompileConfig, MemoryLayout, WasmBackend, WasmModule};
 use naga::{front::Typifier, valid::ModuleInfo, Module};
 use std::collections::HashMap;
 use wasm_encoder::{
@@ -168,7 +168,7 @@ impl<'a> Compiler<'a> {
                 naga::AddressSpace::Uniform | naga::AddressSpace::Handle => {
                     if let Some(name) = &var.name {
                         if let Some(&loc) = self.uniform_locations.get(name) {
-                            let offset = loc * 64;
+                            let (offset, _) = output_layout::compute_uniform_offset(loc);
                             (offset, 1)
                         } else {
                             (0, 1)
@@ -198,11 +198,11 @@ impl<'a> Compiler<'a> {
                         (0, 3)
                     } else if let Some(name) = &var.name {
                         if let Some(&loc) = self.attribute_locations.get(name) {
-                            let offset = loc * 64;
+                            let (offset, _) = output_layout::compute_input_offset(loc, naga::ShaderStage::Vertex);
                             (offset, 0)
                         } else if let Some(&loc) = self.varying_locations.get(name) {
-                            let offset = (loc + 1) * 16;
-                            (offset, 2)
+                            output_layout::compute_input_offset(loc, naga::ShaderStage::Fragment)
+
                         } else {
                             return Err(BackendError::InternalError(format!(
                                 "Varying '{}' has no assigned location",
@@ -497,3 +497,4 @@ impl<'a> Compiler<'a> {
         }
     }
 }
+
