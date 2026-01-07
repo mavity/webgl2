@@ -2,7 +2,7 @@
 //!
 //! Phase 0: Placeholder for future expression handling
 
-use super::{BackendError, TranslationContext};
+use super::{output_layout, BackendError, TranslationContext};
 
 use naga::{BinaryOperator, Expression, Literal, RelationalFunction, ScalarKind, TypeInner};
 use wasm_encoder::Instruction;
@@ -363,32 +363,22 @@ pub fn translate_expression_component(
                 let arg = &ctx.func.arguments[*idx as usize];
                 let mut found_location = false;
 
-                if ctx.stage == naga::ShaderStage::Vertex {
-                    if let Some(name) = &arg.name {
-                        if let Some(&location) = ctx.attribute_locations.get(name) {
-                            offset = location * 64;
-                            found_location = true;
-                        }
-                    }
-                } else if ctx.stage == naga::ShaderStage::Fragment {
-                    if let Some(name) = &arg.name {
-                        if let Some(&location) = ctx.varying_locations.get(name) {
-                            offset = (location + 1) * 16;
-                            found_location = true;
-                        }
-                    }
+                if let Some(&location) = match ctx.stage {
+                    naga::ShaderStage::Vertex => {
+                        if let Some(name) = &arg.name { ctx.attribute_locations.get(name) } else { None }
+                    },
+                    naga::ShaderStage::Fragment => {
+                        if let Some(name) = &arg.name { ctx.varying_locations.get(name) } else { None }
+                    },
+                    _ => None,
+                } {
+                    (offset, _) = output_layout::compute_input_offset(location, ctx.stage);
+                    found_location = true;
                 }
 
                 if !found_location {
                     if let Some(naga::Binding::Location { location, .. }) = arg.binding {
-                        // Use location-based offset
-                        if ctx.stage == naga::ShaderStage::Vertex {
-                            // VS: attribute location L is at offset L * 64 (to match uniform alignment)
-                            offset = location * 64;
-                        } else {
-                            // FS: varying location L is at offset (L + 1) * 16 (skipping gl_Position)
-                            offset = (location + 1) * 16;
-                        }
+                        (offset, _) = output_layout::compute_input_offset(location, ctx.stage);
                     } else {
                         for i in 0..(*idx as usize) {
                             let prev_arg = &ctx.func.arguments[i];
