@@ -1,4 +1,4 @@
-﻿//! Shader output layout calculations
+//! Shader output layout calculations
 //!
 //! This module provides centralized logic for determining where shader outputs
 //! should be written in memory. It implements the specification from
@@ -20,13 +20,47 @@
 //!
 //! # Design Rationale
 //!
-//! The layout uses fixed 16-byte (vec4) slots for simplicity and compatibility.
-//! A future optimization could implement "Deterministic Packed Layout" to reduce
-//! memory usage, but the current approach provides:
-//! - Predictable offsets
-//! - Alignment guarantees
-//! - Simple implementation
-//! - Zero-cost abstraction (inlined)
+//! ## Slot Sizes
+//!
+//! **64-byte slots** for attributes and uniforms:
+//! - Accommodates up to mat4 (16 floats * 4 bytes = 64 bytes)
+//! - Matches WebGL''s vertex attribute stride limits (max 255 bytes, but 64 is practical)
+//! - Provides natural alignment for all GLSL/WGSL types
+//! - Simplifies pointer arithmetic (power of 2 minus one bit)
+//!
+//! **16-byte slots** for varyings and fragment outputs:
+//! - Aligns with vec4 size (the largest interpolatable type)
+//! - Fragment outputs are always scalar/vec types, never matrices
+//! - Reduces memory footprint for inter-stage communication
+//! - GPU-friendly alignment (128-bit boundaries)
+//!
+//! ## Offset Strategy
+//!
+//! **`(location + 1) * 16`** for vertex shader varyings:
+//! - Reserves offset 0 for `@builtin(position)` (mandatory vertex output)
+//! - User-defined varyings start at offset 16, avoiding position collision
+//! - Simplifies fragment shader varying reads (same offsets, no translation needed)
+//!
+//! ## Memory Pointer Indices
+//!
+//! - **0 (ATTR_PTR_GLOBAL)**: Vertex shader input attributes
+//! - **1 (UNIFORM_PTR_GLOBAL)**: Uniform data (read-only, both stages)
+//! - **2 (VARYING_PTR_GLOBAL)**: Inter-stage communication (VS writes, FS reads)
+//! - **3 (PRIVATE_PTR_GLOBAL)**: Fragment shader outputs (colors, depth)
+//!
+//! ## Future Optimization
+//!
+//! The layout uses fixed slots for simplicity and compatibility.
+//! A future "Deterministic Packed Layout" could reduce memory usage by:
+//! - Packing scalar/vec2 types into smaller slots
+//! - Eliminating padding between struct members
+//! - Computing exact sizes from Naga type information
+//!
+//! Current approach provides:
+//! - Predictable offsets (no runtime calculation)
+//! - Natural alignment (no unaligned access)
+//! - Simple implementation (minimal complexity)
+//! - Zero-cost abstraction (inlined functions)
 
 use naga::{Binding, BuiltIn, ShaderStage};
 
