@@ -353,9 +353,13 @@ pub fn translate_expression_component(
                 // VS: from attr_ptr (Global 0)
                 // FS: from varying_ptr (Global 2)
                 if ctx.stage == naga::ShaderStage::Vertex {
-                    ctx.wasm_func.instruction(&Instruction::GlobalGet(0)); // attr_ptr
+                    ctx.wasm_func
+                        .instruction(&Instruction::GlobalGet(output_layout::ATTR_PTR_GLOBAL));
+                // attr_ptr
                 } else {
-                    ctx.wasm_func.instruction(&Instruction::GlobalGet(2)); // varying_ptr
+                    ctx.wasm_func
+                        .instruction(&Instruction::GlobalGet(output_layout::VARYING_PTR_GLOBAL));
+                    // varying_ptr
                 }
 
                 // Calculate offset: sum of sizes of previous arguments
@@ -365,11 +369,19 @@ pub fn translate_expression_component(
 
                 if let Some(&location) = match ctx.stage {
                     naga::ShaderStage::Vertex => {
-                        if let Some(name) = &arg.name { ctx.attribute_locations.get(name) } else { None }
-                    },
+                        if let Some(name) = &arg.name {
+                            ctx.attribute_locations.get(name)
+                        } else {
+                            None
+                        }
+                    }
                     naga::ShaderStage::Fragment => {
-                        if let Some(name) = &arg.name { ctx.varying_locations.get(name) } else { None }
-                    },
+                        if let Some(name) = &arg.name {
+                            ctx.varying_locations.get(name)
+                        } else {
+                            None
+                        }
+                    }
                     _ => None,
                 } {
                     (offset, _) = output_layout::compute_input_offset(location, ctx.stage);
@@ -599,7 +611,8 @@ pub fn translate_expression_component(
             // 2. Calculate descriptor address: texture_ptr + unit_idx * 32
             ctx.wasm_func.instruction(&Instruction::I32Const(32));
             ctx.wasm_func.instruction(&Instruction::I32Mul);
-            ctx.wasm_func.instruction(&Instruction::GlobalGet(4)); // texture_ptr
+            ctx.wasm_func
+                .instruction(&Instruction::GlobalGet(output_layout::TEXTURE_PTR_GLOBAL)); // texture_ptr
             ctx.wasm_func.instruction(&Instruction::I32Add);
             ctx.wasm_func
                 .instruction(&Instruction::LocalSet(ctx.scratch_base)); // scratch_base is desc_addr
@@ -767,7 +780,8 @@ pub fn translate_expression(
     if let naga::TypeInner::Pointer { .. } = ty {
         match expr {
             Expression::LocalVariable(handle) => {
-                ctx.wasm_func.instruction(&Instruction::GlobalGet(3)); // private_ptr
+                ctx.wasm_func
+                    .instruction(&Instruction::GlobalGet(output_layout::PRIVATE_PTR_GLOBAL)); // private_ptr
                 if let Some(&offset) = ctx.local_offsets.get(handle) {
                     if offset > 0 {
                         ctx.wasm_func
@@ -791,9 +805,13 @@ pub fn translate_expression(
                     if var.name.as_deref() == Some("gl_Position")
                         || var.name.as_deref() == Some("gl_Position_1")
                     {
-                        ctx.wasm_func.instruction(&Instruction::GlobalGet(2)); // varying_ptr
+                        ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                            output_layout::VARYING_PTR_GLOBAL,
+                        )); // varying_ptr
                     } else {
-                        ctx.wasm_func.instruction(&Instruction::GlobalGet(3)); // private_ptr
+                        ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                            output_layout::PRIVATE_PTR_GLOBAL,
+                        )); // private_ptr
                     }
                 }
             }

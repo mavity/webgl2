@@ -142,7 +142,8 @@ impl<'a> Compiler<'a> {
             };
 
             if is_position {
-                self.global_offsets.insert(handle, (0, 2));
+                self.global_offsets
+                    .insert(handle, (0, output_layout::VARYING_PTR_GLOBAL));
                 varying_offset = 16; // gl_Position is vec4 (16 bytes)
                 break;
             }
@@ -168,13 +169,12 @@ impl<'a> Compiler<'a> {
                 naga::AddressSpace::Uniform | naga::AddressSpace::Handle => {
                     if let Some(name) = &var.name {
                         if let Some(&loc) = self.uniform_locations.get(name) {
-                            let (offset, _) = output_layout::compute_uniform_offset(loc);
-                            (offset, 1)
+                            output_layout::compute_uniform_offset(loc)
                         } else {
-                            (0, 1)
+                            (0, output_layout::UNIFORM_PTR_GLOBAL)
                         }
                     } else {
-                        (0, 1)
+                        (0, output_layout::UNIFORM_PTR_GLOBAL)
                     }
                 }
                 naga::AddressSpace::Private | naga::AddressSpace::Function => {
@@ -195,14 +195,12 @@ impl<'a> Compiler<'a> {
                     };
 
                     if is_output {
-                        (0, 3)
+                        (0, output_layout::PRIVATE_PTR_GLOBAL)
                     } else if let Some(name) = &var.name {
                         if let Some(&loc) = self.attribute_locations.get(name) {
-                            let (offset, _) = output_layout::compute_input_offset(loc, naga::ShaderStage::Vertex);
-                            (offset, 0)
+                            output_layout::compute_input_offset(loc, naga::ShaderStage::Vertex)
                         } else if let Some(&loc) = self.varying_locations.get(name) {
                             output_layout::compute_input_offset(loc, naga::ShaderStage::Fragment)
-
                         } else {
                             return Err(BackendError::InternalError(format!(
                                 "Varying '{}' has no assigned location",
@@ -249,7 +247,7 @@ impl<'a> Compiler<'a> {
                     };
 
                     if is_fs_output {
-                        (0, 3) // private_ptr for FS output
+                        (0, output_layout::PRIVATE_PTR_GLOBAL) // private_ptr for FS output
                     } else {
                         // Otherwise assume varying (VS output or FS input)
                         let o = varying_offset;
@@ -497,4 +495,3 @@ impl<'a> Compiler<'a> {
         }
     }
 }
-

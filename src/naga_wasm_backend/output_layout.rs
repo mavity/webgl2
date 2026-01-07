@@ -64,11 +64,17 @@
 
 use naga::{Binding, BuiltIn, ShaderStage};
 
-/// Memory pointer global indices
+/// Memory pointer global indices:
+/// - 0: ATTR_PTR_GLOBAL (Vertex attributes)
+/// - 1: UNIFORM_PTR_GLOBAL (Uniform data)
+/// - 2: VARYING_PTR_GLOBAL (Inter-stage varyings)
+/// - 3: PRIVATE_PTR_GLOBAL (Fragment outputs & private variables)
+/// - 4: TEXTURE_PTR_GLOBAL (Texture references)
 pub const ATTR_PTR_GLOBAL: u32 = 0;
 pub const UNIFORM_PTR_GLOBAL: u32 = 1;
 pub const VARYING_PTR_GLOBAL: u32 = 2;
 pub const PRIVATE_PTR_GLOBAL: u32 = 3;
+pub const TEXTURE_PTR_GLOBAL: u32 = 4;
 
 /// Compute the memory destination for a shader output binding.
 ///
@@ -233,6 +239,9 @@ pub fn compute_input_offset(location: u32, stage: ShaderStage) -> (u32, u32) {
 /// assert_eq!(ptr, UNIFORM_PTR_GLOBAL);
 /// ``
 #[inline]
+pub fn compute_texture_offset(location: u32) -> (u32, u32) {
+    (location * 64, TEXTURE_PTR_GLOBAL)
+}
 pub fn compute_uniform_offset(location: u32) -> (u32, u32) {
     (location * 64, UNIFORM_PTR_GLOBAL)
 }
