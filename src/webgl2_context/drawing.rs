@@ -122,7 +122,11 @@ impl<'a> VertexFetcher for WebGLVertexFetcher<'a> {
         // So we copy 16 bytes to offset loc * 64.
 
         for (loc, chunk) in attr_data.chunks(4).enumerate() {
-            let dest_offset = loc * 64;
+            let dest_offset = crate::naga_wasm_backend::output_layout::compute_input_offset(
+                loc as u32,
+                naga::ShaderStage::Vertex,
+            )
+            .0 as usize;
             if dest_offset + 16 <= dest.len() {
                 let bytes = unsafe { std::slice::from_raw_parts(chunk.as_ptr() as *const u8, 16) };
                 dest[dest_offset..dest_offset + 16].copy_from_slice(bytes);

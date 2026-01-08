@@ -6,6 +6,10 @@ You MUST NOT provide overconfident answer in ANY situation.
 
 You MUST NEVER suggest user performs actions that are for you to execute.
 
+# GIT
+
+DO NOT interfere with git. Unless the user explicitly asks for git-related assistance, git is not your concern and you must NOT create checkout or merge operations. No git command is allowed for you without permission.
+
 # Build
 
 Perform full build using `npm run build`. Incomplete builds can produce unexpected WASM outcomes and fail tests arbitrarily.

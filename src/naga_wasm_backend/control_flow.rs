@@ -47,6 +47,7 @@ fn store_components_to_memory(
     is_int: bool,
     ctx: &mut TranslationContext,
 ) {
+    let scratch_f32_base = ctx.scratch_base + 32;
     if base_ptr == VARYING_PTR_GLOBAL || base_ptr == PRIVATE_PTR_GLOBAL {
         // Handle varyings and fragment outputs
         // Store components in reverse order
@@ -57,7 +58,7 @@ fn store_components_to_memory(
                     .instruction(&Instruction::LocalSet(ctx.scratch_base));
             } else {
                 ctx.wasm_func
-                    .instruction(&Instruction::LocalSet(ctx.scratch_base + 32));
+                    .instruction(&Instruction::LocalSet(scratch_f32_base + 1));
             }
 
             // Calculate byte offset for this component
@@ -78,7 +79,7 @@ fn store_components_to_memory(
                     }));
             } else {
                 ctx.wasm_func
-                    .instruction(&Instruction::LocalGet(ctx.scratch_base + 32));
+                    .instruction(&Instruction::LocalGet(scratch_f32_base + 1));
                 ctx.wasm_func
                     .instruction(&Instruction::F32Store(wasm_encoder::MemArg {
                         offset: comp_offset as u64,
@@ -96,6 +97,24 @@ fn store_components_to_memory(
 }
 
 /// Translate a Naga statement to WASM instructions
+
+/// Store a single scalar/vector function result into the appropriate output
+/// destination using existing layout helpers.
+///
+/// This helper centralizes the logic that was previously duplicated at
+/// several call sites. It expects `binding` to be present (WGSL Case B)
+/// and will call `get_output_destination` and `store_components_to_memory`.
+fn store_single_value_to_output(
+    ty: &naga::Type,
+    binding: &naga::Binding,
+    ctx: &mut TranslationContext,
+) {
+    let num_components = super::types::component_count(&ty.inner, &ctx.module.types);
+    let is_int = super::expressions::is_integer_type(&ty.inner);
+    let (offset, base_ptr) = get_output_destination(binding, ctx);
+    store_components_to_memory(offset, base_ptr, num_components, is_int, ctx);
+}
+
 pub fn translate_statement(
     stmt: &naga::Statement,
     span: &naga::Span,
@@ -343,8 +362,14 @@ pub fn translate_statement(
                                     // No binding, drop the values
                                     let num_components =
                                         super::types::component_count(&ty.inner, &ctx.module.types);
-                                    for _ in 0..num_components {
-                                        ctx.wasm_func.instruction(&Instruction::Drop);
+                                    if let Some(binding) =
+                                        &ctx.func.result.as_ref().and_then(|r| r.binding.clone())
+                                    {
+                                        store_single_value_to_output(&ty, binding, ctx);
+                                    } else {
+                                        for _ in 0..num_components {
+                                            ctx.wasm_func.instruction(&Instruction::Drop);
+                                        }
                                     }
                                 }
                             }

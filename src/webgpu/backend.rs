@@ -1315,7 +1315,11 @@ impl<'a> wasm_gl_emu::VertexFetcher for SoftVertexFetcher<'a> {
 
                 for attribute in &layout.attributes {
                     let location = attribute.shader_location as usize;
-                    let dest_offset = location * 16; // Assumption: 16 bytes per location
+                    let dest_offset = crate::naga_wasm_backend::output_layout::compute_input_offset(
+                        location as u32,
+                        naga::ShaderStage::Vertex,
+                    )
+                    .0 as usize; // Default layout slot
 
                     if dest_offset + 16 > dest.len() {
                         continue;

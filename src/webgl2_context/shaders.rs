@@ -957,8 +957,9 @@ pub fn ctx_uniform1f(ctx: u32, location: i32, x: f32) -> u32 {
         return ERR_OK;
     }
 
-    if (location as usize * 64 + 4) <= ctx_obj.uniform_data.len() {
-        let offset = location as usize * 64;
+    let (offset_u, _) = crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
+    let offset = offset_u as usize;
+    if (offset + 4) <= ctx_obj.uniform_data.len() {
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
         ERR_OK
     } else {
@@ -980,8 +981,9 @@ pub fn ctx_uniform2f(ctx: u32, location: i32, x: f32, y: f32) -> u32 {
         return ERR_OK;
     }
 
-    if (location as usize * 64 + 8) <= ctx_obj.uniform_data.len() {
-        let offset = location as usize * 64;
+    let (offset_u, _) = crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
+    let offset = offset_u as usize;
+    if (offset + 8) <= ctx_obj.uniform_data.len() {
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
         ctx_obj.uniform_data[offset + 4..offset + 8].copy_from_slice(&y.to_le_bytes());
         ERR_OK
@@ -1004,8 +1006,9 @@ pub fn ctx_uniform3f(ctx: u32, location: i32, x: f32, y: f32, z: f32) -> u32 {
         return ERR_OK;
     }
 
-    if (location as usize * 64 + 12) <= ctx_obj.uniform_data.len() {
-        let offset = location as usize * 64;
+    let (offset_u, _) = crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
+    let offset = offset_u as usize;
+    if (offset + 12) <= ctx_obj.uniform_data.len() {
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
         ctx_obj.uniform_data[offset + 4..offset + 8].copy_from_slice(&y.to_le_bytes());
         ctx_obj.uniform_data[offset + 8..offset + 12].copy_from_slice(&z.to_le_bytes());
@@ -1029,8 +1032,9 @@ pub fn ctx_uniform4f(ctx: u32, location: i32, x: f32, y: f32, z: f32, w: f32) ->
         return ERR_OK;
     }
 
-    if (location as usize * 64 + 16) <= ctx_obj.uniform_data.len() {
-        let offset = location as usize * 64;
+    let (offset_u, _) = crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
+    let offset = offset_u as usize;
+    if (offset + 16) <= ctx_obj.uniform_data.len() {
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
         ctx_obj.uniform_data[offset + 4..offset + 8].copy_from_slice(&y.to_le_bytes());
         ctx_obj.uniform_data[offset + 8..offset + 12].copy_from_slice(&z.to_le_bytes());
@@ -1055,8 +1059,9 @@ pub fn ctx_uniform1i(ctx: u32, location: i32, x: i32) -> u32 {
         return ERR_OK;
     }
 
-    if (location as usize * 64 + 4) <= ctx_obj.uniform_data.len() {
-        let offset = location as usize * 64;
+    let (offset_u, _) = crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
+    let offset = offset_u as usize;
+    if (offset + 4) <= ctx_obj.uniform_data.len() {
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
         ERR_OK
     } else {
@@ -1083,8 +1088,9 @@ pub fn ctx_uniform_matrix_4fv(ctx: u32, location: i32, transpose: bool, ptr: u32
         return ERR_INVALID_ARGS;
     }
 
-    if (location as usize * 64 + len as usize * 4) <= ctx_obj.uniform_data.len() {
-        let offset = location as usize * 64;
+    let (offset_u, _) = crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
+    let offset = offset_u as usize;
+    if (offset + len as usize * 4) <= ctx_obj.uniform_data.len() {
         let src_slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, (len * 4) as usize) };
         ctx_obj.uniform_data[offset..offset + (len * 4) as usize].copy_from_slice(src_slice);
         ERR_OK
