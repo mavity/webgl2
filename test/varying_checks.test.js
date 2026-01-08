@@ -158,7 +158,7 @@ test('Varying & Attribute Sanity Suite', async (t) => {
       const program = gl.createProgram(); gl.attachShader(program, s_vs); gl.attachShader(program, s_fs);
       // This should link-fail due to duplicate explicit locations
       gl.linkProgram(program);
-      assert.strictEqual(gl.getProgramParameter(program, gl.LINK_STATUS), 0);
+      assert.strictEqual(gl.getProgramParameter(program, gl.LINK_STATUS), false);
       const info = gl.getProgramInfoLog(program);
       assert.ok(/bound to location/.test(info) || info.length > 0);
     });

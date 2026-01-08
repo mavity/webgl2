@@ -113,13 +113,7 @@ impl<'a> VertexFetcher for WebGLVertexFetcher<'a> {
         // Clear dest
         dest.fill(0);
 
-        // Alignment logic: 16 locations, each 64 bytes (16 floats/ints)
-        // Wait, 16 locations * 4 components * 4 bytes = 256 bytes?
-        // No, shader memory layout usually allocates 64 bytes per location (vec4 is 16 bytes, but maybe alignment/padding?)
-        // In rasterizer.rs: let mut attr_buffer = vec![0u8; 1024]; (16 * 64 = 1024)
-        // So each location gets 64 bytes.
-        // But we only have 4 components (16 bytes).
-        // So we copy 16 bytes to offset loc * 64.
+        // Vertex attribute layout handled via `output_layout::compute_input_offset` (do not duplicate layout math here).
 
         for (loc, chunk) in attr_data.chunks(4).enumerate() {
             let dest_offset = crate::naga_wasm_backend::output_layout::compute_input_offset(
