@@ -563,10 +563,21 @@ pub fn translate_expression_component(
                     base: pointed_ty, ..
                 } => {
                     translate_expression(*base, ctx)?;
-                    ctx.wasm_func.instruction(&Instruction::I32Const(
-                        (*index * 4 + component_idx * 4) as i32,
-                    ));
-                    ctx.wasm_func.instruction(&Instruction::I32Add);
+                    // Compute byte offset using element size (don't assume 4 bytes per element).
+                    // For arrays, use the element stride rather than total array size.
+                    let element_inner = &ctx.module.types[*pointed_ty].inner;
+                    let element_size = match element_inner {
+                        naga::TypeInner::Array { stride, .. } => *stride,
+                        _ => match super::types::type_size(element_inner) {
+                            Ok(s) => s,
+                            Err(_) => 4,
+                        },
+                    };
+                    let offset = (*index * element_size) + (component_idx * 4);
+                    if offset > 0 {
+                        ctx.wasm_func.instruction(&Instruction::I32Const(offset as i32));
+                        ctx.wasm_func.instruction(&Instruction::I32Add);
+                    }
 
                     // Determine the type of the element being accessed
                     let element_ty = &ctx.module.types[*pointed_ty].inner;
@@ -942,11 +953,29 @@ pub fn translate_expression(
             }
             Expression::AccessIndex { base, index } => {
                 translate_expression(*base, ctx)?;
-                // Assume each index is 4 bytes (float)
-                if *index > 0 {
-                    ctx.wasm_func
-                        .instruction(&Instruction::I32Const((*index * 4) as i32));
-                    ctx.wasm_func.instruction(&Instruction::I32Add);
+                // Use element size for indexing instead of assuming 4 bytes
+                let base_ty = ctx.typifier.get(*base, &ctx.module.types);
+                if let TypeInner::Pointer { base: pointed_ty, .. } = base_ty {
+                    let element_inner = &ctx.module.types[*pointed_ty].inner;
+                    let element_size = match element_inner {
+                        naga::TypeInner::Array { stride, .. } => *stride,
+                        _ => match super::types::type_size(element_inner) {
+                            Ok(s) => s,
+                            Err(_) => 4,
+                        },
+                    };
+                    if *index > 0 {
+                        ctx.wasm_func
+                            .instruction(&Instruction::I32Const((*index * element_size) as i32));
+                        ctx.wasm_func.instruction(&Instruction::I32Add);
+                    }
+                } else {
+                    // Fallback to 4-byte stride if not a pointer
+                    if *index > 0 {
+                        ctx.wasm_func
+                            .instruction(&Instruction::I32Const((*index * 4) as i32));
+                        ctx.wasm_func.instruction(&Instruction::I32Add);
+                    }
                 }
             }
             _ => {
