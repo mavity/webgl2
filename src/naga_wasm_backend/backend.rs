@@ -347,17 +347,41 @@ impl<'a> Compiler<'a> {
 
         // Attempt to discover local variables that are initialized from globals (pointer origin tracing).
         // We scan the function body for Store statements that assign a global-derived pointer to a local.
+        // Make this robust to wrapped pointers like AccessIndex/Access and wrapped values (As/Load/AccessIndex/Swizzle).
         let mut local_origins: HashMap<
             naga::Handle<naga::LocalVariable>,
             naga::Handle<naga::GlobalVariable>,
         > = HashMap::new();
         for (stmt, _span) in func.body.span_iter() {
             if let naga::Statement::Store { pointer, value } = stmt {
-                // If storing to a LocalVariable, try to find an originating GlobalVariable in the value
-                if let naga::Expression::LocalVariable(local_handle) = func.expressions[*pointer] {
-                    // Walk value expression looking for a GlobalVariable
+                // First, find if the store pointer resolves to a LocalVariable (walk AccessIndex/Access wrappers)
+                let mut ptr_cur = *pointer;
+                let mut local_handle_opt: Option<naga::Handle<naga::LocalVariable>> = None;
+                loop {
+                    match func.expressions[ptr_cur] {
+                        naga::Expression::LocalVariable(lh) => {
+                            local_handle_opt = Some(lh);
+                            break;
+                        }
+                        naga::Expression::AccessIndex { base: b, .. } => {
+                            ptr_cur = b;
+                        }
+                        naga::Expression::Access { base: b, .. } => {
+                            ptr_cur = b;
+                        }
+                        _ => break,
+                    }
+                }
+
+                if let Some(local_handle) = local_handle_opt {
+                    // Walk the value expression to find an originating GlobalVariable, allowing several wrapper forms.
                     let mut cur = *value;
+                    // Prevent infinite loops by tracking visited nodes
+                    let mut visited = std::collections::HashSet::new();
                     loop {
+                        if !visited.insert(cur) {
+                            break; // cycle
+                        }
                         match func.expressions[cur] {
                             naga::Expression::GlobalVariable(g) => {
                                 local_origins.insert(local_handle, g);
@@ -368,6 +392,15 @@ impl<'a> Compiler<'a> {
                             }
                             naga::Expression::AccessIndex { base: b, .. } => {
                                 cur = b;
+                            }
+                            naga::Expression::Access { base: b, .. } => {
+                                cur = b;
+                            }
+                            naga::Expression::As { expr, .. } => {
+                                cur = expr;
+                            }
+                            naga::Expression::Swizzle { vector, .. } => {
+                                cur = vector;
                             }
                             _ => {
                                 break;

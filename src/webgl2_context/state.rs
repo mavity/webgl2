@@ -345,15 +345,3 @@ pub fn ctx_set_gl_error(ctx: u32, error: u32) -> u32 {
         ERR_INVALID_HANDLE
     }
 }
-
-/// Set verbosity level.
-pub fn ctx_set_verbosity(ctx: u32, level: u32) -> u32 {
-    clear_last_error();
-    let mut reg = get_registry().borrow_mut();
-    if let Some(ctx_obj) = reg.contexts.get_mut(&ctx) {
-        ctx_obj.verbosity = level;
-        ERR_OK
-    } else {
-        ERR_INVALID_HANDLE
-    }
-}

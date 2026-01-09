@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { webGL2 } from '../index.js';
 
 test('Debug Vertex Attrib Integer', async (t) => {
-  const gl = await webGL2({ debug: 'shaders' });
+  const gl = await webGL2({ debug: 'all' });
   try {
     gl.viewport(0, 0, 640, 480);
 

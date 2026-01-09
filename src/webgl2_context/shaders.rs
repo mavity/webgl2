@@ -102,7 +102,6 @@ pub fn ctx_compile_shader(ctx: u32, shader: u32) -> u32 {
 
         let mut frontend = Frontend::default();
         let options = Options::from(stage);
-        let _verbosity = ctx_obj.verbosity;
 
         match frontend.parse(&options, &s.source) {
             Ok(module) => {
@@ -252,13 +251,6 @@ pub fn ctx_attach_shader(ctx: u32, program: u32, shader: u32) -> u32 {
             return ERR_INVALID_HANDLE;
         }
     };
-    ctx_obj.log(
-        3,
-        &format!(
-            "ctx_attach_shader ctx={} program={} shader={}",
-            ctx, program, shader
-        ),
-    );
 
     if !ctx_obj.shaders.contains_key(&shader) {
         set_last_error("shader not found");

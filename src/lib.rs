@@ -755,12 +755,6 @@ pub extern "C" fn wasm_ctx_draw_elements_instanced(
     webgl2_context::ctx_draw_elements_instanced(ctx, mode, count, type_, offset, instance_count)
 }
 
-/// Set verbosity level.
-#[no_mangle]
-pub extern "C" fn wasm_ctx_set_verbosity(ctx: u32, level: u32) -> u32 {
-    webgl2_context::ctx_set_verbosity(ctx, level)
-}
-
 /// Get program debug stub.
 #[no_mangle]
 pub extern "C" fn wasm_ctx_get_program_debug_stub(

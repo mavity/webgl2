@@ -244,7 +244,6 @@ pub struct Context {
     pub(crate) active_texture_unit: u32,
     pub(crate) texture_units: Vec<Option<u32>>,
     pub(crate) gl_error: u32,
-    pub verbosity: u32, // 0: None, 1: Error, 2: Info, 3: Debug
     pub debug_shaders: bool,
 }
 
@@ -292,7 +291,6 @@ impl Context {
             active_texture_unit: 0,
             texture_units: vec![None; 16],
             gl_error: GL_NO_ERROR,
-            verbosity: 2, // Default to Info
             debug_shaders: false,
         }
     }
@@ -305,12 +303,6 @@ impl Default for Context {
 }
 
 impl Context {
-    pub(crate) fn log(&self, level: u32, s: &str) {
-        if level <= self.verbosity {
-            crate::js_log(level, s);
-        }
-    }
-
     pub(crate) fn allocate_texture_handle(&mut self) -> u32 {
         let h = self.next_texture_handle;
         self.next_texture_handle = self.next_texture_handle.saturating_add(1);

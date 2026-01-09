@@ -164,31 +164,10 @@ pub fn ctx_draw_arrays_instanced(
     // Create pipeline configuration
     let mask = get_flat_varyings_mask(ctx_obj);
     // Build pipeline and include varying debug info if shaders debugging is enabled
-    let mut pipeline = RasterPipeline {
+    let pipeline = RasterPipeline {
         flat_varyings_mask: mask,
         ..Default::default()
     };
-
-    if ctx_obj.debug_shaders || ctx_obj.verbosity >= 3 {
-        if let Some(program_id) = ctx_obj.current_program {
-            if let Some(program) = ctx_obj.programs.get(&program_id) {
-                let mut dbg = Vec::new();
-                for (name, &loc) in program.varying_locations.iter() {
-                    if let Some(&(type_code, comps)) = program.varying_types.get(name) {
-                        dbg.push(crate::wasm_gl_emu::rasterizer::VaryingDebug {
-                            name: name.clone(),
-                            location: loc,
-                            type_code,
-                            components: comps,
-                        });
-                    }
-                }
-                if !dbg.is_empty() {
-                    pipeline.varying_debug = Some(dbg);
-                }
-            }
-        }
-    }
 
     // Prepare textures once
     ctx_obj.prepare_texture_metadata(pipeline.memory.texture_ptr);

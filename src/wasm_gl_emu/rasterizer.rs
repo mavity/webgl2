@@ -82,8 +82,6 @@ pub struct RasterPipeline {
     pub memory: ShaderMemoryLayout,
     /// Bitmask of flat varyings (1 = flat, 0 = smooth)
     pub flat_varyings_mask: u64,
-    /// Optional debug info describing varyings (temporary)
-    pub varying_debug: Option<Vec<VaryingDebug>>,
 }
 
 impl Default for RasterPipeline {
@@ -93,7 +91,6 @@ impl Default for RasterPipeline {
             fragment_shader_type: 0x8B30, // GL_FRAGMENT_SHADER
             memory: ShaderMemoryLayout::default(),
             flat_varyings_mask: 0,
-            varying_debug: None,
         }
     }
 }
@@ -234,20 +231,6 @@ impl Rasterizer {
                                     (u * v0_f * w0_inv + v * v1_f * w1_inv + w * v2_f * w2_inv)
                                         * w_interp;
                                 *varying = interp_f.to_bits();
-                            }
-                        }
-
-                        // Debug: decode interpolated varyings if debug info available
-                        if let Some(ref dbg) = pipeline.varying_debug {
-                            for info in dbg {
-                                let base = ((info.location + 1) * 4) as usize;
-                                let mut uvec = Vec::new();
-                                for i in 0..info.components as usize {
-                                    if base + i < interp_varyings.len() {
-                                        let w = interp_varyings[base + i];
-                                        uvec.push((w, w as i32, f32::from_bits(w)));
-                                    }
-                                }
                             }
                         }
 
@@ -410,20 +393,6 @@ impl Rasterizer {
                         vx as f32 + (v.position[0] / v.position[3] + 1.0) * 0.5 * vw as f32;
                     let screen_y =
                         vy as f32 + (v.position[1] / v.position[3] + 1.0) * 0.5 * vh as f32;
-
-                    // Debug: decode varyings being passed to FS for this point (if debug info present)
-                    if let Some(ref dbg) = config.pipeline.varying_debug {
-                        for info in dbg {
-                            let base = ((info.location + 1) * 4) as usize;
-                            let mut uvec = Vec::new();
-                            for i in 0..info.components as usize {
-                                if base + i < v.varyings.len() {
-                                    let w = v.varyings[base + i];
-                                    uvec.push((w, w as i32, f32::from_bits(w)));
-                                }
-                            }
-                        }
-                    }
 
                     // Run FS
                     let color =

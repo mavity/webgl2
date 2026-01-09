@@ -575,7 +575,8 @@ pub fn translate_expression_component(
                     };
                     let offset = (*index * element_size) + (component_idx * 4);
                     if offset > 0 {
-                        ctx.wasm_func.instruction(&Instruction::I32Const(offset as i32));
+                        ctx.wasm_func
+                            .instruction(&Instruction::I32Const(offset as i32));
                         ctx.wasm_func.instruction(&Instruction::I32Add);
                     }
 
@@ -955,7 +956,10 @@ pub fn translate_expression(
                 translate_expression(*base, ctx)?;
                 // Use element size for indexing instead of assuming 4 bytes
                 let base_ty = ctx.typifier.get(*base, &ctx.module.types);
-                if let TypeInner::Pointer { base: pointed_ty, .. } = base_ty {
+                if let TypeInner::Pointer {
+                    base: pointed_ty, ..
+                } = base_ty
+                {
                     let element_inner = &ctx.module.types[*pointed_ty].inner;
                     let element_size = match element_inner {
                         naga::TypeInner::Array { stride, .. } => *stride,
