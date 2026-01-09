@@ -134,6 +134,7 @@ pub(crate) struct Program {
     pub(crate) attributes: HashMap<String, i32>,
     pub(crate) attribute_bindings: HashMap<String, u32>,
     pub(crate) uniforms: HashMap<String, i32>,
+    pub(crate) uniform_types: HashMap<String, (u8, u32)>,
     pub(crate) vs_module: Option<Arc<naga::Module>>,
     pub(crate) fs_module: Option<Arc<naga::Module>>,
     pub(crate) vs_info: Option<Arc<naga::valid::ModuleInfo>>,
@@ -147,6 +148,8 @@ pub(crate) struct Program {
     // Varying types populated at link time (name -> (type_code, components))
     // type_code: 0=float, 1=int (signed), 2=uint
     pub(crate) varying_types: HashMap<String, (u8, u32)>,
+    // Attribute types populated at link time (name -> (type_code, components))
+    pub(crate) attribute_types: HashMap<String, (u8, u32)>,
 }
 
 /// A WebGL2 vertex array object
@@ -304,12 +307,6 @@ impl Default for Context {
 impl Context {
     pub(crate) fn log(&self, level: u32, s: &str) {
         if level <= self.verbosity {
-            crate::js_log(level, s);
-        }
-    }
-
-    pub(crate) fn log_static(verbosity: u32, level: u32, s: &str) {
-        if level <= verbosity {
             crate::js_log(level, s);
         }
     }

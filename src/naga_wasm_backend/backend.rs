@@ -34,6 +34,9 @@ struct Compiler<'a> {
     attribute_locations: &'a HashMap<String, u32>,
     uniform_locations: &'a HashMap<String, u32>,
     varying_locations: &'a HashMap<String, u32>,
+    varying_types: &'a HashMap<String, (u8, u32)>,
+    uniform_types: &'a HashMap<String, (u8, u32)>,
+    attribute_types: &'a HashMap<String, (u8, u32)>,
     name: Option<&'a str>,
     module: &'a Module,
 
@@ -70,6 +73,9 @@ impl<'a> Compiler<'a> {
             attribute_locations: config.attribute_locations,
             uniform_locations: config.uniform_locations,
             varying_locations: config.varying_locations,
+            varying_types: config.varying_types,
+            uniform_types: config.uniform_types,
+            attribute_types: config.attribute_types,
             name,
             module: config.module,
             types: TypeSection::new(),
@@ -339,6 +345,39 @@ impl<'a> Compiler<'a> {
             current_local_offset += size;
         }
 
+        // Attempt to discover local variables that are initialized from globals (pointer origin tracing).
+        // We scan the function body for Store statements that assign a global-derived pointer to a local.
+        let mut local_origins: HashMap<
+            naga::Handle<naga::LocalVariable>,
+            naga::Handle<naga::GlobalVariable>,
+        > = HashMap::new();
+        for (stmt, _span) in func.body.span_iter() {
+            if let naga::Statement::Store { pointer, value } = stmt {
+                // If storing to a LocalVariable, try to find an originating GlobalVariable in the value
+                if let naga::Expression::LocalVariable(local_handle) = func.expressions[*pointer] {
+                    // Walk value expression looking for a GlobalVariable
+                    let mut cur = *value;
+                    loop {
+                        match func.expressions[cur] {
+                            naga::Expression::GlobalVariable(g) => {
+                                local_origins.insert(local_handle, g);
+                                break;
+                            }
+                            naga::Expression::Load { pointer: p } => {
+                                cur = p;
+                            }
+                            naga::Expression::AccessIndex { base: b, .. } => {
+                                cur = b;
+                            }
+                            _ => {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Map CallResult expressions to WASM locals
         let mut call_result_locals = HashMap::new();
         let mut locals_types = vec![];
@@ -397,6 +436,10 @@ impl<'a> Compiler<'a> {
             attribute_locations: self.attribute_locations,
             uniform_locations: self.uniform_locations,
             varying_locations: self.varying_locations,
+            varying_types: self.varying_types,
+            uniform_types: self.uniform_types,
+            attribute_types: self.attribute_types,
+            local_origins: &local_origins,
             is_entry_point,
             scratch_base,
         };

@@ -103,6 +103,12 @@ pub struct CompileConfig<'a> {
     pub attribute_locations: &'a HashMap<String, u32>,
     pub uniform_locations: &'a HashMap<String, u32>,
     pub varying_locations: &'a HashMap<String, u32>,
+    /// Program-level varying type map (name -> (type_code, components)).
+    pub varying_types: &'a HashMap<String, (u8, u32)>,
+    /// Program-level uniform type map: name -> (type_code, components)
+    pub uniform_types: &'a HashMap<String, (u8, u32)>,
+    /// Program-level attribute type map: name -> (type_code, components)
+    pub attribute_types: &'a HashMap<String, (u8, u32)>,
 }
 
 /// Main backend interface
@@ -169,6 +175,10 @@ pub struct TranslationContext<'a> {
     /// Mapping from Naga local variables to their corresponding WASM local
     /// indices, used when reading and writing locals.
     pub local_offsets: &'a HashMap<naga::Handle<naga::LocalVariable>, u32>,
+    /// Optional mapping from Naga local variable handles to originating global
+    /// variable handles (when the local was initialized from a global pointer).
+    pub local_origins:
+        &'a HashMap<naga::Handle<naga::LocalVariable>, naga::Handle<naga::GlobalVariable>>,
     /// Mapping from Naga expressions that produce values to the WASM local
     /// index where the result is stored, allowing reuse of computed values.
     pub call_result_locals: &'a HashMap<naga::Handle<naga::Expression>, u32>,
@@ -192,6 +202,12 @@ pub struct TranslationContext<'a> {
     pub uniform_locations: &'a HashMap<String, u32>,
     /// Mapping from varying names to their locations.
     pub varying_locations: &'a HashMap<String, u32>,
+    /// Program-level varying type map (name -> (type_code, components)).
+    pub varying_types: &'a HashMap<String, (u8, u32)>,
+    /// Program-level uniform type map (name -> (type_code, components)).
+    pub uniform_types: &'a HashMap<String, (u8, u32)>,
+    /// Program-level attribute type map (name -> (type_code, components)).
+    pub attribute_types: &'a HashMap<String, (u8, u32)>,
     /// Indicates whether the current function is a shader entry point, which
     /// can affect how inputs, outputs, and builtins are lowered.
     pub is_entry_point: bool,

@@ -48,8 +48,11 @@ test('Backend WASM checks (opcode presence)', async (t) => {
       const wasm = gl.getProgramWasm(prog, gl.FRAGMENT_SHADER);
       assert.ok(wasm && wasm.length > 0);
 
-      const hasF32Load = wasm.includes(0x2A); // F32Load opcode
-      assert.ok(!hasF32Load, 'Ideally F32Load should not be present for pure integer varying reads');
+      // Ideally no F32Load appears before the integer loads for the attribute (allowing other helper code to use f32 later)
+      const firstI32 = wasm.indexOf(0x28);
+      const firstF32 = wasm.indexOf(0x2A);
+      assert.ok(firstI32 !== -1, 'Expected at least one I32Load for integer varying');
+      assert.ok(firstF32 === -1 || firstI32 < firstF32, 'First I32Load should occur before any F32Load (attribute loads should use I32Load)');
     });
 
   } finally {

@@ -408,7 +408,41 @@ pub fn translate_expression_component(
                 // Use I32Load for integer types, F32Load for float types
                 let arg_ty = &ctx.module.types[arg.ty].inner;
 
-                if is_integer_type(arg_ty) {
+                // Allow program-level type maps to override IR-inferred type
+                let mut override_is_int = false;
+                if ctx.stage == naga::ShaderStage::Vertex {
+                    if let Some(name) = &arg.name {
+                        if let Some((type_code, _)) = ctx.attribute_types.get(name) {
+                            override_is_int = (*type_code == 1) || (*type_code == 2);
+                        }
+                    } else if let Some(naga::Binding::Location { location, .. }) = arg.binding {
+                        for (aname, &loc) in ctx.attribute_locations.iter() {
+                            if loc == location {
+                                if let Some((type_code, _)) = ctx.attribute_types.get(aname) {
+                                    override_is_int = (*type_code == 1) || (*type_code == 2);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    if let Some(name) = &arg.name {
+                        if let Some((type_code, _)) = ctx.varying_types.get(name) {
+                            override_is_int = (*type_code == 1) || (*type_code == 2);
+                        }
+                    } else if let Some(naga::Binding::Location { location, .. }) = arg.binding {
+                        for (vname, &loc) in ctx.varying_locations.iter() {
+                            if loc == location {
+                                if let Some((type_code, _)) = ctx.varying_types.get(vname) {
+                                    override_is_int = (*type_code == 1) || (*type_code == 2);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if override_is_int || is_integer_type(arg_ty) {
                     ctx.wasm_func
                         .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
                             offset: 0,
@@ -459,8 +493,54 @@ pub fn translate_expression_component(
                 _ => pointer_ty,
             };
 
-            // Use I32Load for integer types, F32Load for float types
-            if is_integer_type(load_ty) {
+            // Allow program-level type info (uniforms/varyings) to override
+            // Find underlying GlobalVariable (if any) by walking loads/access chains
+            let mut override_is_int = false;
+            let mut cur_expr = *pointer;
+            let mut found_global = None;
+            loop {
+                match ctx.func.expressions[cur_expr] {
+                    naga::Expression::GlobalVariable(handle) => {
+                        found_global = Some(handle);
+                        break;
+                    }
+                    naga::Expression::Load { pointer: p } => {
+                        cur_expr = p;
+                    }
+                    naga::Expression::AccessIndex { base: b, .. } => {
+                        cur_expr = b;
+                    }
+                    naga::Expression::LocalVariable(lh) => {
+                        if let Some(&gh) = ctx.local_origins.get(&lh) {
+                            found_global = Some(gh);
+                        }
+                        break;
+                    }
+                    _ => {
+                        break;
+                    }
+                }
+            }
+            if let Some(handle) = found_global {
+                if let Some(name) = &ctx.module.global_variables[handle].name {
+                    match ctx.module.global_variables[handle].space {
+                        naga::AddressSpace::Uniform | naga::AddressSpace::Handle => {
+                            if let Some((type_code, _)) = ctx.uniform_types.get(name) {
+                                override_is_int = (*type_code == 1) || (*type_code == 2);
+                            }
+                        }
+                        _ => {
+                            if let Some((type_code, _)) = ctx.varying_types.get(name) {
+                                override_is_int = (*type_code == 1) || (*type_code == 2);
+                            }
+                        }
+                    }
+                }
+            } else {
+                // No underlying global found; leave override_is_int as detected from pointer type
+            }
+
+            if override_is_int || is_integer_type(load_ty) {
                 ctx.wasm_func
                     .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
                         offset: 0,
@@ -491,8 +571,53 @@ pub fn translate_expression_component(
                     // Determine the type of the element being accessed
                     let element_ty = &ctx.module.types[*pointed_ty].inner;
 
-                    // Use I32Load for integer types, F32Load for float types
-                    if is_integer_type(element_ty) {
+                    // Allow program-level type info to override element type
+                    // Allow program-level type info to override element type
+                    // Find underlying GlobalVariable (if any) by walking loads/access chains
+                    let mut override_is_int = false;
+                    let mut cur_expr = *base;
+                    let mut found_global = None;
+                    loop {
+                        match ctx.func.expressions[cur_expr] {
+                            naga::Expression::GlobalVariable(handle) => {
+                                found_global = Some(handle);
+                                break;
+                            }
+                            naga::Expression::Load { pointer: p } => {
+                                cur_expr = p;
+                            }
+                            naga::Expression::AccessIndex { base: b, .. } => {
+                                cur_expr = b;
+                            }
+                            naga::Expression::LocalVariable(lh) => {
+                                if let Some(&gh) = ctx.local_origins.get(&lh) {
+                                    found_global = Some(gh);
+                                }
+                                break;
+                            }
+                            _ => {
+                                break;
+                            }
+                        }
+                    }
+                    if let Some(handle) = found_global {
+                        if let Some(name) = &ctx.module.global_variables[handle].name {
+                            match ctx.module.global_variables[handle].space {
+                                naga::AddressSpace::Uniform | naga::AddressSpace::Handle => {
+                                    if let Some((type_code, _)) = ctx.uniform_types.get(name) {
+                                        override_is_int = (*type_code == 1) || (*type_code == 2);
+                                    }
+                                }
+                                _ => {
+                                    if let Some((type_code, _)) = ctx.varying_types.get(name) {
+                                        override_is_int = (*type_code == 1) || (*type_code == 2);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if override_is_int || is_integer_type(element_ty) {
                         ctx.wasm_func
                             .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
                                 offset: 0,

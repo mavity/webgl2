@@ -206,6 +206,7 @@ pub fn ctx_create_program(ctx: u32) -> u32 {
             attributes: HashMap::new(),
             attribute_bindings: HashMap::new(),
             uniforms: HashMap::new(),
+            uniform_types: HashMap::new(),
             vs_module: None,
             fs_module: None,
             vs_info: None,
@@ -216,6 +217,7 @@ pub fn ctx_create_program(ctx: u32) -> u32 {
             fs_stub: None,
             varying_locations: HashMap::new(),
             varying_types: HashMap::new(),
+            attribute_types: HashMap::new(),
         },
     );
     program_id
@@ -285,7 +287,6 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
             return ERR_INVALID_HANDLE;
         }
     };
-    let verbosity = ctx_obj.verbosity;
 
     if let Some(p) = ctx_obj.programs.get_mut(&program) {
         let mut vs_module = None;
@@ -443,6 +444,18 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                         used_locations.insert(loc, (name.clone(), origin));
                         attribute_locations.insert(name.clone(), loc);
                         p.attributes.insert(name.clone(), loc as i32);
+                        // Record attribute type info based on VS entry point args
+                        for ep in &vs.entry_points {
+                            if ep.stage == ShaderStage::Vertex {
+                                for arg in &ep.function.arguments {
+                                    if arg.name.as_ref() == Some(name) {
+                                        let ty = &vs.types[arg.ty];
+                                        let type_info = get_type_info(ty);
+                                        p.attribute_types.insert(name.clone(), type_info);
+                                    }
+                                }
+                            }
+                        }
                     }
                 } else {
                     unassigned.push(name.clone());
@@ -458,6 +471,18 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                 used_locations.insert(next_loc, (name.clone(), 0));
                 attribute_locations.insert(name.clone(), next_loc);
                 p.attributes.insert(name.clone(), next_loc as i32);
+                // Record attribute type info based on VS entry point args
+                for ep in &vs.entry_points {
+                    if ep.stage == ShaderStage::Vertex {
+                        for arg in &ep.function.arguments {
+                            if arg.name.as_ref() == Some(&name) {
+                                let ty = &vs.types[arg.ty];
+                                let type_info = get_type_info(ty);
+                                p.attribute_types.insert(name.clone(), type_info);
+                            }
+                        }
+                    }
+                }
                 next_loc += 1;
             }
 
@@ -502,6 +527,10 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                         if !p.uniforms.contains_key(name) {
                             p.uniforms.insert(name.clone(), next_uniform_loc as i32);
                             uniform_locations.insert(name.clone(), next_uniform_loc);
+                            // Record uniform type info
+                            let ty = &vs.types[var.ty];
+                            let type_info = get_type_info(ty);
+                            p.uniform_types.insert(name.clone(), type_info);
                             next_uniform_loc += 1;
                         }
                     }
@@ -605,6 +634,10 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                         if !p.uniforms.contains_key(name) {
                             p.uniforms.insert(name.clone(), next_uniform_loc as i32);
                             uniform_locations.insert(name.clone(), next_uniform_loc);
+                            // Record uniform type info
+                            let ty = &fs.types[var.ty];
+                            let type_info = get_type_info(ty);
+                            p.uniform_types.insert(name.clone(), type_info);
                             next_uniform_loc += 1;
                         }
                     }
@@ -667,7 +700,6 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
         let backend = WasmBackend::new(config);
 
         if let (Some(vs), Some(vsi)) = (&p.vs_module, &p.vs_info) {
-            Context::log_static(verbosity, 3, "Compiling VS to WASM");
             let vs_name = format!("program_{}_vs.glsl", program);
             match backend.compile(
                 crate::naga_wasm_backend::CompileConfig {
@@ -678,20 +710,17 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                     attribute_locations: &attribute_locations,
                     uniform_locations: &uniform_locations,
                     varying_locations: &varying_locations,
+                    varying_types: &p.varying_types,
+                    uniform_types: &p.uniform_types,
+                    attribute_types: &p.attribute_types,
                 },
                 Some(&vs_name),
             ) {
                 Ok(wasm) => {
-                    Context::log_static(
-                        verbosity,
-                        3,
-                        &format!("VS WASM compiled, size={}", wasm.wasm_bytes.len()),
-                    );
                     p.vs_wasm = Some(wasm.wasm_bytes);
                     p.vs_stub = wasm.debug_stub;
                 }
                 Err(e) => {
-                    Context::log_static(verbosity, 1, &format!("VS Backend error: {:?}", e));
                     p.linked = false;
                     p.info_log = format!("VS Backend error: {:?}", e);
                     return ERR_OK;
@@ -700,7 +729,6 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
         }
 
         if let (Some(fs), Some(fsi)) = (&p.fs_module, &p.fs_info) {
-            Context::log_static(verbosity, 3, "Compiling FS to WASM");
             let fs_name = format!("program_{}_fs.glsl", program);
             match backend.compile(
                 crate::naga_wasm_backend::CompileConfig {
@@ -711,6 +739,9 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                     attribute_locations: &attribute_locations,
                     uniform_locations: &uniform_locations,
                     varying_locations: &varying_locations,
+                    varying_types: &p.varying_types,
+                    uniform_types: &p.uniform_types,
+                    attribute_types: &p.attribute_types,
                 },
                 Some(&fs_name),
             ) {
@@ -957,7 +988,8 @@ pub fn ctx_uniform1f(ctx: u32, location: i32, x: f32) -> u32 {
         return ERR_OK;
     }
 
-    let (offset_u, _) = crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
+    let (offset_u, _) =
+        crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
     let offset = offset_u as usize;
     if (offset + 4) <= ctx_obj.uniform_data.len() {
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
@@ -981,7 +1013,8 @@ pub fn ctx_uniform2f(ctx: u32, location: i32, x: f32, y: f32) -> u32 {
         return ERR_OK;
     }
 
-    let (offset_u, _) = crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
+    let (offset_u, _) =
+        crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
     let offset = offset_u as usize;
     if (offset + 8) <= ctx_obj.uniform_data.len() {
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
@@ -1006,7 +1039,8 @@ pub fn ctx_uniform3f(ctx: u32, location: i32, x: f32, y: f32, z: f32) -> u32 {
         return ERR_OK;
     }
 
-    let (offset_u, _) = crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
+    let (offset_u, _) =
+        crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
     let offset = offset_u as usize;
     if (offset + 12) <= ctx_obj.uniform_data.len() {
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
@@ -1032,7 +1066,8 @@ pub fn ctx_uniform4f(ctx: u32, location: i32, x: f32, y: f32, z: f32, w: f32) ->
         return ERR_OK;
     }
 
-    let (offset_u, _) = crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
+    let (offset_u, _) =
+        crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
     let offset = offset_u as usize;
     if (offset + 16) <= ctx_obj.uniform_data.len() {
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
@@ -1059,7 +1094,8 @@ pub fn ctx_uniform1i(ctx: u32, location: i32, x: i32) -> u32 {
         return ERR_OK;
     }
 
-    let (offset_u, _) = crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
+    let (offset_u, _) =
+        crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
     let offset = offset_u as usize;
     if (offset + 4) <= ctx_obj.uniform_data.len() {
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
@@ -1088,7 +1124,8 @@ pub fn ctx_uniform_matrix_4fv(ctx: u32, location: i32, transpose: bool, ptr: u32
         return ERR_INVALID_ARGS;
     }
 
-    let (offset_u, _) = crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
+    let (offset_u, _) =
+        crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
     let offset = offset_u as usize;
     if (offset + len as usize * 4) <= ctx_obj.uniform_data.len() {
         let src_slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, (len * 4) as usize) };
