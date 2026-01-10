@@ -1,0 +1,208 @@
+//! Call lowering with FunctionABI support.
+//!
+//! This module implements ABI-aware function call lowering, handling both
+//! flattened scalar parameters and frame-based parameter passing for large types.
+
+use super::{frame_allocator, function_abi, BackendError, TranslationContext};
+use wasm_encoder::{Instruction, ValType};
+
+/// Emit a function call using FunctionABI for proper parameter/result handling.
+///
+/// This function inspects the FunctionABI to determine how to pass parameters:
+/// - Flattened parameters: pushed directly onto the WASM stack
+/// - Frame parameters: allocated on the frame stack, data copied to frame
+///
+/// # Arguments
+/// - `function`: Handle to the Naga function being called
+/// - `arguments`: Expression handles for the call arguments
+/// - `result`: Optional expression handle for storing the result
+/// - `abi`: The computed FunctionABI for this function
+/// - `wasm_idx`: WASM function index to call
+/// - `ctx`: Translation context
+pub fn emit_abi_call(
+    function: &naga::Handle<naga::Function>,
+    arguments: &[naga::Handle<naga::Expression>],
+    result: &Option<naga::Handle<naga::Expression>>,
+    abi: &function_abi::FunctionABI,
+    wasm_idx: u32,
+    ctx: &mut TranslationContext,
+) -> Result<(), BackendError> {
+    // Check if frame allocation is needed
+    if abi.uses_frame {
+        emit_frame_based_call(function, arguments, result, abi, wasm_idx, ctx)
+    } else {
+        emit_flattened_call(function, arguments, result, abi, wasm_idx, ctx)
+    }
+}
+
+/// Emit a call where all parameters are flattened (the common case).
+fn emit_flattened_call(
+    _function: &naga::Handle<naga::Function>,
+    arguments: &[naga::Handle<naga::Expression>],
+    result: &Option<naga::Handle<naga::Expression>>,
+    abi: &function_abi::FunctionABI,
+    wasm_idx: u32,
+    ctx: &mut TranslationContext,
+) -> Result<(), BackendError> {
+    // Push all arguments (they're already flattened by translate_expression)
+    for arg in arguments {
+        super::expressions::translate_expression(*arg, ctx)?;
+    }
+
+    // Emit the call
+    ctx.wasm_func.instruction(&Instruction::Call(wasm_idx));
+
+    // Handle result
+    handle_call_result(result, &abi.result, ctx)
+}
+
+/// Emit a call that requires frame allocation for large parameters.
+fn emit_frame_based_call(
+    function: &naga::Handle<naga::Function>,
+    arguments: &[naga::Handle<naga::Expression>],
+    result: &Option<naga::Handle<naga::Expression>>,
+    abi: &function_abi::FunctionABI,
+    wasm_idx: u32,
+    ctx: &mut TranslationContext,
+) -> Result<(), BackendError> {
+    // Allocate frame
+    // We need two locals: old_sp and aligned_frame_base
+    // These will be at scratch_base and scratch_base+1
+    let old_sp_local = ctx.scratch_base;
+    let aligned_local = ctx.scratch_base + 1;
+
+    frame_allocator::emit_alloc_frame(
+        ctx.wasm_func,
+        abi.frame_size,
+        abi.frame_alignment,
+        old_sp_local,
+        aligned_local,
+    );
+
+    // Process each argument according to its ABI
+    for (arg_idx, arg_expr) in arguments.iter().enumerate() {
+        if arg_idx >= abi.params.len() {
+            return Err(BackendError::UnsupportedFeature(format!(
+                "Argument count mismatch: {} args but {} params in ABI",
+                arguments.len(),
+                abi.params.len()
+            )));
+        }
+
+        match &abi.params[arg_idx] {
+            function_abi::ParameterABI::Flattened { .. } => {
+                // Push flattened argument onto stack
+                super::expressions::translate_expression(*arg_expr, ctx)?;
+            }
+            function_abi::ParameterABI::Frame {
+                offset, copy_in, ..
+            } => {
+                if *copy_in {
+                    // Evaluate argument and store into frame
+                    // This is simplified - proper implementation would need to handle
+                    // different types and potentially decompose structs
+                    super::expressions::translate_expression(*arg_expr, ctx)?;
+
+                    // Store value(s) at frame offset
+                    // For now, assume single f32 value (simplification)
+                    frame_allocator::emit_frame_store(
+                        ctx.wasm_func,
+                        aligned_local,
+                        *offset,
+                        ValType::F32,
+                    );
+                }
+
+                // Push frame pointer as argument
+                ctx.wasm_func
+                    .instruction(&Instruction::LocalGet(aligned_local));
+                if *offset > 0 {
+                    ctx.wasm_func
+                        .instruction(&Instruction::I32Const(*offset as i32));
+                    ctx.wasm_func.instruction(&Instruction::I32Add);
+                }
+            }
+        }
+    }
+
+    // Emit the call
+    ctx.wasm_func.instruction(&Instruction::Call(wasm_idx));
+
+    // Handle copy_out for Frame parameters (for out/inout semantics)
+    for (arg_idx, _arg_expr) in arguments.iter().enumerate() {
+        if arg_idx >= abi.params.len() {
+            break;
+        }
+
+        if let function_abi::ParameterABI::Frame {
+            offset, copy_out, ..
+        } = &abi.params[arg_idx]
+        {
+            if *copy_out {
+                // Load value(s) from frame and store back to caller's storage
+                // This is a simplified implementation
+                frame_allocator::emit_frame_load(
+                    ctx.wasm_func,
+                    aligned_local,
+                    *offset,
+                    ValType::F32,
+                );
+                // Would need to store back to original location
+                // (requires tracking source expression location)
+                ctx.wasm_func.instruction(&Instruction::Drop);
+            }
+        }
+    }
+
+    // Free the frame
+    frame_allocator::emit_free_frame(ctx.wasm_func, old_sp_local);
+
+    // Handle result
+    handle_call_result(result, &abi.result, ctx)
+}
+
+/// Handle storing or dropping the call result based on ABI.
+fn handle_call_result(
+    result: &Option<naga::Handle<naga::Expression>>,
+    result_abi: &Option<function_abi::ResultABI>,
+    ctx: &mut TranslationContext,
+) -> Result<(), BackendError> {
+    if let Some(res_handle) = result {
+        if let Some(&local_idx) = ctx.call_result_locals.get(res_handle) {
+            // Store result into locals
+            match result_abi {
+                Some(function_abi::ResultABI::Flattened { valtypes, .. }) => {
+                    // Store each component in reverse order
+                    for i in (0..valtypes.len()).rev() {
+                        ctx.wasm_func
+                            .instruction(&Instruction::LocalSet(local_idx + i as u32));
+                    }
+                }
+                Some(function_abi::ResultABI::Frame { .. }) => {
+                    // Frame results would be written to memory, not returned on stack
+                    // No values to pop
+                }
+                None => {
+                    // Void result, nothing to store
+                }
+            }
+        } else {
+            // Result not used, drop it
+            match result_abi {
+                Some(function_abi::ResultABI::Flattened { valtypes, .. }) => {
+                    for _ in 0..valtypes.len() {
+                        ctx.wasm_func.instruction(&Instruction::Drop);
+                    }
+                }
+                Some(function_abi::ResultABI::Frame { .. }) => {
+                    // Frame results don't appear on stack
+                }
+                None => {
+                    // Void result, nothing to drop
+                }
+            }
+        }
+    }
+
+    Ok(())
+}

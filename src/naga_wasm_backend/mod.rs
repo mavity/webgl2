@@ -5,6 +5,7 @@
 
 mod backend;
 mod builtins;
+mod call_lowering;
 mod control_flow;
 pub mod debug;
 mod expressions;

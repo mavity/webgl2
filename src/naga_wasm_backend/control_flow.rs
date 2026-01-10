@@ -3,7 +3,7 @@
 //! This module handles translation of Naga control flow statements (if, return, etc.)
 //! into WebAssembly instructions, with special handling for shader output values.
 
-use super::{output_layout, BackendError, TranslationContext};
+use super::{call_lowering::emit_abi_call, output_layout, BackendError, TranslationContext};
 
 use wasm_encoder::Instruction;
 
@@ -264,44 +264,52 @@ pub fn translate_statement(
                     )));
                 }
             } else {
-                // Normal Call
-                // Push arguments
-                for arg in arguments {
-                    super::expressions::translate_expression(*arg, ctx)?;
-                }
-                // Call
+                // Normal Call - use FunctionABI for proper lowering
                 if let Some(&wasm_idx) = ctx.naga_function_map.get(function) {
-                    ctx.wasm_func.instruction(&Instruction::Call(wasm_idx));
+                    // Check if we have ABI info for this function
+                    if let Some(abi) = ctx.function_abis.get(function) {
+                        // ABI-aware call lowering
+                        emit_abi_call(function, arguments, result, abi, wasm_idx, ctx)?;
+                    } else {
+                        // Fallback for functions without ABI (shouldn't happen for internal functions)
+                        // Push arguments
+                        for arg in arguments {
+                            super::expressions::translate_expression(*arg, ctx)?;
+                        }
+                        // Call
+                        ctx.wasm_func.instruction(&Instruction::Call(wasm_idx));
+                        // Handle result if any
+                        if let Some(res_handle) = result {
+                            if let Some(&local_idx) = ctx.call_result_locals.get(res_handle) {
+                                let called_func = &ctx.module.functions[*function];
+                                if let Some(ret) = &called_func.result {
+                                    let types = super::types::naga_to_wasm_types(
+                                        &ctx.module.types[ret.ty].inner,
+                                    )?;
+                                    for i in (0..types.len()).rev() {
+                                        ctx.wasm_func.instruction(&Instruction::LocalSet(
+                                            local_idx + i as u32,
+                                        ));
+                                    }
+                                }
+                            } else {
+                                let called_func = &ctx.module.functions[*function];
+                                if let Some(ret) = &called_func.result {
+                                    let types = super::types::naga_to_wasm_types(
+                                        &ctx.module.types[ret.ty].inner,
+                                    )?;
+                                    for _ in 0..types.len() {
+                                        ctx.wasm_func.instruction(&Instruction::Drop);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } else {
                     return Err(BackendError::UnsupportedFeature(format!(
                         "Call to unknown function: {:?}",
                         function
                     )));
-                }
-                // Handle result if any
-                if let Some(res_handle) = result {
-                    if let Some(&local_idx) = ctx.call_result_locals.get(res_handle) {
-                        // Store all components of the result into locals
-                        let called_func = &ctx.module.functions[*function];
-                        if let Some(ret) = &called_func.result {
-                            let types =
-                                super::types::naga_to_wasm_types(&ctx.module.types[ret.ty].inner)?;
-                            for i in (0..types.len()).rev() {
-                                ctx.wasm_func
-                                    .instruction(&Instruction::LocalSet(local_idx + i as u32));
-                            }
-                        }
-                    } else {
-                        // If it's not used, we should pop it.
-                        let called_func = &ctx.module.functions[*function];
-                        if let Some(ret) = &called_func.result {
-                            let types =
-                                super::types::naga_to_wasm_types(&ctx.module.types[ret.ty].inner)?;
-                            for _ in 0..types.len() {
-                                ctx.wasm_func.instruction(&Instruction::Drop);
-                            }
-                        }
-                    }
                 }
             }
         }
