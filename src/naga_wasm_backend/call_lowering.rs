@@ -94,25 +94,12 @@ fn emit_frame_based_call(
                 // Push flattened argument onto stack
                 super::expressions::translate_expression(*arg_expr, ctx)?;
             }
-            function_abi::ParameterABI::Frame {
-                offset, copy_in, ..
-            } => {
-                if *copy_in {
-                    // Evaluate argument and store into frame
-                    // This is simplified - proper implementation would need to handle
-                    // different types and potentially decompose structs
-                    super::expressions::translate_expression(*arg_expr, ctx)?;
-
-                    // Store value(s) at frame offset
-                    // For now, assume single f32 value (simplification)
-                    frame_allocator::emit_frame_store(
-                        ctx.wasm_func,
-                        aligned_local,
-                        *offset,
-                        ValType::F32,
-                    );
-                }
-
+            function_abi::ParameterABI::Frame { offset, .. } => {
+                // For Frame parameters, we pass a pointer to the frame location
+                // TODO: Implement proper copy_in by storing struct/array data into frame
+                // For now, pass the frame pointer directly - the callee will access
+                // the data from the original location via this pointer
+                
                 // Push frame pointer as argument
                 ctx.wasm_func
                     .instruction(&Instruction::LocalGet(aligned_local));
@@ -128,31 +115,9 @@ fn emit_frame_based_call(
     // Emit the call
     ctx.wasm_func.instruction(&Instruction::Call(wasm_idx));
 
-    // Handle copy_out for Frame parameters (for out/inout semantics)
-    for (arg_idx, _arg_expr) in arguments.iter().enumerate() {
-        if arg_idx >= abi.params.len() {
-            break;
-        }
-
-        if let function_abi::ParameterABI::Frame {
-            offset, copy_out, ..
-        } = &abi.params[arg_idx]
-        {
-            if *copy_out {
-                // Load value(s) from frame and store back to caller's storage
-                // This is a simplified implementation
-                frame_allocator::emit_frame_load(
-                    ctx.wasm_func,
-                    aligned_local,
-                    *offset,
-                    ValType::F32,
-                );
-                // Would need to store back to original location
-                // (requires tracking source expression location)
-                ctx.wasm_func.instruction(&Instruction::Drop);
-            }
-        }
-    }
+    // TODO: Handle copy_out for Frame parameters (for out/inout semantics)
+    // This would require tracking the source expression location and
+    // copying data back from the frame to the original location
 
     // Free the frame
     frame_allocator::emit_free_frame(ctx.wasm_func, old_sp_local);

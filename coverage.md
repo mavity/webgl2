@@ -26,9 +26,9 @@
 | src/webgl2_context/textures.rs | 10 | 0 | 10 | 100.00% 🟢 |
 | src/webgl2_context/types.rs | 9 | 1 | 10 | 90.00% 🟢 |
 | src/webgl2_context/vaos.rs | 37 | 0 | 37 | 100.00% 🟢 |
-| src/webgpu/adapter.rs | 2 | 0 | 2 | 100.00% 🟢 |
+| src/webgpu/adapter.rs | 3 | 0 | 3 | 100.00% 🟢 |
 | src/webgpu/backend.rs | 25 | 25 | 50 | 50.00% 🟡 |
-| **Total** | **687** | **355** | **1042** | **65.93% 🟡** |
+| **Total** | **688** | **355** | **1043** | **65.96% 🟡** |
 
 ## Top Missed Files
 

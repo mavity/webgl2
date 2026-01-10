@@ -78,8 +78,8 @@ pub fn emit_free_frame(func: &mut Function, old_sp_local: u32) {
 /// - `aligned_local`: Local containing aligned frame base pointer
 /// - `offset`: Offset within frame (bytes)
 /// - `valtype`: Type of value to store (must match stack top)
-pub fn emit_frame_store(func: &mut Function, aligned_local: u32, offset: u32, valtype: ValType) {
-    // Stack: [value]
+/// - `value_local`: Local index containing the value to store
+pub fn emit_frame_store(func: &mut Function, aligned_local: u32, offset: u32, valtype: ValType, value_local: u32) {
     // Compute address: aligned + offset
     func.instruction(&Instruction::LocalGet(aligned_local));
     if offset > 0 {
@@ -87,8 +87,11 @@ pub fn emit_frame_store(func: &mut Function, aligned_local: u32, offset: u32, va
         func.instruction(&Instruction::I32Add);
     }
 
-    // Stack: [value, address]
-    // Store (swap order for store instruction)
+    // Get value to store
+    func.instruction(&Instruction::LocalGet(value_local));
+
+    // Stack: [address, value]
+    // Store instruction
     match valtype {
         ValType::I32 => {
             func.instruction(&Instruction::I32Store(wasm_encoder::MemArg {
@@ -210,11 +213,10 @@ mod tests {
 
     #[test]
     fn test_frame_store_load() {
-        let mut func = Function::new(vec![(1, ValType::I32)]);
+        let mut func = Function::new(vec![(1, ValType::I32), (1, ValType::F32)]);
 
-        // Store f32
-        func.instruction(&Instruction::F32Const(1.0));
-        emit_frame_store(&mut func, 0, 4, ValType::F32);
+        // Store f32 from local 1
+        emit_frame_store(&mut func, 0, 4, ValType::F32, 1);
 
         // Load f32
         emit_frame_load(&mut func, 0, 4, ValType::F32);
