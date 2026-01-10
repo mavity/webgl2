@@ -79,7 +79,13 @@ pub fn emit_free_frame(func: &mut Function, old_sp_local: u32) {
 /// - `offset`: Offset within frame (bytes)
 /// - `valtype`: Type of value to store (must match stack top)
 /// - `value_local`: Local index containing the value to store
-pub fn emit_frame_store(func: &mut Function, aligned_local: u32, offset: u32, valtype: ValType, value_local: u32) {
+pub fn emit_frame_store(
+    func: &mut Function,
+    aligned_local: u32,
+    offset: u32,
+    valtype: ValType,
+    value_local: u32,
+) {
     // Compute address: aligned + offset
     func.instruction(&Instruction::LocalGet(aligned_local));
     if offset > 0 {

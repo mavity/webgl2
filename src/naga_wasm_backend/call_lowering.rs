@@ -99,7 +99,7 @@ fn emit_frame_based_call(
                 // TODO: Implement proper copy_in by storing struct/array data into frame
                 // For now, pass the frame pointer directly - the callee will access
                 // the data from the original location via this pointer
-                
+
                 // Push frame pointer as argument
                 ctx.wasm_func
                     .instruction(&Instruction::LocalGet(aligned_local));

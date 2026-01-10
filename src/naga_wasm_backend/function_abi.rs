@@ -3,7 +3,7 @@
 //! This module provides a pure, testable facility to classify parameters and results
 //! as either Flattened (passed as WASM scalar values) or Frame (passed via memory pointer).
 
-use naga::{ArraySize, Handle, Module, ScalarKind, Type, TypeInner};
+use naga::{AddressSpace, ArraySize, Handle, Module, ScalarKind, Type, TypeInner};
 use wasm_encoder::ValType;
 
 /// Maximum bytes for a parameter/result to be flattened into scalar values.
@@ -77,7 +77,20 @@ impl FunctionABI {
 
         // Classify parameters
         for &param_ty in param_types {
-            let classification = classify_type(module, param_ty)?;
+            // Detect parameter semantic from type encoding
+            let (semantic, actual_ty) = match &module.types[param_ty].inner {
+                TypeInner::Pointer { base, space } if *space == AddressSpace::Function => {
+                    // out/inout parameter - wrapped in pointer
+                    // Conservative: treat all Function-space pointers as InOut
+                    (ParamSemantic::InOut, *base)
+                }
+                _ => {
+                    // in parameter - value type
+                    (ParamSemantic::In, param_ty)
+                }
+            };
+
+            let classification = classify_type(module, actual_ty)?;
 
             match classification {
                 TypeClass::Flattened(valtypes, byte_size) => {
@@ -97,13 +110,20 @@ impl FunctionABI {
                     // Align offset
                     frame_offset = align_up(frame_offset, align);
 
+                    // Set copy flags based on semantic
+                    let (copy_in, copy_out) = match semantic {
+                        ParamSemantic::In => (true, false),
+                        ParamSemantic::Out => (false, true),
+                        ParamSemantic::InOut => (true, true),
+                    };
+
                     params.push(ParameterABI::Frame {
                         offset: frame_offset,
                         size,
                         align,
-                        copy_in: true,
-                        copy_out: false,
-                        semantic: ParamSemantic::In,
+                        copy_in,
+                        copy_out,
+                        semantic,
                     });
 
                     frame_offset += size;
@@ -626,5 +646,85 @@ mod tests {
         assert_eq!(align_up(5, 4), 8);
         assert_eq!(align_up(7, 8), 8);
         assert_eq!(align_up(9, 8), 16);
+    }
+
+    #[test]
+    fn test_semantic_detection_inout_pointer() {
+        let mut module = create_test_module();
+
+        // Create vec4 type first to avoid borrow checker issues
+        let vec4_ty = add_vector_type(&mut module, VectorSize::Quad, ScalarKind::Float, 4);
+
+        // Create a large struct (>16 bytes) to force Frame classification
+        let big_struct_ty = module.types.insert(
+            Type {
+                name: Some("BigStruct".to_string()),
+                inner: TypeInner::Struct {
+                    members: vec![
+                        naga::StructMember {
+                            name: Some("field0".to_string()),
+                            ty: vec4_ty,
+                            binding: None,
+                            offset: 0,
+                        },
+                        naga::StructMember {
+                            name: Some("field1".to_string()),
+                            ty: vec4_ty,
+                            binding: None,
+                            offset: 16,
+                        },
+                        naga::StructMember {
+                            name: Some("field2".to_string()),
+                            ty: vec4_ty,
+                            binding: None,
+                            offset: 32,
+                        },
+                        naga::StructMember {
+                            name: Some("field3".to_string()),
+                            ty: vec4_ty,
+                            binding: None,
+                            offset: 48,
+                        },
+                        naga::StructMember {
+                            name: Some("field4".to_string()),
+                            ty: vec4_ty,
+                            binding: None,
+                            offset: 64,
+                        },
+                    ],
+                    span: 80,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        // Wrap in Function-space pointer (simulates out/inout parameter)
+        let pointer_ty = module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Pointer {
+                    base: big_struct_ty,
+                    space: AddressSpace::Function,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        let abi = FunctionABI::compute(&module, &[pointer_ty], None).unwrap();
+
+        assert_eq!(abi.params.len(), 1);
+        match &abi.params[0] {
+            ParameterABI::Frame {
+                copy_in,
+                copy_out,
+                semantic,
+                ..
+            } => {
+                assert_eq!(*semantic, ParamSemantic::InOut, "Pointer should be InOut");
+                assert!(*copy_in, "InOut should copy_in");
+                assert!(*copy_out, "InOut should copy_out");
+            }
+            _ => panic!("Expected Frame parameter"),
+        }
     }
 }
