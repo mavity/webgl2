@@ -122,9 +122,9 @@ impl<'a> Compiler<'a> {
             self.function_count += 1;
         }
 
-        // Define 5 globals for base pointers
-        // 0: attr, 1: uniform, 2: varying, 3: private, 4: textures
-        for _ in 0..5 {
+        // Define 6 globals for base pointers
+        // 0: attr, 1: uniform, 2: varying, 3: private, 4: textures, 5: frame_sp
+        for _ in 0..6 {
             self.globals.global(
                 wasm_encoder::GlobalType {
                     val_type: ValType::I32,
@@ -446,6 +446,12 @@ impl<'a> Compiler<'a> {
                 wasm_func.instruction(&Instruction::LocalGet(i as u32 + 1));
                 wasm_func.instruction(&Instruction::GlobalSet(i as u32));
             }
+
+            // Initialize frame stack pointer to base address
+            wasm_func.instruction(&Instruction::I32Const(
+                output_layout::FRAME_STACK_BASE as i32,
+            ));
+            wasm_func.instruction(&Instruction::GlobalSet(output_layout::FRAME_SP_GLOBAL));
         }
 
         let stage = self.stage;

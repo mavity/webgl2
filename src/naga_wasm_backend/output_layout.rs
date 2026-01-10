@@ -70,11 +70,23 @@ use naga::{Binding, BuiltIn, ShaderStage};
 /// - 2: VARYING_PTR_GLOBAL (Inter-stage varyings)
 /// - 3: PRIVATE_PTR_GLOBAL (Fragment outputs & private variables)
 /// - 4: TEXTURE_PTR_GLOBAL (Texture references)
+/// - 5: FRAME_SP_GLOBAL (Frame stack pointer for function calls)
 pub const ATTR_PTR_GLOBAL: u32 = 0;
 pub const UNIFORM_PTR_GLOBAL: u32 = 1;
 pub const VARYING_PTR_GLOBAL: u32 = 2;
 pub const PRIVATE_PTR_GLOBAL: u32 = 3;
 pub const TEXTURE_PTR_GLOBAL: u32 = 4;
+pub const FRAME_SP_GLOBAL: u32 = 5;
+
+/// Frame stack memory layout.
+/// The frame stack is used for LIFO allocation of function call frames.
+/// Base address is chosen to avoid collision with other memory regions.
+///
+/// Memory layout (640KB total, 10 pages):
+/// - 0x00000 - 0x7FFFF: General shader memory (attributes, uniforms, varyings, private, textures)
+/// - 0x80000 - 0x9FFFF: Frame stack (128KB dedicated region)
+pub const FRAME_STACK_BASE: u32 = 0x80000; // 512KB offset
+pub const FRAME_STACK_SIZE: u32 = 0x20000; // 128KB size
 
 /// Compute the memory destination for a shader output binding.
 ///
