@@ -52,6 +52,7 @@ struct Compiler<'a> {
     entry_points: HashMap<String, u32>,
     function_count: u32,
     naga_function_map: HashMap<naga::Handle<naga::Function>, u32>,
+    function_abis: HashMap<naga::Handle<naga::Function>, super::function_abi::FunctionABI>,
     global_offsets: HashMap<naga::Handle<naga::GlobalVariable>, (u32, u32)>,
     debug_step_idx: Option<u32>,
 
@@ -87,6 +88,7 @@ impl<'a> Compiler<'a> {
             entry_points: HashMap::new(),
             function_count: 0,
             naga_function_map: HashMap::new(),
+            function_abis: HashMap::new(),
             global_offsets: HashMap::new(),
             debug_step_idx: None,
             debug_generator,
@@ -268,7 +270,7 @@ impl<'a> Compiler<'a> {
 
         // Compile all internal functions first
         for (handle, func) in self.module.functions.iter() {
-            let func_idx = self.compile_function(func, None)?;
+            let func_idx = self.compile_function(func, None, Some(handle))?;
             self.naga_function_map.insert(handle, func_idx);
         }
 
@@ -283,6 +285,7 @@ impl<'a> Compiler<'a> {
         &mut self,
         func: &naga::Function,
         entry_point: Option<&naga::EntryPoint>,
+        func_handle: Option<naga::Handle<naga::Function>>,
     ) -> Result<u32, BackendError> {
         let func_idx = self.function_count;
         self.function_count += 1;
@@ -304,16 +307,29 @@ impl<'a> Compiler<'a> {
             ];
             current_param_idx = 6;
         } else {
-            // Internal function signature based on Naga
-            for (i, arg) in func.arguments.iter().enumerate() {
-                let types = super::types::naga_to_wasm_types(&self.module.types[arg.ty].inner)?;
-                argument_local_offsets.insert(i as u32, current_param_idx);
-                current_param_idx += types.len() as u32;
-                params.extend(types);
+            // Internal function - use FunctionABI for signature
+            let param_types: Vec<_> = func.arguments.iter().map(|arg| arg.ty).collect();
+            let result_type = func.result.as_ref().map(|r| r.ty);
+
+            let abi =
+                super::function_abi::FunctionABI::compute(self.module, &param_types, result_type)
+                    .map_err(|e| {
+                    BackendError::UnsupportedFeature(format!("FunctionABI error: {:?}", e))
+                })?;
+
+            // Store ABI for call lowering
+            if let Some(fh) = func_handle {
+                self.function_abis.insert(fh, abi.clone());
             }
-            if let Some(ret) = &func.result {
-                let types = super::types::naga_to_wasm_types(&self.module.types[ret.ty].inner)?;
-                results.extend(types);
+
+            params = abi.param_valtypes();
+            results = abi.result_valtypes();
+
+            // Map argument handles to parameter indices for flattened params
+            // For now, simple sequential mapping (Frame params need special handling)
+            for i in 0..func.arguments.len() {
+                argument_local_offsets.insert(i as u32, current_param_idx);
+                current_param_idx += params.len() as u32; // Simplified, should be per-arg
             }
         }
 
@@ -471,6 +487,7 @@ impl<'a> Compiler<'a> {
             debug_step_idx: self.debug_step_idx,
             typifier: &typifier,
             naga_function_map: &self.naga_function_map,
+            function_abis: &self.function_abis,
             argument_local_offsets: &argument_local_offsets,
             attribute_locations: self.attribute_locations,
             uniform_locations: self.uniform_locations,
@@ -504,7 +521,7 @@ impl<'a> Compiler<'a> {
         entry_point: &naga::EntryPoint,
         _index: usize,
     ) -> Result<(), BackendError> {
-        let func_idx = self.compile_function(&entry_point.function, Some(entry_point))?;
+        let func_idx = self.compile_function(&entry_point.function, Some(entry_point), None)?;
 
         // Export the function
         self.exports

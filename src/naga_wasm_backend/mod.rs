@@ -195,6 +195,9 @@ pub struct TranslationContext<'a> {
     /// Mapping from Naga function handles to their corresponding WASM function
     /// indices, used for emitting call instructions.
     pub naga_function_map: &'a HashMap<naga::Handle<naga::Function>, u32>,
+    /// Mapping from Naga function handles to their computed FunctionABI,
+    /// used for call lowering with frame allocation.
+    pub function_abis: &'a HashMap<naga::Handle<naga::Function>, function_abi::FunctionABI>,
     /// Mapping from argument indices to the WASM local indices that hold the
     /// translated argument values for the current function.
     pub argument_local_offsets: &'a HashMap<u32, u32>,
