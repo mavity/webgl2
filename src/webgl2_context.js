@@ -1585,3 +1585,100 @@ function _checkErr(code, instance) {
   const msg = readErrorMessage(instance);
   throw new Error(`WASM error ${code}: ${msg}`);
 }
+
+// ============================================================================
+// WAT Testing Support (docs/1.9-wat-testing.md)
+// ============================================================================
+
+/**
+ * Get the compiled WASM bytes for a shader in a program.
+ * 
+ * @param {number} ctxHandle - Context handle
+ * @param {number} programHandle - Program handle
+ * @param {number} shaderType - Shader type (VERTEX_SHADER or FRAGMENT_SHADER)
+ * @returns {Uint8Array | null} WASM bytes or null if not available
+ */
+export function getShaderModule(ctxHandle, programHandle, shaderType) {
+  const ctx = WasmWebGL2RenderingContext._contexts.get(ctxHandle);
+  if (!ctx) {
+    throw new Error('Invalid context handle');
+  }
+
+  const ex = ctx._instance.exports;
+  if (!ex || typeof ex.wasm_ctx_get_program_wasm_ref !== 'function') {
+    throw new Error('wasm_ctx_get_program_wasm_ref not found');
+  }
+
+  // Call the WASM function - it returns a packed u64 (BigInt or Number)
+  const result = ex.wasm_ctx_get_program_wasm_ref(ctxHandle, programHandle, shaderType);
+
+  // Unpack: low 32 bits = ptr, high 32 bits = len
+  let ptr, len;
+  if (typeof result === 'bigint') {
+    ptr = Number(result & 0xFFFFFFFFn);
+    len = Number((result >> 32n) & 0xFFFFFFFFn);
+  } else {
+    // Fallback for number (may lose precision for very large values)
+    ptr = result >>> 0;  // Low 32 bits
+    len = Math.floor(result / 0x100000000);  // High 32 bits
+  }
+
+  // Check for failure (0, 0)
+  if (ptr === 0 || len === 0) {
+    return null;
+  }
+
+  // Copy bytes from WASM memory into a new Uint8Array
+  const mem = new Uint8Array(ex.memory.buffer);
+  const bytes = new Uint8Array(len);
+  bytes.set(mem.subarray(ptr, ptr + len));
+
+  return bytes;
+}
+
+/**
+ * Get the WAT (WebAssembly Text) representation for a shader in a program.
+ * 
+ * @param {number} ctxHandle - Context handle
+ * @param {number} programHandle - Program handle
+ * @param {number} shaderType - Shader type (VERTEX_SHADER or FRAGMENT_SHADER)
+ * @returns {string | null} WAT text or null if not available
+ */
+export function getShaderWat(ctxHandle, programHandle, shaderType) {
+  const ctx = WasmWebGL2RenderingContext._contexts.get(ctxHandle);
+  if (!ctx) {
+    throw new Error('Invalid context handle');
+  }
+
+  const ex = ctx._instance.exports;
+  if (!ex || typeof ex.wasm_ctx_get_program_wat_ref !== 'function') {
+    throw new Error('wasm_ctx_get_program_wat_ref not found');
+  }
+
+  // Call the WASM function - it returns a packed u64 (BigInt or Number)
+  const result = ex.wasm_ctx_get_program_wat_ref(ctxHandle, programHandle, shaderType);
+
+  // Unpack: low 32 bits = ptr, high 32 bits = len
+  let ptr, len;
+  if (typeof result === 'bigint') {
+    ptr = Number(result & 0xFFFFFFFFn);
+    len = Number((result >> 32n) & 0xFFFFFFFFn);
+  } else {
+    // Fallback for number (may lose precision for very large values)
+    ptr = result >>> 0;  // Low 32 bits
+    len = Math.floor(result / 0x100000000);  // High 32 bits
+  }
+
+  // Check for failure (0, 0)
+  if (ptr === 0 || len === 0) {
+    return null;
+  }
+
+  // Copy bytes from WASM memory and decode as UTF-8
+  const mem = new Uint8Array(ex.memory.buffer);
+  const bytes = mem.subarray(ptr, ptr + len);
+  const decoder = new TextDecoder('utf-8');
+  const watText = decoder.decode(bytes);
+
+  return watText;
+}

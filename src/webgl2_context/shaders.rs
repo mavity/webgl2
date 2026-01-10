@@ -4,6 +4,7 @@ use crate::naga_wasm_backend::{WasmBackend, WasmBackendConfig};
 use naga::front::glsl::{Frontend, Options};
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use naga::{AddressSpace, Binding, ShaderStage};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -1186,5 +1187,109 @@ pub fn ctx_get_program_debug_stub(
     } else {
         set_last_error("program not found");
         0
+    }
+}
+
+// ============================================================================
+// WAT Testing Support (docs/1.9-wat-testing.md)
+// ============================================================================
+
+// Thread-local storage for ephemeral WAT strings.
+// These strings are generated on-demand and must be copied synchronously by the caller.
+thread_local! {
+    static WAT_STRING_STORAGE: RefCell<String> = RefCell::new(String::new());
+}
+
+/// Get a reference to the compiled WASM bytes for a program's shader.
+/// Returns (ptr, len) pointing to WASM bytes owned by Rust.
+/// On failure or missing module, returns (0, 0).
+/// The pointer is ephemeral; callers must copy bytes synchronously.
+pub fn ctx_get_program_wasm_ref(ctx: u32, program: u32, shader_type: u32) -> (u32, u32) {
+    clear_last_error();
+    let reg = get_registry().borrow();
+    let ctx_obj = match reg.contexts.get(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return (0, 0);
+        }
+    };
+
+    if let Some(p) = ctx_obj.programs.get(&program) {
+        let wasm = match shader_type {
+            0x8B31 => &p.vs_wasm, // VERTEX_SHADER
+            0x8B30 => &p.fs_wasm, // FRAGMENT_SHADER
+            _ => {
+                set_last_error("invalid shader type");
+                return (0, 0);
+            }
+        };
+
+        if let Some(bytes) = wasm {
+            let ptr = bytes.as_ptr() as u32;
+            let len = bytes.len() as u32;
+            (ptr, len)
+        } else {
+            // Module not compiled yet
+            (0, 0)
+        }
+    } else {
+        set_last_error("program not found");
+        (0, 0)
+    }
+}
+
+/// Get a reference to the WAT (WebAssembly Text) representation for a program's shader.
+/// Returns (ptr, len) pointing to a UTF-8 encoded WAT string owned by Rust.
+/// On failure or missing module, returns (0, 0).
+/// The pointer is ephemeral; callers must copy/decode synchronously.
+///
+/// Implementation: WAT is generated on-demand using wasmprinter and stored in thread-local storage.
+pub fn ctx_get_program_wat_ref(ctx: u32, program: u32, shader_type: u32) -> (u32, u32) {
+    clear_last_error();
+    let reg = get_registry().borrow();
+    let ctx_obj = match reg.contexts.get(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return (0, 0);
+        }
+    };
+
+    if let Some(p) = ctx_obj.programs.get(&program) {
+        let wasm = match shader_type {
+            0x8B31 => &p.vs_wasm, // VERTEX_SHADER
+            0x8B30 => &p.fs_wasm, // FRAGMENT_SHADER
+            _ => {
+                set_last_error("invalid shader type");
+                return (0, 0);
+            }
+        };
+
+        if let Some(bytes) = wasm {
+            // Generate WAT from WASM bytes using wasmprinter
+            match wasmprinter::print_bytes(bytes) {
+                Ok(wat_string) => {
+                    // Store in thread-local storage and return pointer
+                    WAT_STRING_STORAGE.with(|storage| {
+                        let mut s = storage.borrow_mut();
+                        *s = wat_string;
+                        let ptr = s.as_ptr() as u32;
+                        let len = s.len() as u32;
+                        (ptr, len)
+                    })
+                }
+                Err(e) => {
+                    set_last_error(&format!("Failed to generate WAT: {}", e));
+                    (0, 0)
+                }
+            }
+        } else {
+            // Module not compiled yet
+            (0, 0)
+        }
+    } else {
+        set_last_error("program not found");
+        (0, 0)
     }
 }

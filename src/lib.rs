@@ -767,6 +767,28 @@ pub extern "C" fn wasm_ctx_get_program_debug_stub(
     webgl2_context::ctx_get_program_debug_stub(ctx, program, shader_type, ptr, len)
 }
 
+// ---- WAT Testing Support (docs/1.9-wat-testing.md) ----
+
+/// Get a reference to compiled WASM bytes for a program's shader.
+/// Returns a packed u64: low 32 bits = ptr, high 32 bits = len.
+/// On failure or missing module, returns 0.
+/// The pointer is ephemeral; callers must copy synchronously.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_get_program_wasm_ref(ctx: u32, program: u32, shader_type: u32) -> u64 {
+    let (ptr, len) = webgl2_context::ctx_get_program_wasm_ref(ctx, program, shader_type);
+    ((len as u64) << 32) | (ptr as u64)
+}
+
+/// Get a reference to the WAT text for a program's shader.
+/// Returns a packed u64: low 32 bits = ptr, high 32 bits = len.
+/// On failure or missing module, returns 0.
+/// The pointer is ephemeral; callers must copy/decode synchronously.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_get_program_wat_ref(ctx: u32, program: u32, shader_type: u32) -> u64 {
+    let (ptr, len) = webgl2_context::ctx_get_program_wat_ref(ctx, program, shader_type);
+    ((len as u64) << 32) | (ptr as u64)
+}
+
 // ---- Coverage Support (when enabled) ----
 
 #[cfg(feature = "coverage")]

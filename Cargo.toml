@@ -1,6 +1,6 @@
 [package]
 name = "webgl2"
-version = "1.1.11"
+version = "1.1.12"
 edition = "2021"
 license-file = "LICENSE"
 authors = ["WebGL2 Platform Team"]
@@ -26,6 +26,7 @@ wgpu-hal = { version = "28.0.0", path = "wgpu-fork/wgpu-hal", default-features =
 # WASM generation
 wasm-encoder = "0.220"
 wasmparser = "0.220"
+wasmprinter = "0.220"
 # Use a modern walrus (newer gimli/indexmap compat). Bump from 0.22 -> 0.24.x
 walrus = "0.24.4"
 

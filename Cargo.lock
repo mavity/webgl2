@@ -1300,6 +1300,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "termcolor"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
+dependencies = [
+ "winapi-util",
+]
+
+[[package]]
 name = "thiserror"
 version = "2.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1663,6 +1672,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasmprinter"
+version = "0.220.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd090e11ef5f27428d72702801dc5ca93a9612dfc775b1f9eea6dc3f6265f17e"
+dependencies = [
+ "anyhow",
+ "termcolor",
+ "wasmparser 0.220.1",
+]
+
+[[package]]
 name = "web-sys"
 version = "0.3.82"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1674,7 +1694,7 @@ dependencies = [
 
 [[package]]
 name = "webgl2"
-version = "1.1.11"
+version = "1.1.12"
 dependencies = [
  "anyhow",
  "clap",
@@ -1698,6 +1718,7 @@ dependencies = [
  "wasm-encoder 0.220.1",
  "wasmi",
  "wasmparser 0.220.1",
+ "wasmprinter",
  "web-sys",
  "wgpu-core",
  "wgpu-hal",
