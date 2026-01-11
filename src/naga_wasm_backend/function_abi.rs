@@ -21,6 +21,20 @@ pub struct FunctionABI {
     pub uses_frame: bool,
     pub frame_size: u32,
     pub frame_alignment: u32,
+    /// InOut parameters that become implicit return values (small types only).
+    /// Each entry maps the parameter to its return value layout.
+    pub implicit_returns: Vec<ImplicitReturn>,
+}
+
+/// Represents an InOut parameter that becomes an implicit return value.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImplicitReturn {
+    /// Index of the parameter in the function signature.
+    pub param_index: usize,
+    /// The WASM value types for this return value.
+    pub valtypes: Vec<ValType>,
+    /// Size in bytes.
+    pub byte_size: u32,
 }
 
 /// How a parameter is passed.
@@ -74,9 +88,10 @@ impl FunctionABI {
         let mut frame_alignment = 1u32;
         let mut uses_frame = false;
         let mut total_flattened = 0;
+        let mut implicit_returns = Vec::new();
 
         // Classify parameters
-        for &param_ty in param_types {
+        for (param_idx, &param_ty) in param_types.iter().enumerate() {
             // Detect parameter semantic from type encoding
             let (semantic, actual_ty) = match &module.types[param_ty].inner {
                 TypeInner::Pointer { base, space } if *space == AddressSpace::Function => {
@@ -94,14 +109,37 @@ impl FunctionABI {
 
             match classification {
                 TypeClass::Flattened(valtypes, byte_size) => {
-                    total_flattened += valtypes.len();
-                    if total_flattened > MAX_PARAM_COUNT {
-                        return Err(ABIError::TooManyParameters);
+                    // For InOut parameters, we transform them:
+                    // - Input: pass as regular flattened parameter (In semantic)
+                    // - Output: add as implicit return value
+                    if semantic == ParamSemantic::InOut {
+                        // Add as input parameter
+                        total_flattened += valtypes.len();
+                        if total_flattened > MAX_PARAM_COUNT {
+                            return Err(ABIError::TooManyParameters);
+                        }
+                        params.push(ParameterABI::Flattened {
+                            valtypes: valtypes.clone(),
+                            byte_size,
+                        });
+
+                        // Add as implicit return
+                        implicit_returns.push(ImplicitReturn {
+                            param_index: param_idx,
+                            valtypes,
+                            byte_size,
+                        });
+                    } else {
+                        // Regular In or Out parameter
+                        total_flattened += valtypes.len();
+                        if total_flattened > MAX_PARAM_COUNT {
+                            return Err(ABIError::TooManyParameters);
+                        }
+                        params.push(ParameterABI::Flattened {
+                            valtypes,
+                            byte_size,
+                        });
                     }
-                    params.push(ParameterABI::Flattened {
-                        valtypes,
-                        byte_size,
-                    });
                 }
                 TypeClass::Frame(size, align) => {
                     uses_frame = true;
@@ -161,6 +199,7 @@ impl FunctionABI {
             uses_frame,
             frame_size: frame_offset,
             frame_alignment,
+            implicit_returns,
         })
     }
 
@@ -186,15 +225,29 @@ impl FunctionABI {
     }
 
     /// Get WASM function type signature (result types only).
+    /// This includes both the explicit result and any implicit returns from InOut parameters.
     pub fn result_valtypes(&self) -> Vec<ValType> {
+        let mut valtypes = Vec::new();
+
+        // Add explicit result
         match &self.result {
-            Some(ResultABI::Flattened { valtypes, .. }) => valtypes.clone(),
+            Some(ResultABI::Flattened {
+                valtypes: vtypes, ..
+            }) => {
+                valtypes.extend_from_slice(vtypes);
+            }
             Some(ResultABI::Frame { .. }) => {
                 // Frame results don't appear in WASM signature (written to memory)
-                Vec::new()
             }
-            None => Vec::new(),
+            None => {}
         }
+
+        // Add implicit returns from InOut parameters
+        for implicit in &self.implicit_returns {
+            valtypes.extend_from_slice(&implicit.valtypes);
+        }
+
+        valtypes
     }
 }
 
@@ -726,5 +779,624 @@ mod tests {
             }
             _ => panic!("Expected Frame parameter"),
         }
+    }
+
+    #[test]
+    fn test_inout_small_becomes_return() {
+        // Test that small InOut parameters (≤16 bytes) become input param + implicit return
+        let mut module = create_test_module();
+
+        // Create i32 type (4 bytes, small enough to flatten)
+        let i32_ty = add_scalar_type(&mut module, ScalarKind::Sint, 4);
+
+        // Wrap in Function-space pointer (simulates InOut parameter)
+        let pointer_ty = module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Pointer {
+                    base: i32_ty,
+                    space: AddressSpace::Function,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        // Create function with InOut i32 parameter
+        let abi = FunctionABI::compute(&module, &[pointer_ty], None).unwrap();
+
+        // Should have one input parameter (flattened)
+        assert_eq!(abi.params.len(), 1);
+        match &abi.params[0] {
+            ParameterABI::Flattened {
+                valtypes,
+                byte_size,
+            } => {
+                assert_eq!(valtypes.len(), 1);
+                assert_eq!(valtypes[0], ValType::I32);
+                assert_eq!(*byte_size, 4);
+            }
+            _ => panic!("Expected Flattened parameter for small InOut"),
+        }
+
+        // Should have one implicit return
+        assert_eq!(abi.implicit_returns.len(), 1);
+        let implicit = &abi.implicit_returns[0];
+        assert_eq!(implicit.param_index, 0);
+        assert_eq!(implicit.valtypes.len(), 1);
+        assert_eq!(implicit.valtypes[0], ValType::I32);
+        assert_eq!(implicit.byte_size, 4);
+
+        // WASM signature should include the implicit return
+        let result_valtypes = abi.result_valtypes();
+        assert_eq!(result_valtypes.len(), 1);
+        assert_eq!(result_valtypes[0], ValType::I32);
+    }
+
+    #[test]
+    fn test_inout_vec4_becomes_return() {
+        // Test that vec4 (16 bytes, at threshold) becomes input param + implicit return
+        let mut module = create_test_module();
+
+        let vec4_ty = add_vector_type(&mut module, VectorSize::Quad, ScalarKind::Float, 4);
+
+        // Wrap in Function-space pointer (simulates InOut parameter)
+        let pointer_ty = module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Pointer {
+                    base: vec4_ty,
+                    space: AddressSpace::Function,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        let abi = FunctionABI::compute(&module, &[pointer_ty], None).unwrap();
+
+        // Should be flattened (16 bytes is at threshold)
+        assert_eq!(abi.params.len(), 1);
+        match &abi.params[0] {
+            ParameterABI::Flattened {
+                valtypes,
+                byte_size,
+            } => {
+                assert_eq!(valtypes.len(), 4);
+                assert_eq!(*byte_size, 16);
+            }
+            _ => panic!("Expected Flattened parameter for vec4 InOut"),
+        }
+
+        // Should have implicit return for the InOut parameter
+        assert_eq!(abi.implicit_returns.len(), 1);
+        assert_eq!(abi.implicit_returns[0].valtypes.len(), 4);
+
+        // WASM result should include 4 f32 values
+        let result_valtypes = abi.result_valtypes();
+        assert_eq!(result_valtypes.len(), 4);
+    }
+
+    #[test]
+    fn test_inout_large_stays_frame() {
+        // Test that large InOut parameters (>16 bytes) stay as Frame with copy_in/copy_out
+        let mut module = create_test_module();
+
+        // Create a 20-element f32 array (80 bytes, exceeds threshold)
+        let f32_ty = add_scalar_type(&mut module, ScalarKind::Float, 4);
+        let array_ty = module.types.insert(
+            Type {
+                name: Some("array_20_f32".to_string()),
+                inner: TypeInner::Array {
+                    base: f32_ty,
+                    size: ArraySize::Constant(std::num::NonZeroU32::new(20).unwrap()),
+                    stride: 4,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        // Wrap in Function-space pointer (simulates InOut parameter)
+        let pointer_ty = module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Pointer {
+                    base: array_ty,
+                    space: AddressSpace::Function,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        let abi = FunctionABI::compute(&module, &[pointer_ty], None).unwrap();
+
+        // Should use Frame passing
+        assert_eq!(abi.params.len(), 1);
+        match &abi.params[0] {
+            ParameterABI::Frame {
+                copy_in,
+                copy_out,
+                semantic,
+                size,
+                ..
+            } => {
+                assert_eq!(*semantic, ParamSemantic::InOut);
+                assert!(*copy_in, "Large InOut should copy_in");
+                assert!(*copy_out, "Large InOut should copy_out");
+                assert_eq!(*size, 80, "Array should be 80 bytes");
+            }
+            _ => panic!("Expected Frame parameter for large InOut"),
+        }
+
+        // Should NOT have implicit returns (large type uses Frame)
+        assert_eq!(abi.implicit_returns.len(), 0);
+
+        // WASM signature should NOT include implicit returns
+        let result_valtypes = abi.result_valtypes();
+        assert_eq!(result_valtypes.len(), 0);
+    }
+
+    #[test]
+    fn test_inout_with_explicit_result() {
+        // Test that InOut implicit returns are added AFTER explicit result
+        let mut module = create_test_module();
+
+        let i32_ty = add_scalar_type(&mut module, ScalarKind::Sint, 4);
+        let f32_ty = add_scalar_type(&mut module, ScalarKind::Float, 4);
+
+        // InOut parameter (wrapped in pointer)
+        let pointer_ty = module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Pointer {
+                    base: i32_ty,
+                    space: AddressSpace::Function,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        // Function with InOut i32 param and f32 result
+        let abi = FunctionABI::compute(&module, &[pointer_ty], Some(f32_ty)).unwrap();
+
+        // Should have explicit result
+        assert!(abi.result.is_some());
+
+        // Should have implicit return
+        assert_eq!(abi.implicit_returns.len(), 1);
+
+        // WASM result should have explicit result FIRST, then implicit return
+        let result_valtypes = abi.result_valtypes();
+        assert_eq!(result_valtypes.len(), 2);
+        assert_eq!(result_valtypes[0], ValType::F32, "Explicit result first");
+        assert_eq!(result_valtypes[1], ValType::I32, "Implicit return second");
+    }
+
+    #[test]
+    fn test_multiple_inout_params() {
+        // Test multiple InOut parameters become multiple implicit returns
+        let mut module = create_test_module();
+
+        let i32_ty = add_scalar_type(&mut module, ScalarKind::Sint, 4);
+        let f32_ty = add_scalar_type(&mut module, ScalarKind::Float, 4);
+
+        // Two InOut parameters
+        let i32_ptr_ty = module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Pointer {
+                    base: i32_ty,
+                    space: AddressSpace::Function,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        let f32_ptr_ty = module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Pointer {
+                    base: f32_ty,
+                    space: AddressSpace::Function,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        let abi = FunctionABI::compute(&module, &[i32_ptr_ty, f32_ptr_ty], None).unwrap();
+
+        // Should have two input parameters
+        assert_eq!(abi.params.len(), 2);
+
+        // Should have two implicit returns
+        assert_eq!(abi.implicit_returns.len(), 2);
+        assert_eq!(abi.implicit_returns[0].param_index, 0);
+        assert_eq!(abi.implicit_returns[1].param_index, 1);
+
+        // WASM result should have both implicit returns
+        let result_valtypes = abi.result_valtypes();
+        assert_eq!(result_valtypes.len(), 2);
+        assert_eq!(result_valtypes[0], ValType::I32);
+        assert_eq!(result_valtypes[1], ValType::F32);
+    }
+
+    #[test]
+    fn test_inout_small_struct_becomes_return() {
+        // Test that a small struct (≤16 bytes) InOut becomes input + implicit return
+        let mut module = create_test_module();
+
+        let f32_ty = add_scalar_type(&mut module, ScalarKind::Float, 4);
+
+        // Create a small struct: { x: f32, y: f32 } = 8 bytes
+        let small_struct_ty = module.types.insert(
+            Type {
+                name: Some("Vec2Struct".to_string()),
+                inner: TypeInner::Struct {
+                    members: vec![
+                        naga::StructMember {
+                            name: Some("x".to_string()),
+                            ty: f32_ty,
+                            binding: None,
+                            offset: 0,
+                        },
+                        naga::StructMember {
+                            name: Some("y".to_string()),
+                            ty: f32_ty,
+                            binding: None,
+                            offset: 4,
+                        },
+                    ],
+                    span: 8,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        // Wrap in Function-space pointer (InOut parameter)
+        let pointer_ty = module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Pointer {
+                    base: small_struct_ty,
+                    space: AddressSpace::Function,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        let abi = FunctionABI::compute(&module, &[pointer_ty], None).unwrap();
+
+        // Should be flattened (8 bytes < 16 byte threshold)
+        assert_eq!(abi.params.len(), 1);
+        match &abi.params[0] {
+            ParameterABI::Flattened {
+                valtypes,
+                byte_size,
+            } => {
+                assert_eq!(valtypes.len(), 2, "Two f32 fields");
+                assert_eq!(*byte_size, 8);
+            }
+            _ => panic!("Expected Flattened parameter for small struct InOut"),
+        }
+
+        // Should have implicit return
+        assert_eq!(abi.implicit_returns.len(), 1);
+        assert_eq!(abi.implicit_returns[0].valtypes.len(), 2);
+
+        // WASM result should include the struct fields
+        let result_valtypes = abi.result_valtypes();
+        assert_eq!(result_valtypes.len(), 2);
+    }
+
+    #[test]
+    fn test_inout_struct_at_threshold() {
+        // Test struct exactly at 16-byte threshold
+        let mut module = create_test_module();
+
+        let f32_ty = add_scalar_type(&mut module, ScalarKind::Float, 4);
+
+        // Create struct: { x: f32, y: f32, z: f32, w: f32 } = 16 bytes
+        let threshold_struct_ty = module.types.insert(
+            Type {
+                name: Some("Vec4Struct".to_string()),
+                inner: TypeInner::Struct {
+                    members: vec![
+                        naga::StructMember {
+                            name: Some("x".to_string()),
+                            ty: f32_ty,
+                            binding: None,
+                            offset: 0,
+                        },
+                        naga::StructMember {
+                            name: Some("y".to_string()),
+                            ty: f32_ty,
+                            binding: None,
+                            offset: 4,
+                        },
+                        naga::StructMember {
+                            name: Some("z".to_string()),
+                            ty: f32_ty,
+                            binding: None,
+                            offset: 8,
+                        },
+                        naga::StructMember {
+                            name: Some("w".to_string()),
+                            ty: f32_ty,
+                            binding: None,
+                            offset: 12,
+                        },
+                    ],
+                    span: 16,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        // Wrap in Function-space pointer (InOut parameter)
+        let pointer_ty = module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Pointer {
+                    base: threshold_struct_ty,
+                    space: AddressSpace::Function,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        let abi = FunctionABI::compute(&module, &[pointer_ty], None).unwrap();
+
+        // Should be flattened (16 bytes = threshold)
+        assert_eq!(abi.params.len(), 1);
+        match &abi.params[0] {
+            ParameterABI::Flattened {
+                valtypes,
+                byte_size,
+            } => {
+                assert_eq!(valtypes.len(), 4, "Four f32 fields");
+                assert_eq!(*byte_size, 16);
+            }
+            _ => panic!("Expected Flattened parameter for 16-byte struct InOut"),
+        }
+
+        // Should have implicit return
+        assert_eq!(abi.implicit_returns.len(), 1);
+    }
+
+    #[test]
+    fn test_inout_struct_over_threshold() {
+        // Test struct just over 16-byte threshold
+        let mut module = create_test_module();
+
+        let f32_ty = add_scalar_type(&mut module, ScalarKind::Float, 4);
+
+        // Create struct: 5 f32 fields = 20 bytes
+        let large_struct_ty = module.types.insert(
+            Type {
+                name: Some("LargeStruct".to_string()),
+                inner: TypeInner::Struct {
+                    members: vec![
+                        naga::StructMember {
+                            name: Some("a".to_string()),
+                            ty: f32_ty,
+                            binding: None,
+                            offset: 0,
+                        },
+                        naga::StructMember {
+                            name: Some("b".to_string()),
+                            ty: f32_ty,
+                            binding: None,
+                            offset: 4,
+                        },
+                        naga::StructMember {
+                            name: Some("c".to_string()),
+                            ty: f32_ty,
+                            binding: None,
+                            offset: 8,
+                        },
+                        naga::StructMember {
+                            name: Some("d".to_string()),
+                            ty: f32_ty,
+                            binding: None,
+                            offset: 12,
+                        },
+                        naga::StructMember {
+                            name: Some("e".to_string()),
+                            ty: f32_ty,
+                            binding: None,
+                            offset: 16,
+                        },
+                    ],
+                    span: 20,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        // Wrap in Function-space pointer (InOut parameter)
+        let pointer_ty = module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Pointer {
+                    base: large_struct_ty,
+                    space: AddressSpace::Function,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        let abi = FunctionABI::compute(&module, &[pointer_ty], None).unwrap();
+
+        // Should use Frame (20 bytes > 16 byte threshold)
+        assert_eq!(abi.params.len(), 1);
+        match &abi.params[0] {
+            ParameterABI::Frame {
+                copy_in,
+                copy_out,
+                semantic,
+                size,
+                ..
+            } => {
+                assert_eq!(*semantic, ParamSemantic::InOut);
+                assert!(*copy_in, "InOut should copy_in");
+                assert!(*copy_out, "InOut should copy_out");
+                assert_eq!(*size, 20);
+            }
+            _ => panic!("Expected Frame parameter for 20-byte struct InOut"),
+        }
+
+        // Should NOT have implicit return (uses Frame)
+        assert_eq!(abi.implicit_returns.len(), 0);
+    }
+
+    #[test]
+    fn test_inout_nested_struct() {
+        // Test nested struct handling
+        let mut module = create_test_module();
+
+        let f32_ty = add_scalar_type(&mut module, ScalarKind::Float, 4);
+
+        // Inner struct: { x: f32, y: f32 } = 8 bytes
+        let inner_struct_ty = module.types.insert(
+            Type {
+                name: Some("InnerVec2".to_string()),
+                inner: TypeInner::Struct {
+                    members: vec![
+                        naga::StructMember {
+                            name: Some("x".to_string()),
+                            ty: f32_ty,
+                            binding: None,
+                            offset: 0,
+                        },
+                        naga::StructMember {
+                            name: Some("y".to_string()),
+                            ty: f32_ty,
+                            binding: None,
+                            offset: 4,
+                        },
+                    ],
+                    span: 8,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        // Outer struct: { pos: InnerVec2 } = 8 bytes
+        let outer_struct_ty = module.types.insert(
+            Type {
+                name: Some("Position".to_string()),
+                inner: TypeInner::Struct {
+                    members: vec![naga::StructMember {
+                        name: Some("pos".to_string()),
+                        ty: inner_struct_ty,
+                        binding: None,
+                        offset: 0,
+                    }],
+                    span: 8,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        // Wrap in Function-space pointer (InOut parameter)
+        let pointer_ty = module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Pointer {
+                    base: outer_struct_ty,
+                    space: AddressSpace::Function,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        let abi = FunctionABI::compute(&module, &[pointer_ty], None).unwrap();
+
+        // Should be flattened (8 bytes, nested struct flattenable)
+        assert_eq!(abi.params.len(), 1);
+        match &abi.params[0] {
+            ParameterABI::Flattened {
+                valtypes,
+                byte_size,
+            } => {
+                assert_eq!(valtypes.len(), 2, "Two f32 from nested struct");
+                assert_eq!(*byte_size, 8);
+            }
+            _ => panic!("Expected Flattened for small nested struct InOut"),
+        }
+
+        // Should have implicit return
+        assert_eq!(abi.implicit_returns.len(), 1);
+    }
+
+    #[test]
+    fn test_inout_mixed_scalar_and_struct() {
+        // Test function with mix of scalar InOut and struct InOut
+        let mut module = create_test_module();
+
+        let i32_ty = add_scalar_type(&mut module, ScalarKind::Sint, 4);
+        let f32_ty = add_scalar_type(&mut module, ScalarKind::Float, 4);
+
+        // Small struct
+        let small_struct_ty = module.types.insert(
+            Type {
+                name: Some("Pair".to_string()),
+                inner: TypeInner::Struct {
+                    members: vec![
+                        naga::StructMember {
+                            name: Some("a".to_string()),
+                            ty: f32_ty,
+                            binding: None,
+                            offset: 0,
+                        },
+                        naga::StructMember {
+                            name: Some("b".to_string()),
+                            ty: f32_ty,
+                            binding: None,
+                            offset: 4,
+                        },
+                    ],
+                    span: 8,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        // InOut i32
+        let i32_ptr_ty = module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Pointer {
+                    base: i32_ty,
+                    space: AddressSpace::Function,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        // InOut struct
+        let struct_ptr_ty = module.types.insert(
+            Type {
+                name: None,
+                inner: TypeInner::Pointer {
+                    base: small_struct_ty,
+                    space: AddressSpace::Function,
+                },
+            },
+            naga::Span::default(),
+        );
+
+        let abi = FunctionABI::compute(&module, &[i32_ptr_ty, struct_ptr_ty], None).unwrap();
+
+        // Both should be flattened as input parameters
+        assert_eq!(abi.params.len(), 2);
+
+        // Should have two implicit returns
+        assert_eq!(abi.implicit_returns.len(), 2);
+
+        // WASM result: 1 i32 + 2 f32
+        let result_valtypes = abi.result_valtypes();
+        assert_eq!(result_valtypes.len(), 3);
+        assert_eq!(result_valtypes[0], ValType::I32);
+        assert_eq!(result_valtypes[1], ValType::F32);
+        assert_eq!(result_valtypes[2], ValType::F32);
     }
 }

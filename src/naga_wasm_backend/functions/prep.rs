@@ -77,6 +77,7 @@ pub fn prep_module(module: &Module, _module_info: &ModuleInfo) -> FunctionRegist
             uses_frame: false,   // Entry points don't use frame for parameters
             frame_size: 0,       // No frame needed for parameters
             frame_alignment: 16, // Standard alignment
+            implicit_returns: vec![], // Entry points have no InOut parameters
         };
 
         let manifest = FunctionManifest {
