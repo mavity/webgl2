@@ -55,6 +55,10 @@ struct Compiler<'a> {
     function_abis: HashMap<naga::Handle<naga::Function>, super::function_abi::FunctionABI>,
     global_offsets: HashMap<naga::Handle<naga::GlobalVariable>, (u32, u32)>,
     debug_step_idx: Option<u32>,
+    /// Index of the low-level texel fetch host import (env.texture_texel_fetch)
+    texture_texel_fetch_idx: Option<u32>,
+    /// Index of the emitted module-local helper function `__webgl_texture_sample`
+    webgl_texture_sample_idx: Option<u32>,
 
     // Debug info (if enabled)
     debug_generator: Option<super::debug::DwarfGenerator>,
@@ -91,6 +95,8 @@ impl<'a> Compiler<'a> {
             function_abis: HashMap::new(),
             global_offsets: HashMap::new(),
             debug_step_idx: None,
+            texture_texel_fetch_idx: None,
+            webgl_texture_sample_idx: None,
             debug_generator,
         }
     }
@@ -123,6 +129,25 @@ impl<'a> Compiler<'a> {
             self.debug_step_idx = Some(self.function_count);
             self.function_count += 1;
         }
+
+        // Import a high-level texel fetch helper from the host:
+        // `env.texture_texel_fetch(texture_ptr: i32, unit: i32, u: f32, v: f32) -> (f32,f32,f32,f32)`
+        // The host will compute texel coordinates and return normalized RGBA; keeping
+        // coordinate math in JS avoids fragile float lowering in the compiler.
+        self.imports.import(
+            "env",
+            "texture_texel_fetch",
+            wasm_encoder::EntityType::Function(self.types.len()),
+        );
+        self.types.ty().function(
+            vec![ValType::I32, ValType::I32, ValType::F32, ValType::F32],
+            vec![ValType::F32, ValType::F32, ValType::F32, ValType::F32],
+        );
+        self.texture_texel_fetch_idx = Some(self.function_count);
+        self.function_count += 1;
+
+        // No module-local helper is required: shader lowering will call the imported
+        // `texture_texel_fetch` directly when sampling is used.
 
         // Define 6 globals for base pointers
         // 0: attr, 1: uniform, 2: varying, 3: private, 4: textures, 5: frame_sp
@@ -427,11 +452,15 @@ impl<'a> Compiler<'a> {
             }
         }
 
-        // Map CallResult expressions to WASM locals
         let mut call_result_locals = HashMap::new();
         let mut locals_types = vec![];
         let mut next_local_idx = current_param_idx;
 
+        // Add scratch F32 locals first so float temporaries land in f32-typed locals.
+        locals_types.push((32, ValType::F32)); // 32 scratch f32s
+        next_local_idx += 32;
+
+        // Map CallResult expressions to WASM locals (place them after scratch F32 region)
         for (handle, expr) in func.expressions.iter() {
             if let naga::Expression::CallResult(func_handle) = expr {
                 let called_func = &self.module.functions[*func_handle];
@@ -446,10 +475,24 @@ impl<'a> Compiler<'a> {
             }
         }
 
-        // Add scratch locals for complex operations (like texture sampling)
-        let scratch_base = next_local_idx;
+        // Now add scratch I32 locals after the F32 regions
+        let scratch_base = current_param_idx; // scratch F32 region starts at param_count
         locals_types.push((32, ValType::I32)); // 32 scratch i32s
-        locals_types.push((32, ValType::F32)); // 32 scratch f32s
+        next_local_idx += 32;
+
+        // Build a flattened local types vector (locals only, not params) for
+        // downstream logic that needs to know a specific local's declared type.
+        let mut flattened_local_types: Vec<ValType> = Vec::new();
+        for (count, vtype) in &locals_types {
+            for _ in 0..*count {
+                flattened_local_types.push(*vtype);
+            }
+        }
+
+        eprintln!(
+            "[debug] flattened_local_types (first 64): {:?}",
+            &flattened_local_types[..std::cmp::min(flattened_local_types.len(), 64)]
+        );
 
         // Create function body
         let mut wasm_func = Function::new(locals_types);
@@ -498,6 +541,11 @@ impl<'a> Compiler<'a> {
             local_origins: &local_origins,
             is_entry_point,
             scratch_base,
+            // Local types and parameter count for type-aware lowering
+            local_types: &flattened_local_types,
+            param_count: current_param_idx,
+            texture_texel_fetch_idx: self.texture_texel_fetch_idx,
+            webgl_texture_sample_idx: self.webgl_texture_sample_idx,
         };
 
         for (stmt, span) in func.body.span_iter() {

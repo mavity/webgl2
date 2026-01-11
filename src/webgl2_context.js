@@ -220,6 +220,11 @@ export class WasmWebGL2RenderingContext {
     const handle = tex && typeof tex === 'object' && typeof tex._handle === 'number' ? tex._handle : (tex >>> 0);
     const code = ex.wasm_ctx_bind_texture(this._ctxHandle, target >>> 0, handle);
     _checkErr(code, this._instance);
+    // Record bound texture in JS so we can map units to texture data for texel fetch
+    this._boundTexture = handle;
+    this._textureUnits = this._textureUnits || [];
+    const unit = this._activeTextureUnit || 0;
+    this._textureUnits[unit] = handle;
   }
 
   texImage2D(target, level, internalFormat, width, height, border, format, type_, pixels) {
@@ -255,6 +260,12 @@ export class WasmWebGL2RenderingContext {
         len >>> 0
       );
       _checkErr(code, this._instance);
+
+      // Mirror texture data in JS for fast texel fetches by shader imports
+      this._textureData = this._textureData || new Map();
+      const handle = this._boundTexture || 0;
+      const copy = new Uint8Array(mem.slice(ptr, ptr + len));
+      this._textureData.set(handle, { width: width >>> 0, height: height >>> 0, data: copy });
     } finally {
       ex.wasm_free(ptr);
     }
@@ -576,25 +587,75 @@ export class WasmWebGL2RenderingContext {
       };
     };
 
-    const vsModule = new WebAssembly.Module(vsWasm);
+    let vsModule;
+    vsModule = new WebAssembly.Module(vsWasm);
     const vsInstanceRef = { current: null };
     const vsDebugEnv = createDebugEnv(this.VERTEX_SHADER, vsInstanceRef);
+
+    // Provide host import for texel fetch (returns [r,g,b,a] normalized floats)
+    // Parameters: texture_ptr, unit, u, v (where u,v are normalized texture coordinates 0..1)
+    const __texture_texel_fetch = (texture_ptr, unit, u, v) => {
+      this._textureUnits = this._textureUnits || [];
+      this._textureData = this._textureData || new Map();
+      const handle = this._textureUnits[unit] || 0;
+      const entry = this._textureData.get(handle);
+      if (!entry) return [0.0, 0.0, 0.0, 0.0];
+
+      // Convert normalized UV (0..1) to texel coordinates using nearest-neighbor sampling
+      // For u=0.25, width=2: x = floor(0.25 * 2) = 0
+      const x = Math.floor(u * entry.width);
+      const y = Math.floor(v * entry.height);
+
+      if (x < 0 || y < 0 || x >= entry.width || y >= entry.height) return [0.0, 0.0, 0.0, 0.0];
+      const idx = (y * entry.width + x) * 4;
+      const r = entry.data[idx] / 255.0;
+      const g = entry.data[idx + 1] / 255.0;
+      const b = entry.data[idx + 2] / 255.0;
+      const a = entry.data[idx + 3] / 255.0;
+      return [r, g, b, a];
+    };
 
     program._vsInstance = new WebAssembly.Instance(vsModule, {
       env: {
         memory: this._instance.exports.memory,
+        texture_texel_fetch: __texture_texel_fetch,
         ...vsDebugEnv
       }
     });
     vsInstanceRef.current = program._vsInstance;
 
-    const fsModule = new WebAssembly.Module(fsWasm);
+    let fsModule;
+    fsModule = new WebAssembly.Module(fsWasm);
     const fsInstanceRef = { current: null };
     const fsDebugEnv = createDebugEnv(this.FRAGMENT_SHADER, fsInstanceRef);
+
+    // Provide host import for texel fetch (returns [r,g,b,a] normalized floats)
+    // Parameters: texture_ptr, unit, u, v (where u,v are normalized texture coordinates 0..1)
+    const __texture_texel_fetch_fs = (texture_ptr, unit, u, v) => {
+      this._textureUnits = this._textureUnits || [];
+      this._textureData = this._textureData || new Map();
+      const handle = this._textureUnits[unit] || 0;
+      const entry = this._textureData.get(handle);
+      if (!entry) return [0.0, 0.0, 0.0, 0.0];
+
+      // Convert normalized UV (0..1) to texel coordinates using nearest-neighbor sampling
+      // For u=0.25, width=2: x = floor(0.25 * 2) = 0
+      const x = Math.floor(u * entry.width);
+      const y = Math.floor(v * entry.height);
+
+      if (x < 0 || y < 0 || x >= entry.width || y >= entry.height) return [0.0, 0.0, 0.0, 0.0];
+      const idx = (y * entry.width + x) * 4;
+      const r = entry.data[idx] / 255.0;
+      const g = entry.data[idx + 1] / 255.0;
+      const b = entry.data[idx + 2] / 255.0;
+      const a = entry.data[idx + 3] / 255.0;
+      return [r, g, b, a];
+    };
 
     program._fsInstance = new WebAssembly.Instance(fsModule, {
       env: {
         memory: this._instance.exports.memory,
+        texture_texel_fetch: __texture_texel_fetch_fs,
         ...fsDebugEnv
       }
     });
@@ -1223,6 +1284,9 @@ export class WasmWebGL2RenderingContext {
     }
     const code = ex.wasm_ctx_active_texture(this._ctxHandle, texture >>> 0);
     _checkErr(code, this._instance);
+    // Track active texture unit in JS wrapper (GL_TEXTURE0 = 0x84C0)
+    this._activeTextureUnit = (texture >>> 0) - 0x84C0;
+    this._textureUnits = this._textureUnits || [];
   }
   texParameteri(target, pname, param) {
     this._assertNotDestroyed();

@@ -47,18 +47,34 @@ fn store_components_to_memory(
     is_int: bool,
     ctx: &mut TranslationContext,
 ) {
-    let scratch_f32_base = ctx.scratch_base + 32;
+    // Compute the base indices for F32 and I32 scratch regions by scanning the
+    // flattened local type list - this avoids assumptions about encoding ordering.
+    let f32_base_pos = ctx
+        .local_types
+        .iter()
+        .position(|t| *t == wasm_encoder::ValType::F32)
+        .unwrap_or(0) as u32;
+    let f32_base = ctx.param_count + f32_base_pos;
+    let i32_base_pos = ctx
+        .local_types
+        .iter()
+        .position(|t| *t == wasm_encoder::ValType::I32)
+        .unwrap_or(0) as u32;
+    let i32_base = ctx.param_count + i32_base_pos;
+
     if base_ptr == VARYING_PTR_GLOBAL || base_ptr == PRIVATE_PTR_GLOBAL {
         // Handle varyings and fragment outputs
         // Store components in reverse order
         for i in (0..num_components).rev() {
             // Pop value to scratch
             if is_int {
+                // Integer scratch region is located after the f32 scratch region
                 ctx.wasm_func
-                    .instruction(&Instruction::LocalSet(ctx.scratch_base));
+                    .instruction(&Instruction::LocalSet(i32_base + 0));
             } else {
+                // Use the first f32 scratch slot
                 ctx.wasm_func
-                    .instruction(&Instruction::LocalSet(scratch_f32_base + 1));
+                    .instruction(&Instruction::LocalSet(f32_base + 0));
             }
 
             // Calculate byte offset for this component
@@ -70,7 +86,7 @@ fn store_components_to_memory(
             // Push value from scratch and store
             if is_int {
                 ctx.wasm_func
-                    .instruction(&Instruction::LocalGet(ctx.scratch_base));
+                    .instruction(&Instruction::LocalGet(i32_base + 0));
                 ctx.wasm_func
                     .instruction(&Instruction::I32Store(wasm_encoder::MemArg {
                         offset: comp_offset as u64,
@@ -79,7 +95,8 @@ fn store_components_to_memory(
                     }));
             } else {
                 ctx.wasm_func
-                    .instruction(&Instruction::LocalGet(scratch_f32_base + 1));
+                    .instruction(&Instruction::LocalGet(f32_base + 0));
+                // No conversion needed here: `f32_base` is the runtime F32 region base.
                 ctx.wasm_func
                     .instruction(&Instruction::F32Store(wasm_encoder::MemArg {
                         offset: comp_offset as u64,
@@ -240,9 +257,18 @@ pub fn translate_statement(
                                 let types = super::types::naga_to_wasm_types(
                                     &ctx.module.types[ret.ty].inner,
                                 )?;
+                                // Find actual F32 base by scanning declared local types so
+                                // we don't depend on encoding ordering
+                                let num_i32_locals =
+                                    ctx.local_types
+                                        .iter()
+                                        .filter(|t| **t == wasm_encoder::ValType::I32)
+                                        .count() as u32;
+                                let f32_base = ctx.param_count + num_i32_locals;
+                                eprintln!("[debug] CallStmt: param_count={} num_i32_locals={} f32_base={} local_types_len={}", ctx.param_count, num_i32_locals, f32_base, ctx.local_types.len());
                                 for i in (0..types.len()).rev() {
                                     ctx.wasm_func
-                                        .instruction(&Instruction::LocalSet(local_idx + i as u32));
+                                        .instruction(&Instruction::LocalSet(f32_base + i as u32));
                                 }
                             }
                         } else {
@@ -286,9 +312,17 @@ pub fn translate_statement(
                                     let types = super::types::naga_to_wasm_types(
                                         &ctx.module.types[ret.ty].inner,
                                     )?;
+                                    // Find actual F32 base by scanning declared local types
+                                    let f32_base_pos = ctx
+                                        .local_types
+                                        .iter()
+                                        .position(|t| *t == wasm_encoder::ValType::F32)
+                                        .unwrap_or(0)
+                                        as u32;
+                                    let f32_base = ctx.param_count + f32_base_pos;
                                     for i in (0..types.len()).rev() {
                                         ctx.wasm_func.instruction(&Instruction::LocalSet(
-                                            local_idx + i as u32,
+                                            f32_base + i as u32,
                                         ));
                                     }
                                 }

@@ -103,6 +103,18 @@ pub fn js_execute_shader(
     }
 }
 
+// Texture sampling used to be implemented in Rust as `texture_sample` returning a `F32x4`.
+// That high-level Rust implementation has been intentionally removed in favor of a
+// WASM-local sampling primitive (`__webgl_texture_sample`) emitted by the compiler and a
+// small host import `env.texture_texel_fetch` that returns a texel as 4 f32 values.
+//
+// Rationale: keep sampling semantics local to shader modules (multivalue returns),
+// avoid pointer-based out parameters across module boundaries, and eliminate the
+// previous Rust `texture_sample` implementation completely.
+
+// NOTE: The old `texture_sample` implementation was removed and must not be
+// reintroduced (see tests that assert absence of `texture_sample` exports).
+
 // Re-export commonly used types
 pub use glsl_introspection::ResourceManifest;
 pub use js_codegen::generate_harness;

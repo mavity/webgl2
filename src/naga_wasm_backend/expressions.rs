@@ -5,7 +5,7 @@
 use super::{output_layout, BackendError, TranslationContext};
 
 use naga::{BinaryOperator, Expression, Literal, RelationalFunction, ScalarKind, TypeInner};
-use wasm_encoder::Instruction;
+use wasm_encoder::{Instruction, ValType};
 
 /// Helper function to determine if a type should use I32 operations
 pub fn is_integer_type(type_inner: &TypeInner) -> bool {
@@ -234,6 +234,17 @@ pub fn translate_expression_component(
             match op {
                 BinaryOperator::Add => match left_scalar_kind {
                     naga::ScalarKind::Float => {
+                        // If the right operand is integer, convert it to f32 first
+                        match right_ty {
+                            naga::TypeInner::Scalar(s) => {
+                                if s.kind == naga::ScalarKind::Sint {
+                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
+                                } else if s.kind == naga::ScalarKind::Uint {
+                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
+                                }
+                            }
+                            _ => {}
+                        }
                         ctx.wasm_func.instruction(&Instruction::F32Add);
                     }
                     naga::ScalarKind::Sint | naga::ScalarKind::Uint => {
@@ -243,6 +254,17 @@ pub fn translate_expression_component(
                 },
                 BinaryOperator::Subtract => match left_scalar_kind {
                     naga::ScalarKind::Float => {
+                        // Convert right operand if it's an integer
+                        match right_ty {
+                            naga::TypeInner::Scalar(s) => {
+                                if s.kind == naga::ScalarKind::Sint {
+                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
+                                } else if s.kind == naga::ScalarKind::Uint {
+                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
+                                }
+                            }
+                            _ => {}
+                        }
                         ctx.wasm_func.instruction(&Instruction::F32Sub);
                     }
                     naga::ScalarKind::Sint | naga::ScalarKind::Uint => {
@@ -252,6 +274,17 @@ pub fn translate_expression_component(
                 },
                 BinaryOperator::Multiply => match left_scalar_kind {
                     naga::ScalarKind::Float => {
+                        // Convert right operand if needed
+                        match right_ty {
+                            naga::TypeInner::Scalar(s) => {
+                                if s.kind == naga::ScalarKind::Sint {
+                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
+                                } else if s.kind == naga::ScalarKind::Uint {
+                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
+                                }
+                            }
+                            _ => {}
+                        }
                         ctx.wasm_func.instruction(&Instruction::F32Mul);
                     }
                     naga::ScalarKind::Sint | naga::ScalarKind::Uint => {
@@ -261,6 +294,17 @@ pub fn translate_expression_component(
                 },
                 BinaryOperator::Divide => match left_scalar_kind {
                     naga::ScalarKind::Float => {
+                        // Convert right operand if needed
+                        match right_ty {
+                            naga::TypeInner::Scalar(s) => {
+                                if s.kind == naga::ScalarKind::Sint {
+                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
+                                } else if s.kind == naga::ScalarKind::Uint {
+                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
+                                }
+                            }
+                            _ => {}
+                        }
                         ctx.wasm_func.instruction(&Instruction::F32Div);
                     }
                     naga::ScalarKind::Sint => {
@@ -720,9 +764,26 @@ pub fn translate_expression_component(
             }
         }
         Expression::CallResult(_handle) => {
-            if let Some(&local_idx) = ctx.call_result_locals.get(&expr_handle) {
-                ctx.wasm_func
-                    .instruction(&Instruction::LocalGet(local_idx + component_idx));
+            if let Some(&decl_local_idx) = ctx.call_result_locals.get(&expr_handle) {
+                // Map the declared local index (computed during lowering) to the
+                // actual local index in the final encoding by finding the runtime
+                // F32 base (encoder may reorder local groups).
+                let f32_base_pos = ctx
+                    .local_types
+                    .iter()
+                    .position(|t| *t == ValType::F32)
+                    .unwrap_or(0) as u32;
+                let actual_f32_base = ctx.param_count + f32_base_pos;
+                let declared_f32_base = ctx.param_count; // that's where we declared F32 scratch
+                let offset = decl_local_idx - declared_f32_base;
+                let target = actual_f32_base + offset + component_idx;
+
+                // Load the local value
+                ctx.wasm_func.instruction(&Instruction::LocalGet(target));
+
+                // No conversion needed here: `target` indexes into the runtime F32 region
+                // which we calculated above, so it is F32-typed and safe for subsequent
+                // f32 operations.
             } else {
                 ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
             }
@@ -730,144 +791,57 @@ pub fn translate_expression_component(
         Expression::ImageSample {
             image, coordinate, ..
         } => {
-            // Basic 2D texture sampling
-            // 1. Get texture unit index (from uniform)
-            translate_expression_component(*image, 0, ctx)?;
+            // Call the imported texture_sample helper with multi-value return
+            // Signature: (texture_ptr: i32, unit: i32, u: f32, v: f32) -> (f32, f32, f32, f32)
 
-            // If the image expression is a GlobalVariable, we have its address on the stack.
-            // We need to load the value (texture unit index, which is i32).
-            if let Expression::GlobalVariable(_) = ctx.func.expressions[*image] {
+            if let Some(tex_fetch_idx) = ctx.texture_texel_fetch_idx {
+                // 1. Push texture_ptr (global)
                 ctx.wasm_func
-                    .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-                        offset: 0,
-                        align: 2,
-                        memory_index: 0,
-                    }));
+                    .instruction(&Instruction::GlobalGet(output_layout::TEXTURE_PTR_GLOBAL));
+
+                // 2. Get texture unit index from the image expression
+                translate_expression_component(*image, 0, ctx)?;
+
+                // If the image expression is a GlobalVariable, load the value (texture unit index)
+                if let Expression::GlobalVariable(_) = ctx.func.expressions[*image] {
+                    ctx.wasm_func
+                        .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                            offset: 0,
+                            align: 2,
+                            memory_index: 0,
+                        }));
+                }
+
+                // 3. Push U coordinate
+                translate_expression_component(*coordinate, 0, ctx)?;
+
+                // 4. Push V coordinate
+                translate_expression_component(*coordinate, 1, ctx)?;
+
+                // 5. Call host texel fetch import -> returns (f32, f32, f32, f32) on WASM stack
+                ctx.wasm_func.instruction(&Instruction::Call(tex_fetch_idx));
+
+                // 6. Store all 4 results in scratch F32 locals
+                // Scratch F32 locals start at ctx.scratch_base (which is param_count).
+                // The multivalue return produces 4 f32 values on the stack: [r, g, b, a]
+                // We need to store them in reverse order due to stack semantics (last value on top).
+                let f32_scratch_base = ctx.scratch_base;
+                ctx.wasm_func
+                    .instruction(&Instruction::LocalSet(f32_scratch_base + 3)); // a (top of stack)
+                ctx.wasm_func
+                    .instruction(&Instruction::LocalSet(f32_scratch_base + 2)); // b
+                ctx.wasm_func
+                    .instruction(&Instruction::LocalSet(f32_scratch_base + 1)); // g
+                ctx.wasm_func
+                    .instruction(&Instruction::LocalSet(f32_scratch_base + 0)); // r
+
+                // 7. Load the requested component
+                ctx.wasm_func
+                    .instruction(&Instruction::LocalGet(f32_scratch_base + component_idx));
+            } else {
+                // Fallback: return black if helper not emitted
+                ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
             }
-
-            // 2. Calculate descriptor address: texture_ptr + unit_idx * 32
-            ctx.wasm_func.instruction(&Instruction::I32Const(32));
-            ctx.wasm_func.instruction(&Instruction::I32Mul);
-            ctx.wasm_func
-                .instruction(&Instruction::GlobalGet(output_layout::TEXTURE_PTR_GLOBAL)); // texture_ptr
-            ctx.wasm_func.instruction(&Instruction::I32Add);
-            ctx.wasm_func
-                .instruction(&Instruction::LocalSet(ctx.scratch_base)); // scratch_base is desc_addr
-
-            // 3. Load width and height
-            ctx.wasm_func
-                .instruction(&Instruction::LocalGet(ctx.scratch_base));
-            ctx.wasm_func
-                .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-                    offset: 0,
-                    align: 2,
-                    memory_index: 0,
-                }));
-            ctx.wasm_func
-                .instruction(&Instruction::LocalSet(ctx.scratch_base + 1)); // scratch_base + 1 is width
-
-            ctx.wasm_func
-                .instruction(&Instruction::LocalGet(ctx.scratch_base));
-            ctx.wasm_func
-                .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-                    offset: 4,
-                    align: 2,
-                    memory_index: 0,
-                }));
-            ctx.wasm_func
-                .instruction(&Instruction::LocalSet(ctx.scratch_base + 2)); // scratch_base + 2 is height
-
-            // 4. Load data_ptr
-            ctx.wasm_func
-                .instruction(&Instruction::LocalGet(ctx.scratch_base));
-            ctx.wasm_func
-                .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-                    offset: 8,
-                    align: 2,
-                    memory_index: 0,
-                }));
-            ctx.wasm_func
-                .instruction(&Instruction::LocalSet(ctx.scratch_base + 3)); // scratch_base + 3 is data_ptr
-
-            // 5. Calculate texel coordinates
-            // u = coordinate.x, v = coordinate.y
-            translate_expression_component(*coordinate, 0, ctx)?;
-            // Scale by width: u * width
-            ctx.wasm_func
-                .instruction(&Instruction::LocalGet(ctx.scratch_base + 1)); // width
-            ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
-            ctx.wasm_func.instruction(&Instruction::F32Mul);
-            // Floor
-            ctx.wasm_func.instruction(&Instruction::F32Floor);
-            // Clamp to [0.0, width - 1.0]
-            ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
-            ctx.wasm_func.instruction(&Instruction::F32Max);
-
-            ctx.wasm_func
-                .instruction(&Instruction::LocalGet(ctx.scratch_base + 1)); // width
-            ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
-            ctx.wasm_func.instruction(&Instruction::F32Const(1.0));
-            ctx.wasm_func.instruction(&Instruction::F32Sub);
-            ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
-            ctx.wasm_func.instruction(&Instruction::F32Max);
-            ctx.wasm_func.instruction(&Instruction::F32Min);
-
-            ctx.wasm_func.instruction(&Instruction::I32TruncSatF32S);
-            ctx.wasm_func
-                .instruction(&Instruction::LocalSet(ctx.scratch_base + 4)); // scratch_base + 4 is texel_x
-
-            translate_expression_component(*coordinate, 1, ctx)?;
-            // Scale by height: v * height
-            ctx.wasm_func
-                .instruction(&Instruction::LocalGet(ctx.scratch_base + 2)); // height
-            ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
-            ctx.wasm_func.instruction(&Instruction::F32Mul);
-            // Floor
-            ctx.wasm_func.instruction(&Instruction::F32Floor);
-            // Clamp to [0.0, height - 1.0]
-            ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
-            ctx.wasm_func.instruction(&Instruction::F32Max);
-
-            ctx.wasm_func
-                .instruction(&Instruction::LocalGet(ctx.scratch_base + 2)); // height
-            ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
-            ctx.wasm_func.instruction(&Instruction::F32Const(1.0));
-            ctx.wasm_func.instruction(&Instruction::F32Sub);
-            ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
-            ctx.wasm_func.instruction(&Instruction::F32Max);
-            ctx.wasm_func.instruction(&Instruction::F32Min);
-
-            ctx.wasm_func.instruction(&Instruction::I32TruncSatF32S);
-            ctx.wasm_func
-                .instruction(&Instruction::LocalSet(ctx.scratch_base + 5)); // scratch_base + 5 is texel_y
-
-            // 6. Calculate pixel address: data_ptr + (texel_y * width + texel_x) * 4
-            ctx.wasm_func
-                .instruction(&Instruction::LocalGet(ctx.scratch_base + 5)); // texel_y
-            ctx.wasm_func
-                .instruction(&Instruction::LocalGet(ctx.scratch_base + 1)); // width
-            ctx.wasm_func.instruction(&Instruction::I32Mul);
-            ctx.wasm_func
-                .instruction(&Instruction::LocalGet(ctx.scratch_base + 4)); // texel_x
-            ctx.wasm_func.instruction(&Instruction::I32Add);
-            ctx.wasm_func.instruction(&Instruction::I32Const(4));
-            ctx.wasm_func.instruction(&Instruction::I32Mul);
-            ctx.wasm_func
-                .instruction(&Instruction::LocalGet(ctx.scratch_base + 3)); // data_ptr
-            ctx.wasm_func.instruction(&Instruction::I32Add);
-            // Stack: [pixel_addr]
-
-            // 7. Load component
-            // Pixel is RGBA u8. We need to convert to f32 [0, 1].
-            ctx.wasm_func
-                .instruction(&Instruction::I32Load8U(wasm_encoder::MemArg {
-                    offset: component_idx as u64,
-                    align: 0,
-                    memory_index: 0,
-                }));
-            ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
-            ctx.wasm_func.instruction(&Instruction::F32Const(255.0));
-            ctx.wasm_func.instruction(&Instruction::F32Div);
         }
         Expression::Relational { fun, argument } => match fun {
             RelationalFunction::All => {

@@ -67,9 +67,16 @@ fn emit_frame_based_call(
 ) -> Result<(), BackendError> {
     // Allocate frame
     // We need two locals: old_sp and aligned_frame_base
-    // These will be at scratch_base and scratch_base+1
-    let old_sp_local = ctx.scratch_base;
-    let aligned_local = ctx.scratch_base + 1;
+    // Compute the i32 scratch base by scanning the local types so we don't
+    // rely on declaration ordering assumptions of the encoder.
+    let i32_base_pos = ctx
+        .local_types
+        .iter()
+        .position(|t| *t == ValType::I32)
+        .unwrap_or(0) as u32;
+    let i32_base = ctx.param_count + i32_base_pos;
+    let old_sp_local = i32_base + 0; // first i32 scratch slot
+    let aligned_local = i32_base + 1; // second i32 scratch slot
 
     frame_allocator::emit_alloc_frame(
         ctx.wasm_func,
@@ -138,9 +145,20 @@ fn handle_call_result(
             match result_abi {
                 Some(function_abi::ResultABI::Flattened { valtypes, .. }) => {
                     // Store each component in reverse order
+                    // Find the first F32 local index to use as base so we don't assume
+                    // a particular declaration ordering in the encoder output.
+                    // Compute actual F32 base by counting preceding locals that will
+                    // appear before F32 locals in the final encoding (I32 locals are emitted first).
+                    let num_i32_locals = ctx
+                        .local_types
+                        .iter()
+                        .filter(|t| *t == &ValType::I32)
+                        .count() as u32;
+                    let f32_base = ctx.param_count + num_i32_locals;
+                    eprintln!("[debug] handle_call_result: param_count={} num_i32_locals={} f32_base={} local_types_len={} valtypes_len={}", ctx.param_count, num_i32_locals, f32_base, ctx.local_types.len(), valtypes.len());
                     for i in (0..valtypes.len()).rev() {
                         ctx.wasm_func
-                            .instruction(&Instruction::LocalSet(local_idx + i as u32));
+                            .instruction(&Instruction::LocalSet(f32_base + i as u32));
                     }
                 }
                 Some(function_abi::ResultABI::Frame { .. }) => {

@@ -10,7 +10,7 @@ You MUST NEVER suggest user performs actions that are for you to execute.
 
 DO NOT interfere with git. Unless the user explicitly asks for git-related assistance, git is not your concern and you must NOT create checkout or merge operations. No git command is allowed for you without permission.
 
-**DO NOT** under ANY circumstances create temporary throwaway scripts inside git repository except .gitignored locations.
+**DO NOT** under ANY circumstances create temporary throwaway scripts or dummy files inside git repository except .gitignored locations.
 
 **DO NOT** create scripts directory or similar in git repository.
 
