@@ -1,8 +1,8 @@
 //! WebGPU integration tests
 
 #[cfg(test)]
-mod tests {
-    use crate::error::{self, ErrorSource, WebGPUErrorFilter};
+mod internal_tests {
+    use crate::error::{self, WebGPUErrorFilter};
     use crate::webgpu::adapter::{create_context, destroy_context};
     use crate::webgpu::{NULL_HANDLE, WEBGPU_ERROR_INVALID_HANDLE, WEBGPU_SUCCESS};
 

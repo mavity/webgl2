@@ -303,6 +303,8 @@ mod tests {
                 location: 0,
                 interpolation: None,
                 sampling: None,
+                blend_src: None,
+                per_primitive: false,
             },
             ShaderStage::Vertex,
         );
@@ -315,6 +317,8 @@ mod tests {
                 location: 1,
                 interpolation: None,
                 sampling: None,
+                blend_src: None,
+                per_primitive: false,
             },
             ShaderStage::Vertex,
         );
@@ -328,6 +332,8 @@ mod tests {
         let (offset, ptr) = compute_output_destination(
             &Binding::Location {
                 location: 0,
+                blend_src: None,
+                per_primitive: false,
                 interpolation: None,
                 sampling: None,
             },
@@ -342,6 +348,8 @@ mod tests {
                 location: 1,
                 interpolation: None,
                 sampling: None,
+                blend_src: None,
+                per_primitive: false,
             },
             ShaderStage::Fragment,
         );
@@ -375,6 +383,8 @@ mod tests {
                 location: 0,
                 interpolation: None,
                 sampling: None,
+                blend_src: None,
+                per_primitive: false,
             },
             ShaderStage::Vertex
         ));

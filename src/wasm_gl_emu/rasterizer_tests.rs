@@ -193,7 +193,7 @@ fn test_perspective_interpolation_setup() {
     };
 
     // Just verify we can create vertices with varyings
-    assert_eq!(v0.varyings[0], 1.0);
-    assert_eq!(v1.varyings[1], 1.0);
-    assert_eq!(v2.varyings[2], 1.0);
+    assert_eq!(v0.varyings[0], 1.0f32.to_bits());
+    assert_eq!(v1.varyings[1], 1.0f32.to_bits());
+    assert_eq!(v2.varyings[2], 1.0f32.to_bits());
 }

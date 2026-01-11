@@ -69,12 +69,10 @@ fn store_components_to_memory(
             // Pop value to scratch
             if is_int {
                 // Integer scratch region is located after the f32 scratch region
-                ctx.wasm_func
-                    .instruction(&Instruction::LocalSet(i32_base + 0));
+                ctx.wasm_func.instruction(&Instruction::LocalSet(i32_base));
             } else {
                 // Use the first f32 scratch slot
-                ctx.wasm_func
-                    .instruction(&Instruction::LocalSet(f32_base + 0));
+                ctx.wasm_func.instruction(&Instruction::LocalSet(f32_base));
             }
 
             // Calculate byte offset for this component
@@ -85,8 +83,7 @@ fn store_components_to_memory(
 
             // Push value from scratch and store
             if is_int {
-                ctx.wasm_func
-                    .instruction(&Instruction::LocalGet(i32_base + 0));
+                ctx.wasm_func.instruction(&Instruction::LocalGet(i32_base));
                 ctx.wasm_func
                     .instruction(&Instruction::I32Store(wasm_encoder::MemArg {
                         offset: comp_offset as u64,
@@ -94,8 +91,7 @@ fn store_components_to_memory(
                         memory_index: 0,
                     }));
             } else {
-                ctx.wasm_func
-                    .instruction(&Instruction::LocalGet(f32_base + 0));
+                ctx.wasm_func.instruction(&Instruction::LocalGet(f32_base));
                 // No conversion needed here: `f32_base` is the runtime F32 region base.
                 ctx.wasm_func
                     .instruction(&Instruction::F32Store(wasm_encoder::MemArg {
@@ -112,8 +108,6 @@ fn store_components_to_memory(
         }
     }
 }
-
-/// Translate a Naga statement to WASM instructions
 
 /// Store a single scalar/vector function result into the appropriate output
 /// destination using existing layout helpers.
@@ -407,7 +401,7 @@ pub fn translate_statement(
                                     if let Some(binding) =
                                         &ctx.func.result.as_ref().and_then(|r| r.binding.clone())
                                     {
-                                        store_single_value_to_output(&ty, binding, ctx);
+                                        store_single_value_to_output(ty, binding, ctx);
                                     } else {
                                         for _ in 0..num_components {
                                             ctx.wasm_func.instruction(&Instruction::Drop);

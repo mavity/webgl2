@@ -369,7 +369,7 @@ fn classify_type(module: &Module, ty: Handle<Type>) -> Result<TypeClass, ABIErro
             match size {
                 ArraySize::Constant(count) => {
                     let element_class = classify_type(module, *base)?;
-                    let count = count.get() as u32;
+                    let count = count.get();
                     let total_bytes = *stride * count;
 
                     // Arrays rarely flatten well, but allow small constant arrays
@@ -390,12 +390,8 @@ fn classify_type(module: &Module, ty: Handle<Type>) -> Result<TypeClass, ABIErro
                     let align = type_alignment(module, *base);
                     Ok(TypeClass::Frame(total_bytes, align))
                 }
-                ArraySize::Dynamic => {
-                    return Err(ABIError::DynamicArrayInSignature);
-                }
-                ArraySize::Pending(_) => {
-                    return Err(ABIError::UnsupportedType);
-                }
+                ArraySize::Dynamic => Err(ABIError::DynamicArrayInSignature),
+                ArraySize::Pending(_) => Err(ABIError::UnsupportedType),
             }
         }
 
@@ -419,9 +415,7 @@ fn classify_type(module: &Module, ty: Handle<Type>) -> Result<TypeClass, ABIErro
         TypeInner::BindingArray { .. }
         | TypeInner::RayQuery { .. }
         | TypeInner::AccelerationStructure { .. }
-        | TypeInner::CooperativeMatrix { .. } => {
-            return Err(ABIError::UnsupportedType);
-        }
+        | TypeInner::CooperativeMatrix { .. } => Err(ABIError::UnsupportedType),
     }
 }
 

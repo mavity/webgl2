@@ -75,7 +75,7 @@ fn emit_frame_based_call(
         .position(|t| *t == ValType::I32)
         .unwrap_or(0) as u32;
     let i32_base = ctx.param_count + i32_base_pos;
-    let old_sp_local = i32_base + 0; // first i32 scratch slot
+    let old_sp_local = i32_base; // first i32 scratch slot
     let aligned_local = i32_base + 1; // second i32 scratch slot
 
     frame_allocator::emit_alloc_frame(

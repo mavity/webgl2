@@ -101,8 +101,8 @@ fn align_up(value: u32, alignment: u32) -> u32 {
 mod tests {
     use super::*;
     use naga::{
-        Arena, Constant, ConstantInner, EntryPoint, Function, FunctionArgument, FunctionResult,
-        ScalarKind, ShaderStage, Span, Type, TypeInner, UniqueArena,
+        Arena, EntryPoint, Function, FunctionArgument, FunctionResult, ScalarKind, ShaderStage,
+        Span, Type, TypeInner, UniqueArena,
     };
 
     /// Helper to create a minimal Naga module for testing.
@@ -113,8 +113,12 @@ mod tests {
             global_variables: Arena::new(),
             functions: Arena::new(),
             entry_points: Vec::new(),
-            const_expressions: Arena::new(),
             global_expressions: Arena::new(),
+            special_types: naga::SpecialTypes::default(),
+            overrides: Arena::new(),
+            diagnostic_filters: Arena::new(),
+            diagnostic_filter_leaf: None,
+            doc_comments: Default::default(),
         }
     }
 
@@ -196,6 +200,9 @@ mod tests {
             early_depth_test: None,
             workgroup_size: [1, 1, 1],
             function,
+            mesh_info: None,
+            task_payload: None,
+            workgroup_size_overrides: None,
         };
 
         module.entry_points.push(entry_point);

@@ -235,15 +235,12 @@ pub fn translate_expression_component(
                 BinaryOperator::Add => match left_scalar_kind {
                     naga::ScalarKind::Float => {
                         // If the right operand is integer, convert it to f32 first
-                        match right_ty {
-                            naga::TypeInner::Scalar(s) => {
-                                if s.kind == naga::ScalarKind::Sint {
-                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
-                                } else if s.kind == naga::ScalarKind::Uint {
-                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
-                                }
+                        if let naga::TypeInner::Scalar(s) = right_ty {
+                            if s.kind == naga::ScalarKind::Sint {
+                                ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
+                            } else if s.kind == naga::ScalarKind::Uint {
+                                ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
                             }
-                            _ => {}
                         }
                         ctx.wasm_func.instruction(&Instruction::F32Add);
                     }
@@ -255,15 +252,12 @@ pub fn translate_expression_component(
                 BinaryOperator::Subtract => match left_scalar_kind {
                     naga::ScalarKind::Float => {
                         // Convert right operand if it's an integer
-                        match right_ty {
-                            naga::TypeInner::Scalar(s) => {
-                                if s.kind == naga::ScalarKind::Sint {
-                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
-                                } else if s.kind == naga::ScalarKind::Uint {
-                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
-                                }
+                        if let naga::TypeInner::Scalar(s) = right_ty {
+                            if s.kind == naga::ScalarKind::Sint {
+                                ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
+                            } else if s.kind == naga::ScalarKind::Uint {
+                                ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
                             }
-                            _ => {}
                         }
                         ctx.wasm_func.instruction(&Instruction::F32Sub);
                     }
@@ -275,15 +269,12 @@ pub fn translate_expression_component(
                 BinaryOperator::Multiply => match left_scalar_kind {
                     naga::ScalarKind::Float => {
                         // Convert right operand if needed
-                        match right_ty {
-                            naga::TypeInner::Scalar(s) => {
-                                if s.kind == naga::ScalarKind::Sint {
-                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
-                                } else if s.kind == naga::ScalarKind::Uint {
-                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
-                                }
+                        if let naga::TypeInner::Scalar(s) = right_ty {
+                            if s.kind == naga::ScalarKind::Sint {
+                                ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
+                            } else if s.kind == naga::ScalarKind::Uint {
+                                ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
                             }
-                            _ => {}
                         }
                         ctx.wasm_func.instruction(&Instruction::F32Mul);
                     }
@@ -295,15 +286,12 @@ pub fn translate_expression_component(
                 BinaryOperator::Divide => match left_scalar_kind {
                     naga::ScalarKind::Float => {
                         // Convert right operand if needed
-                        match right_ty {
-                            naga::TypeInner::Scalar(s) => {
-                                if s.kind == naga::ScalarKind::Sint {
-                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
-                                } else if s.kind == naga::ScalarKind::Uint {
-                                    ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
-                                }
+                        if let naga::TypeInner::Scalar(s) = right_ty {
+                            if s.kind == naga::ScalarKind::Sint {
+                                ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
+                            } else if s.kind == naga::ScalarKind::Uint {
+                                ctx.wasm_func.instruction(&Instruction::F32ConvertI32U);
                             }
-                            _ => {}
                         }
                         ctx.wasm_func.instruction(&Instruction::F32Div);
                     }
@@ -469,19 +457,17 @@ pub fn translate_expression_component(
                             }
                         }
                     }
-                } else {
-                    if let Some(name) = &arg.name {
-                        if let Some((type_code, _)) = ctx.varying_types.get(name) {
-                            override_is_int = (*type_code == 1) || (*type_code == 2);
-                        }
-                    } else if let Some(naga::Binding::Location { location, .. }) = arg.binding {
-                        for (vname, &loc) in ctx.varying_locations.iter() {
-                            if loc == location {
-                                if let Some((type_code, _)) = ctx.varying_types.get(vname) {
-                                    override_is_int = (*type_code == 1) || (*type_code == 2);
-                                }
-                                break;
+                } else if let Some(name) = &arg.name {
+                    if let Some((type_code, _)) = ctx.varying_types.get(name) {
+                        override_is_int = (*type_code == 1) || (*type_code == 2);
+                    }
+                } else if let Some(naga::Binding::Location { location, .. }) = arg.binding {
+                    for (vname, &loc) in ctx.varying_locations.iter() {
+                        if loc == location {
+                            if let Some((type_code, _)) = ctx.varying_types.get(vname) {
+                                override_is_int = (*type_code == 1) || (*type_code == 2);
                             }
+                            break;
                         }
                     }
                 }
@@ -612,10 +598,7 @@ pub fn translate_expression_component(
                     let element_inner = &ctx.module.types[*pointed_ty].inner;
                     let element_size = match element_inner {
                         naga::TypeInner::Array { stride, .. } => *stride,
-                        _ => match super::types::type_size(element_inner) {
-                            Ok(s) => s,
-                            Err(_) => 4,
-                        },
+                        _ => super::types::type_size(element_inner).unwrap_or(4),
                     };
                     let offset = (*index * element_size) + (component_idx * 4);
                     if offset > 0 {
@@ -833,7 +816,7 @@ pub fn translate_expression_component(
                 ctx.wasm_func
                     .instruction(&Instruction::LocalSet(f32_scratch_base + 1)); // g
                 ctx.wasm_func
-                    .instruction(&Instruction::LocalSet(f32_scratch_base + 0)); // r
+                    .instruction(&Instruction::LocalSet(f32_scratch_base)); // r
 
                 // 7. Load the requested component
                 ctx.wasm_func
@@ -937,10 +920,7 @@ pub fn translate_expression(
                     let element_inner = &ctx.module.types[*pointed_ty].inner;
                     let element_size = match element_inner {
                         naga::TypeInner::Array { stride, .. } => *stride,
-                        _ => match super::types::type_size(element_inner) {
-                            Ok(s) => s,
-                            Err(_) => 4,
-                        },
+                        _ => super::types::type_size(element_inner).unwrap_or(4),
                     };
                     if *index > 0 {
                         ctx.wasm_func

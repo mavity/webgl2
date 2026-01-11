@@ -1,7 +1,7 @@
 //! Tests for the functions module (registry and preparation pass).
 
 #[cfg(test)]
-mod tests {
+mod internal_tests {
     use crate::naga_wasm_backend::functions::{prep_module, FunctionRegistry};
     use naga::{
         Arena, EntryPoint, Function, FunctionArgument, FunctionResult, LocalVariable, ScalarKind,
@@ -16,8 +16,12 @@ mod tests {
             global_variables: Arena::new(),
             functions: Arena::new(),
             entry_points: Vec::new(),
-            const_expressions: Arena::new(),
             global_expressions: Arena::new(),
+            special_types: naga::SpecialTypes::default(),
+            overrides: Arena::new(),
+            diagnostic_filters: Arena::new(),
+            diagnostic_filter_leaf: None,
+            doc_comments: Default::default(),
         }
     }
 
@@ -163,6 +167,9 @@ mod tests {
             early_depth_test: None,
             workgroup_size: [1, 1, 1],
             function,
+            mesh_info: None,
+            task_payload: None,
+            workgroup_size_overrides: None,
         };
 
         module.entry_points.push(entry_point);
@@ -202,6 +209,9 @@ mod tests {
         let entry_point = EntryPoint {
             name: "fragment_main".to_string(),
             stage: ShaderStage::Fragment,
+            mesh_info: None,
+            task_payload: None,
+            workgroup_size_overrides: None,
             early_depth_test: None,
             workgroup_size: [1, 1, 1],
             function,

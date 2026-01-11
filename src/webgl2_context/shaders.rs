@@ -1197,7 +1197,7 @@ pub fn ctx_get_program_debug_stub(
 // Thread-local storage for ephemeral WAT strings.
 // These strings are generated on-demand and must be copied synchronously by the caller.
 thread_local! {
-    static WAT_STRING_STORAGE: RefCell<String> = RefCell::new(String::new());
+    static WAT_STRING_STORAGE: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 /// Get a reference to the compiled WASM bytes for a program's shader.
