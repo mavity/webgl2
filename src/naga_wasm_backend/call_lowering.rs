@@ -3,7 +3,7 @@
 //! This module implements ABI-aware function call lowering, handling both
 //! flattened scalar parameters and frame-based parameter passing for large types.
 
-use super::{frame_allocator, function_abi, BackendError, TranslationContext};
+use super::{function_abi, output_layout, BackendError, TranslationContext};
 use wasm_encoder::{Instruction, ValType};
 
 /// Emit a function call using FunctionABI for proper parameter/result handling.
@@ -65,26 +65,38 @@ fn emit_frame_based_call(
     wasm_idx: u32,
     ctx: &mut TranslationContext,
 ) -> Result<(), BackendError> {
-    // Allocate frame
-    // We need two locals: old_sp and aligned_frame_base
-    // Compute the i32 scratch base by scanning the local types so we don't
-    // rely on declaration ordering assumptions of the encoder.
+    // --- Inline frame allocation (no locals needed) ---
+    // 1. Load current FRAME_SP
+    ctx.wasm_func
+        .instruction(&Instruction::GlobalGet(output_layout::FRAME_SP_GLOBAL));
+
+    // 2. Align: (sp + align - 1) & ~(align - 1)
+    ctx.wasm_func
+        .instruction(&Instruction::I32Const((abi.frame_alignment - 1) as i32));
+    ctx.wasm_func.instruction(&Instruction::I32Add);
+    ctx.wasm_func
+        .instruction(&Instruction::I32Const(!(abi.frame_alignment - 1) as i32));
+    ctx.wasm_func.instruction(&Instruction::I32And);
+    // Stack: [aligned_base]
+
+    // 3. Advance FRAME_SP: set to aligned_base + frame_size
+    // Use local.tee to keep aligned_base on stack while also storing in a temp
+    // We need one temp local to hold aligned_base across argument processing
     let i32_base_pos = ctx
         .local_types
         .iter()
         .position(|t| *t == ValType::I32)
         .unwrap_or(0) as u32;
-    let i32_base = ctx.param_count + i32_base_pos;
-    let old_sp_local = i32_base; // first i32 scratch slot
-    let aligned_local = i32_base + 1; // second i32 scratch slot
+    let aligned_temp = ctx.param_count + i32_base_pos;
 
-    frame_allocator::emit_alloc_frame(
-        ctx.wasm_func,
-        abi.frame_size,
-        abi.frame_alignment,
-        old_sp_local,
-        aligned_local,
-    );
+    ctx.wasm_func
+        .instruction(&Instruction::LocalTee(aligned_temp));
+    ctx.wasm_func
+        .instruction(&Instruction::I32Const(abi.frame_size as i32));
+    ctx.wasm_func.instruction(&Instruction::I32Add);
+    ctx.wasm_func
+        .instruction(&Instruction::GlobalSet(output_layout::FRAME_SP_GLOBAL));
+    // Stack: [] (aligned_base now in aligned_temp)
 
     // Process each argument according to its ABI
     for (arg_idx, arg_expr) in arguments.iter().enumerate() {
@@ -109,7 +121,7 @@ fn emit_frame_based_call(
 
                 // Push frame pointer as argument
                 ctx.wasm_func
-                    .instruction(&Instruction::LocalGet(aligned_local));
+                    .instruction(&Instruction::LocalGet(aligned_temp));
                 if *offset > 0 {
                     ctx.wasm_func
                         .instruction(&Instruction::I32Const(*offset as i32));
@@ -126,8 +138,15 @@ fn emit_frame_based_call(
     // This would require tracking the source expression location and
     // copying data back from the frame to the original location
 
-    // Free the frame
-    frame_allocator::emit_free_frame(ctx.wasm_func, old_sp_local);
+    // --- Inline frame deallocation (no locals needed) ---
+    // Restore FRAME_SP by subtracting frame_size (we know it at compile time)
+    ctx.wasm_func
+        .instruction(&Instruction::GlobalGet(output_layout::FRAME_SP_GLOBAL));
+    ctx.wasm_func
+        .instruction(&Instruction::I32Const(abi.frame_size as i32));
+    ctx.wasm_func.instruction(&Instruction::I32Sub);
+    ctx.wasm_func
+        .instruction(&Instruction::GlobalSet(output_layout::FRAME_SP_GLOBAL));
 
     // Handle result
     handle_call_result(result, &abi.result, ctx)

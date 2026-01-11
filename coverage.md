@@ -5,19 +5,18 @@
 | File | Lines Covered | Lines Missed | Total Lines | Coverage |
 |---|---|---|---|---:|
 | src/error.rs | 3 | 18 | 21 | 14.29% 🔴 |
-| src/lib.rs | 255 | 218 | 473 | 53.91% 🟡 |
+| src/lib.rs | 254 | 218 | 472 | 53.81% 🟡 |
 | src/naga_wasm_backend/backend.rs | 51 | 2 | 53 | 96.23% 🟢 |
-| src/naga_wasm_backend/call_lowering.rs | 5 | 9 | 14 | 35.71% 🟠 |
+| src/naga_wasm_backend/call_lowering.rs | 6 | 9 | 15 | 40.00% 🟠 |
 | src/naga_wasm_backend/control_flow.rs | 30 | 15 | 45 | 66.67% 🟡 |
 | src/naga_wasm_backend/debug/stub.rs | 21 | 0 | 21 | 100.00% 🟢 |
 | src/naga_wasm_backend/expressions.rs | 48 | 23 | 71 | 67.61% 🟡 |
-| src/naga_wasm_backend/frame_allocator.rs | 1 | 0 | 1 | 100.00% 🟢 |
 | src/naga_wasm_backend/function_abi.rs | 14 | 12 | 26 | 53.85% 🟡 |
 | src/naga_wasm_backend/output_layout.rs | 2 | 3 | 5 | 40.00% 🟡 |
 | src/naga_wasm_backend/types.rs | 6 | 0 | 6 | 100.00% 🟢 |
 | src/wasm_gl_emu/rasterizer.rs | 14 | 0 | 14 | 100.00% 🟢 |
 | src/webgl2_context/buffers.rs | 16 | 1 | 17 | 94.12% 🟢 |
-| src/webgl2_context/drawing.rs | 30 | 6 | 36 | 83.33% 🟢 |
+| src/webgl2_context/drawing.rs | 31 | 6 | 37 | 83.78% 🟢 |
 | src/webgl2_context/framebuffers.rs | 8 | 0 | 8 | 100.00% 🟢 |
 | src/webgl2_context/registry.rs | 6 | 1 | 7 | 85.71% 🟢 |
 | src/webgl2_context/renderbuffers.rs | 10 | 0 | 10 | 100.00% 🟢 |
@@ -26,15 +25,15 @@
 | src/webgl2_context/textures.rs | 10 | 0 | 10 | 100.00% 🟢 |
 | src/webgl2_context/types.rs | 9 | 1 | 10 | 90.00% 🟢 |
 | src/webgl2_context/vaos.rs | 37 | 0 | 37 | 100.00% 🟢 |
-| src/webgpu/adapter.rs | 2 | 0 | 2 | 100.00% 🟢 |
+| src/webgpu/adapter.rs | 3 | 0 | 3 | 100.00% 🟢 |
 | src/webgpu/backend.rs | 24 | 26 | 50 | 48.00% 🟠 |
-| **Total** | **703** | **351** | **1054** | **66.70% 🟡** |
+| **Total** | **704** | **351** | **1055** | **66.73% 🟡** |
 
 ## Top Missed Files
 
 | File | Lines Missed | Illustrative Line | Coverage |
 |---|---|---|---:|
-| src/lib.rs | 218/473 | [1041] `) -> u32 {` | 53.91% 🟡 |
+| src/lib.rs | 218/472 | [1041] `) -> u32 {` | 53.81% 🟡 |
 | src/webgpu/backend.rs | 26/50 | [919] `}` | 48.00% 🟠 |
 | src/naga_wasm_backend/expressions.rs | 23/71 | [898] `let var = &ctx.module.global_variables[*handle];` | 67.61% 🟡 |
 | src/error.rs | 18/21 | [52] `pub fn set_error(source: ErrorSource, code: u32, msg: imp...` | 14.29% 🔴 |
