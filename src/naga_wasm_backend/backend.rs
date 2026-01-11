@@ -601,7 +601,7 @@ impl<'a> Compiler<'a> {
         // Now add scratch I32 locals after the F32 regions
         let scratch_base = current_param_idx; // scratch F32 region starts at param_count
         locals_types.push((32, ValType::I32)); // 32 scratch i32s
-        next_local_idx += 32;
+                                               // next_local_idx += 32;
 
         // Build a flattened local types vector (locals only, not params) for
         // downstream logic that needs to know a specific local's declared type.

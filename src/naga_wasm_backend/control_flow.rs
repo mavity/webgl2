@@ -251,7 +251,7 @@ pub fn translate_statement(
 
                     // 3. Handle result (if any) exactly as normal call path
                     if let Some(res_handle) = result {
-                        if let Some(&local_idx) = ctx.call_result_locals.get(res_handle) {
+                        if let Some(&_local_idx) = ctx.call_result_locals.get(res_handle) {
                             let called_func = &ctx.module.functions[*function];
                             if let Some(ret) = &called_func.result {
                                 let types = super::types::naga_to_wasm_types(
@@ -306,7 +306,7 @@ pub fn translate_statement(
                         ctx.wasm_func.instruction(&Instruction::Call(wasm_idx));
                         // Handle result if any
                         if let Some(res_handle) = result {
-                            if let Some(&local_idx) = ctx.call_result_locals.get(res_handle) {
+                            if let Some(&_local_idx) = ctx.call_result_locals.get(res_handle) {
                                 let called_func = &ctx.module.functions[*function];
                                 if let Some(ret) = &called_func.result {
                                     let types = super::types::naga_to_wasm_types(

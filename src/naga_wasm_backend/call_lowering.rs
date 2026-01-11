@@ -58,7 +58,7 @@ fn emit_flattened_call(
 
 /// Emit a call that requires frame allocation for large parameters.
 fn emit_frame_based_call(
-    function: &naga::Handle<naga::Function>,
+    _function: &naga::Handle<naga::Function>,
     arguments: &[naga::Handle<naga::Expression>],
     result: &Option<naga::Handle<naga::Expression>>,
     abi: &function_abi::FunctionABI,
@@ -140,7 +140,7 @@ fn handle_call_result(
     ctx: &mut TranslationContext,
 ) -> Result<(), BackendError> {
     if let Some(res_handle) = result {
-        if let Some(&local_idx) = ctx.call_result_locals.get(res_handle) {
+        if let Some(&_local_idx) = ctx.call_result_locals.get(res_handle) {
             // Store result into locals
             match result_abi {
                 Some(function_abi::ResultABI::Flattened { valtypes, .. }) => {
