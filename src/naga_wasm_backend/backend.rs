@@ -101,6 +101,145 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn emit_texture_sample_helper(&mut self) {
+        let type_index = self.types.len();
+        self.types.ty().function(
+            vec![ValType::I32, ValType::I32, ValType::F32, ValType::F32],
+            vec![ValType::F32, ValType::F32, ValType::F32, ValType::F32],
+        );
+
+        let func_idx = self.function_count;
+        self.functions.function(type_index);
+        self.function_count += 1;
+        self.texture_texel_fetch_idx = Some(func_idx);
+
+        let mut func = Function::new(vec![
+            (6, ValType::I32), // locals 4..9: desc_addr, width, height, data_ptr, texel_x, texel_y
+        ]);
+
+        // 1. Compute descriptor address: ptr + unit * 32
+        func.instruction(&Instruction::LocalGet(0));
+        func.instruction(&Instruction::LocalGet(1));
+        func.instruction(&Instruction::I32Const(32));
+        func.instruction(&Instruction::I32Mul);
+        func.instruction(&Instruction::I32Add);
+        func.instruction(&Instruction::LocalSet(4));
+
+        // 2. Load descriptor fields
+        func.instruction(&Instruction::LocalGet(4));
+        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+            offset: 0,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::LocalSet(5)); // width
+
+        func.instruction(&Instruction::LocalGet(4));
+        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+            offset: 4,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::LocalSet(6)); // height
+
+        func.instruction(&Instruction::LocalGet(4));
+        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+            offset: 8,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::LocalSet(7)); // data_ptr
+
+        // 3. Compute texel coords
+        // texel_x = clamp(floor(u * width), 0, width - 1)
+        func.instruction(&Instruction::LocalGet(2));
+        func.instruction(&Instruction::LocalGet(5));
+        func.instruction(&Instruction::F32ConvertI32S);
+        func.instruction(&Instruction::F32Mul);
+        func.instruction(&Instruction::F32Floor);
+        func.instruction(&Instruction::I32TruncF32S);
+        func.instruction(&Instruction::LocalSet(8));
+
+        // Clamp x
+        func.instruction(&Instruction::LocalGet(8));
+        func.instruction(&Instruction::I32Const(0));
+        func.instruction(&Instruction::LocalGet(8));
+        func.instruction(&Instruction::I32Const(0));
+        func.instruction(&Instruction::I32GtS);
+        func.instruction(&Instruction::Select);
+        func.instruction(&Instruction::LocalSet(8));
+
+        func.instruction(&Instruction::LocalGet(8));
+        func.instruction(&Instruction::LocalGet(5));
+        func.instruction(&Instruction::I32Const(1));
+        func.instruction(&Instruction::I32Sub);
+        func.instruction(&Instruction::LocalGet(8));
+        func.instruction(&Instruction::LocalGet(5));
+        func.instruction(&Instruction::I32Const(1));
+        func.instruction(&Instruction::I32Sub);
+        func.instruction(&Instruction::I32LtS);
+        func.instruction(&Instruction::Select);
+        func.instruction(&Instruction::LocalSet(8));
+
+        // texel_y = clamp(floor(v * height), 0, height - 1)
+        func.instruction(&Instruction::LocalGet(3));
+        func.instruction(&Instruction::LocalGet(6));
+        func.instruction(&Instruction::F32ConvertI32S);
+        func.instruction(&Instruction::F32Mul);
+        func.instruction(&Instruction::F32Floor);
+        func.instruction(&Instruction::I32TruncF32S);
+        func.instruction(&Instruction::LocalSet(9));
+
+        // Clamp y
+        func.instruction(&Instruction::LocalGet(9));
+        func.instruction(&Instruction::I32Const(0));
+        func.instruction(&Instruction::LocalGet(9));
+        func.instruction(&Instruction::I32Const(0));
+        func.instruction(&Instruction::I32GtS);
+        func.instruction(&Instruction::Select);
+        func.instruction(&Instruction::LocalSet(9));
+
+        func.instruction(&Instruction::LocalGet(9));
+        func.instruction(&Instruction::LocalGet(6));
+        func.instruction(&Instruction::I32Const(1));
+        func.instruction(&Instruction::I32Sub);
+        func.instruction(&Instruction::LocalGet(9));
+        func.instruction(&Instruction::LocalGet(6));
+        func.instruction(&Instruction::I32Const(1));
+        func.instruction(&Instruction::I32Sub);
+        func.instruction(&Instruction::I32LtS);
+        func.instruction(&Instruction::Select);
+        func.instruction(&Instruction::LocalSet(9));
+
+        // 4. Compute byte offset: (texel_y * width + texel_x) * 4
+        func.instruction(&Instruction::LocalGet(9));
+        func.instruction(&Instruction::LocalGet(5));
+        func.instruction(&Instruction::I32Mul);
+        func.instruction(&Instruction::LocalGet(8));
+        func.instruction(&Instruction::I32Add);
+        func.instruction(&Instruction::I32Const(4));
+        func.instruction(&Instruction::I32Mul);
+        func.instruction(&Instruction::LocalGet(7));
+        func.instruction(&Instruction::I32Add);
+        func.instruction(&Instruction::LocalSet(4)); // Reuse 4 as address
+
+        // 5. Load RGBA and normalize
+        for i in 0..4 {
+            func.instruction(&Instruction::LocalGet(4));
+            func.instruction(&Instruction::I32Load8U(wasm_encoder::MemArg {
+                offset: i as u64,
+                align: 0,
+                memory_index: 0,
+            }));
+            func.instruction(&Instruction::F32ConvertI32U);
+            func.instruction(&Instruction::F32Const(255.0));
+            func.instruction(&Instruction::F32Div);
+        }
+
+        func.instruction(&Instruction::End);
+        self.code.function(&func);
+    }
+
     fn compile(&mut self) -> Result<(), BackendError> {
         // Import memory from host
         self.imports.import(
@@ -130,24 +269,8 @@ impl<'a> Compiler<'a> {
             self.function_count += 1;
         }
 
-        // Import a high-level texel fetch helper from the host:
-        // `env.texture_texel_fetch(texture_ptr: i32, unit: i32, u: f32, v: f32) -> (f32,f32,f32,f32)`
-        // The host will compute texel coordinates and return normalized RGBA; keeping
-        // coordinate math in JS avoids fragile float lowering in the compiler.
-        self.imports.import(
-            "env",
-            "texture_texel_fetch",
-            wasm_encoder::EntityType::Function(self.types.len()),
-        );
-        self.types.ty().function(
-            vec![ValType::I32, ValType::I32, ValType::F32, ValType::F32],
-            vec![ValType::F32, ValType::F32, ValType::F32, ValType::F32],
-        );
-        self.texture_texel_fetch_idx = Some(self.function_count);
-        self.function_count += 1;
-
-        // No module-local helper is required: shader lowering will call the imported
-        // `texture_texel_fetch` directly when sampling is used.
+        // Emit the module-local texture sampling helper
+        self.emit_texture_sample_helper();
 
         // Define 6 globals for base pointers
         // 0: attr, 1: uniform, 2: varying, 3: private, 4: textures, 5: frame_sp
