@@ -4,7 +4,7 @@
 //! flattened scalar parameters and frame-based parameter passing for large types.
 
 use super::{function_abi, output_layout, BackendError, TranslationContext};
-use wasm_encoder::{Instruction, ValType};
+use wasm_encoder::Instruction;
 
 /// Emit a function call using FunctionABI for proper parameter/result handling.
 ///
@@ -81,13 +81,8 @@ fn emit_frame_based_call(
 
     // 3. Advance FRAME_SP: set to aligned_base + frame_size
     // Use local.tee to keep aligned_base on stack while also storing in a temp
-    // We need one temp local to hold aligned_base across argument processing
-    let i32_base_pos = ctx
-        .local_types
-        .iter()
-        .position(|t| *t == ValType::I32)
-        .unwrap_or(0) as u32;
-    let aligned_temp = ctx.param_count + i32_base_pos;
+    // We use an explicit temp I32 local allocated for this purpose
+    let aligned_temp = ctx.frame_temp_idx.expect("frame_temp_idx not allocated");
 
     ctx.wasm_func
         .instruction(&Instruction::LocalTee(aligned_temp));
@@ -159,25 +154,15 @@ fn handle_call_result(
     ctx: &mut TranslationContext,
 ) -> Result<(), BackendError> {
     if let Some(res_handle) = result {
-        if let Some(&_local_idx) = ctx.call_result_locals.get(res_handle) {
+        if let Some(&runtime_base) = ctx.call_result_locals.get(res_handle) {
             // Store result into locals
+            // call_result_locals now stores runtime indices directly
             match result_abi {
                 Some(function_abi::ResultABI::Flattened { valtypes, .. }) => {
                     // Store each component in reverse order
-                    // Find the first F32 local index to use as base so we don't assume
-                    // a particular declaration ordering in the encoder output.
-                    // Compute actual F32 base by counting preceding locals that will
-                    // appear before F32 locals in the final encoding (I32 locals are emitted first).
-                    let num_i32_locals = ctx
-                        .local_types
-                        .iter()
-                        .filter(|t| *t == &ValType::I32)
-                        .count() as u32;
-                    let f32_base = ctx.param_count + num_i32_locals;
-                    eprintln!("[debug] handle_call_result: param_count={} num_i32_locals={} f32_base={} local_types_len={} valtypes_len={}", ctx.param_count, num_i32_locals, f32_base, ctx.local_types.len(), valtypes.len());
                     for i in (0..valtypes.len()).rev() {
                         ctx.wasm_func
-                            .instruction(&Instruction::LocalSet(f32_base + i as u32));
+                            .instruction(&Instruction::LocalSet(runtime_base + i as u32));
                     }
                 }
                 Some(function_abi::ResultABI::Frame { .. }) => {

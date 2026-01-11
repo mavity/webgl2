@@ -220,6 +220,10 @@ pub struct TranslationContext<'a> {
     /// Base WASM local index reserved for scratch temporaries used during
     /// expression evaluation and complex instruction lowering.
     pub scratch_base: u32,
+    /// Explicit swap local for i32 store operations (runtime index after grouping)
+    pub swap_i32_local: u32,
+    /// Explicit swap local for f32 store operations (runtime index after grouping)
+    pub swap_f32_local: u32,
     /// Flattened list of local types (corresponding to WASM local indices starting
     /// at `param_count`). Use this to determine a local's declared type.
     pub local_types: &'a [wasm_encoder::ValType],
@@ -229,4 +233,6 @@ pub struct TranslationContext<'a> {
     pub texture_texel_fetch_idx: Option<u32>,
     /// Index of the emitted module-local helper `__webgl_texture_sample`
     pub webgl_texture_sample_idx: Option<u32>,
+    /// Index of a temp I32 local for frame pointer calculations (if allocated)
+    pub frame_temp_idx: Option<u32>,
 }

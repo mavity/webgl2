@@ -580,8 +580,14 @@ impl<'a> Compiler<'a> {
         let mut next_local_idx = current_param_idx;
 
         // Add scratch F32 locals first so float temporaries land in f32-typed locals.
+        // scratch F32 region starts at param_count
+        let scratch_base = next_local_idx;
         locals_types.push((32, ValType::F32)); // 32 scratch f32s
         next_local_idx += 32;
+
+        // Track CallResult expressions and their declaration indices
+        let mut call_result_decl_indices: Vec<(naga::Handle<naga::Expression>, u32, usize)> =
+            Vec::new();
 
         // Map CallResult expressions to WASM locals (place them after scratch F32 region)
         for (handle, expr) in func.expressions.iter() {
@@ -589,19 +595,38 @@ impl<'a> Compiler<'a> {
                 let called_func = &self.module.functions[*func_handle];
                 if let Some(ret) = &called_func.result {
                     let types = super::types::naga_to_wasm_types(&self.module.types[ret.ty].inner)?;
-                    call_result_locals.insert(handle, next_local_idx);
-                    for _ in 0..types.len() {
+                    let decl_idx = next_local_idx;
+                    let num_components = types.len();
+                    call_result_decl_indices.push((handle, decl_idx, num_components));
+                    for _ in 0..num_components {
                         locals_types.push((1, ValType::F32));
                     }
-                    next_local_idx += types.len() as u32;
+                    next_local_idx += num_components as u32;
                 }
             }
         }
 
         // Now add scratch I32 locals after the F32 regions
-        let scratch_base = current_param_idx; // scratch F32 region starts at param_count
         locals_types.push((32, ValType::I32)); // 32 scratch i32s
-                                               // next_local_idx += 32;
+        next_local_idx += 32;
+
+        // Add explicit swap locals at the END to preserve existing indices
+        // These will be used by store_components_to_memory instead of scanning
+        let swap_i32_local = next_local_idx;
+        locals_types.push((1, ValType::I32)); // swap_i32_local
+        next_local_idx += 1;
+
+        let swap_f32_local = next_local_idx;
+        locals_types.push((1, ValType::F32)); // swap_f32_local
+        next_local_idx += 1;
+
+        // Add frame temp local (conservative allocation for Phase 4)
+        let frame_temp_local = next_local_idx;
+        locals_types.push((1, ValType::I32)); // frame_temp
+        next_local_idx += 1;
+
+        // Suppress unused warning for last increment
+        let _ = next_local_idx;
 
         // Build a flattened local types vector (locals only, not params) for
         // downstream logic that needs to know a specific local's declared type.
@@ -610,6 +635,12 @@ impl<'a> Compiler<'a> {
             for _ in 0..*count {
                 flattened_local_types.push(*vtype);
             }
+        }
+
+        // wasm-encoder preserves local declaration order.
+        // Simply map handle to declaration index.
+        for (handle, decl_idx, _num_components) in call_result_decl_indices {
+            call_result_locals.insert(handle, decl_idx);
         }
 
         eprintln!(
@@ -664,11 +695,14 @@ impl<'a> Compiler<'a> {
             local_origins: &local_origins,
             is_entry_point,
             scratch_base,
+            swap_i32_local,
+            swap_f32_local,
             // Local types and parameter count for type-aware lowering
             local_types: &flattened_local_types,
             param_count: current_param_idx,
             texture_texel_fetch_idx: self.texture_texel_fetch_idx,
             webgl_texture_sample_idx: self.webgl_texture_sample_idx,
+            frame_temp_idx: Some(frame_temp_local),
         };
 
         for (stmt, span) in func.body.span_iter() {

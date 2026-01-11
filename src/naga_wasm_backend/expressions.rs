@@ -5,7 +5,7 @@
 use super::{output_layout, BackendError, TranslationContext};
 
 use naga::{BinaryOperator, Expression, Literal, RelationalFunction, ScalarKind, TypeInner};
-use wasm_encoder::{Instruction, ValType};
+use wasm_encoder::Instruction;
 
 /// Helper function to determine if a type should use I32 operations
 pub fn is_integer_type(type_inner: &TypeInner) -> bool {
@@ -747,26 +747,14 @@ pub fn translate_expression_component(
             }
         }
         Expression::CallResult(_handle) => {
-            if let Some(&decl_local_idx) = ctx.call_result_locals.get(&expr_handle) {
-                // Map the declared local index (computed during lowering) to the
-                // actual local index in the final encoding by finding the runtime
-                // F32 base (encoder may reorder local groups).
-                let f32_base_pos = ctx
-                    .local_types
-                    .iter()
-                    .position(|t| *t == ValType::F32)
-                    .unwrap_or(0) as u32;
-                let actual_f32_base = ctx.param_count + f32_base_pos;
-                let declared_f32_base = ctx.param_count; // that's where we declared F32 scratch
-                let offset = decl_local_idx - declared_f32_base;
-                let target = actual_f32_base + offset + component_idx;
+            if let Some(&runtime_base) = ctx.call_result_locals.get(&expr_handle) {
+                // call_result_locals now stores runtime indices directly
+                let target = runtime_base + component_idx;
 
                 // Load the local value
                 ctx.wasm_func.instruction(&Instruction::LocalGet(target));
 
-                // No conversion needed here: `target` indexes into the runtime F32 region
-                // which we calculated above, so it is F32-typed and safe for subsequent
-                // f32 operations.
+                // No conversion needed: target indexes into an F32 local
             } else {
                 ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
             }
