@@ -19,7 +19,10 @@ pub(super) fn compile_module(
         config.module.entry_points.len()
     );
 
-    let mut compiler = Compiler::new(backend, config, name);
+    // Run preparation pass to compute all function ABIs and manifests
+    let registry = super::functions::prep_module(config.module, config.info);
+
+    let mut compiler = Compiler::new(backend, config, name, &registry);
     compiler.compile()?;
 
     Ok(compiler.finish())
@@ -52,7 +55,7 @@ struct Compiler<'a> {
     entry_points: HashMap<String, u32>,
     function_count: u32,
     naga_function_map: HashMap<naga::Handle<naga::Function>, u32>,
-    function_abis: HashMap<naga::Handle<naga::Function>, super::function_abi::FunctionABI>,
+    function_registry: &'a super::functions::FunctionRegistry,
     global_offsets: HashMap<naga::Handle<naga::GlobalVariable>, (u32, u32)>,
     debug_step_idx: Option<u32>,
     /// Index of the emitted module-local helper function `__webgl_texture_sample`
@@ -63,7 +66,12 @@ struct Compiler<'a> {
 }
 
 impl<'a> Compiler<'a> {
-    fn new(backend: &'a WasmBackend, config: CompileConfig<'a>, name: Option<&'a str>) -> Self {
+    fn new(
+        backend: &'a WasmBackend,
+        config: CompileConfig<'a>,
+        name: Option<&'a str>,
+        function_registry: &'a super::functions::FunctionRegistry,
+    ) -> Self {
         // DWARF generation is currently a placeholder/stub in the backend.
         // It is not used for coverage or runtime debugging.
         let debug_generator = None;
@@ -90,7 +98,7 @@ impl<'a> Compiler<'a> {
             entry_points: HashMap::new(),
             function_count: 0,
             naga_function_map: HashMap::new(),
-            function_abis: HashMap::new(),
+            function_registry,
             global_offsets: HashMap::new(),
             debug_step_idx: None,
             webgl_texture_sample_idx: None,
@@ -472,30 +480,35 @@ impl<'a> Compiler<'a> {
             ];
             current_param_idx = 6;
         } else {
-            // Internal function - use FunctionABI for signature
-            let param_types: Vec<_> = func.arguments.iter().map(|arg| arg.ty).collect();
-            let result_type = func.result.as_ref().map(|r| r.ty);
-
-            let abi =
-                super::function_abi::FunctionABI::compute(self.module, &param_types, result_type)
-                    .map_err(|e| {
-                    BackendError::UnsupportedFeature(format!("FunctionABI error: {:?}", e))
+            // Internal function - use FunctionRegistry for signature
+            let func_handle = func_handle.expect("Internal function call without handle");
+            let manifest = self
+                .function_registry
+                .get_function(func_handle)
+                .ok_or_else(|| {
+                    BackendError::InternalError(format!(
+                        "Pre-computed manifest missing for function {:?}",
+                        func_handle
+                    ))
                 })?;
-
-            // Store ABI for call lowering
-            if let Some(fh) = func_handle {
-                self.function_abis.insert(fh, abi.clone());
-            }
+            let abi = &manifest.abi;
 
             params = abi.param_valtypes();
             results = abi.result_valtypes();
 
-            // Map argument handles to parameter indices for flattened params
-            // For now, simple sequential mapping (Frame params need special handling)
-            for i in 0..func.arguments.len() {
-                argument_local_offsets.insert(i as u32, current_param_idx);
-                current_param_idx += params.len() as u32; // Simplified, should be per-arg
+            // Map argument handles to parameter indices
+            let mut param_offset = 0;
+            for (i, arg_abi) in abi.params.iter().enumerate() {
+                argument_local_offsets.insert(i as u32, current_param_idx + param_offset);
+                let count = match arg_abi {
+                    super::function_abi::ParameterABI::Flattened { valtypes, .. } => {
+                        valtypes.len() as u32
+                    }
+                    super::function_abi::ParameterABI::Frame { .. } => 1,
+                };
+                param_offset += count;
             }
+            current_param_idx += params.len() as u32;
         }
 
         let type_idx = self.types.len();
@@ -706,7 +719,7 @@ impl<'a> Compiler<'a> {
             debug_step_idx: self.debug_step_idx,
             typifier: &typifier,
             naga_function_map: &self.naga_function_map,
-            function_abis: &self.function_abis,
+            function_registry: self.function_registry,
             argument_local_offsets: &argument_local_offsets,
             attribute_locations: self.attribute_locations,
             uniform_locations: self.uniform_locations,

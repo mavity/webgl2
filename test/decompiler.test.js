@@ -34,6 +34,17 @@ layout(std430, binding = 0) buffer MemoryBuffer {
     int memory[];
 };
 
+void func_1() {
+    int v0;
+    float v1;
+    int v2;
+    
+    memory[(g2) >> 2] = floatBitsToInt(0.0);
+    memory[((g2) + 4) >> 2] = floatBitsToInt(0.0);
+    memory[((g2) + 8) >> 2] = floatBitsToInt(0.0);
+    memory[((g2) + 12) >> 2] = floatBitsToInt(0.0);
+    return /* unknown: __unsimplified__ */;
+}
 void main(int p0, int p1, int p2, int p3, int p4, int p5) {
     int v6;
     float v7;
@@ -53,17 +64,6 @@ void main(int p0, int p1, int p2, int p3, int p4, int p5) {
     memory[((g2) + 4) >> 2] = floatBitsToInt(v7);
     v7 = /* unknown: __unsimplified__ */;
     memory[(g2) >> 2] = floatBitsToInt(v7);
-    return /* unknown: __unsimplified__ */;
-}
-void func_1() {
-    int v0;
-    float v1;
-    int v2;
-    
-    memory[(g2) >> 2] = floatBitsToInt(0.0);
-    memory[((g2) + 4) >> 2] = floatBitsToInt(0.0);
-    memory[((g2) + 8) >> 2] = floatBitsToInt(0.0);
-    memory[((g2) + 12) >> 2] = floatBitsToInt(0.0);
     return /* unknown: __unsimplified__ */;
 }
 `);

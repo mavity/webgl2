@@ -267,9 +267,9 @@ pub fn translate_statement(
                 // Normal Call - use FunctionABI for proper lowering
                 if let Some(&wasm_idx) = ctx.naga_function_map.get(function) {
                     // Check if we have ABI info for this function
-                    if let Some(abi) = ctx.function_abis.get(function) {
+                    if let Some(manifest) = ctx.function_registry.get_function(*function) {
                         // ABI-aware call lowering
-                        emit_abi_call(function, arguments, result, abi, wasm_idx, ctx)?;
+                        emit_abi_call(function, arguments, result, &manifest.abi, wasm_idx, ctx)?;
                     } else {
                         // Fallback for functions without ABI (shouldn't happen for internal functions)
                         // Push arguments
