@@ -41,7 +41,7 @@ test('basic vertex shader WAT', async () => {
   (global (;5;) (mut i32) i32.const 0)
   (export "main" (func 1))
   (func (;0;) (type 0)
-    (local f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 f32 i32)
+    (local i32 f32 i32)
     global.get 2
     f32.const 0x0p+0 (;=0;)
     f32.store
@@ -57,7 +57,7 @@ test('basic vertex shader WAT', async () => {
     return
   )
   (func (;1;) (type 1) (param i32 i32 i32 i32 i32 i32)
-    (local f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 f32 i32)
+    (local i32 f32 i32)
     local.get 1
     global.set 0
     local.get 2
@@ -85,21 +85,21 @@ test('basic vertex shader WAT', async () => {
     i32.const 12
     i32.add
     f32.load
-    local.set 71
+    local.set 7
     global.get 2
-    local.get 71
+    local.get 7
     f32.store offset=12
-    local.set 71
+    local.set 7
     global.get 2
-    local.get 71
+    local.get 7
     f32.store offset=8
-    local.set 71
+    local.set 7
     global.get 2
-    local.get 71
+    local.get 7
     f32.store offset=4
-    local.set 71
+    local.set 7
     global.get 2
-    local.get 71
+    local.get 7
     f32.store
     return
   )
@@ -148,7 +148,7 @@ test('basic fragment shader WAT', async () => {
   (global (;5;) (mut i32) i32.const 0)
   (export "main" (func 1))
   (func (;0;) (type 0)
-    (local f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 f32 i32)
+    (local i32 f32 i32)
     global.get 3
     f32.const 0x1p+0 (;=1;)
     f32.store
@@ -164,7 +164,7 @@ test('basic fragment shader WAT', async () => {
     return
   )
   (func (;1;) (type 1) (param i32 i32 i32 i32 i32 i32)
-    (local f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 f32 i32)
+    (local i32 f32 i32)
     local.get 1
     global.set 0
     local.get 2
@@ -192,21 +192,21 @@ test('basic fragment shader WAT', async () => {
     i32.const 12
     i32.add
     f32.load
-    local.set 71
+    local.set 7
     global.get 3
-    local.get 71
+    local.get 7
     f32.store offset=12
-    local.set 71
+    local.set 7
     global.get 3
-    local.get 71
+    local.get 7
     f32.store offset=8
-    local.set 71
+    local.set 7
     global.get 3
-    local.get 71
+    local.get 7
     f32.store offset=4
-    local.set 71
+    local.set 7
     global.get 3
-    local.get 71
+    local.get 7
     f32.store
     return
   )

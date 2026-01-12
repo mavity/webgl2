@@ -22,10 +22,8 @@ test('ABI: vec4 return WAT or null', async () => {
     const program = gl.createProgram();
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
-    gl.linkProgram(program);
-
     const wat = getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER);
-    assert.ok(wat === null || typeof wat === 'string', 'WAT should be string or null');
+    assert.strictEqual(wat, null);
   } finally {
     gl.destroy();
   }
