@@ -229,8 +229,6 @@ pub struct TranslationContext<'a> {
     pub local_types: &'a [wasm_encoder::ValType],
     /// Number of function parameters (WASM locals reserved for params start at 0)
     pub param_count: u32,
-    /// Index of the low-level host texel fetch import (env.texture_texel_fetch)
-    pub texture_texel_fetch_idx: Option<u32>,
     /// Index of the emitted module-local helper `__webgl_texture_sample`
     pub webgl_texture_sample_idx: Option<u32>,
     /// Index of a temp I32 local for frame pointer calculations (if allocated)

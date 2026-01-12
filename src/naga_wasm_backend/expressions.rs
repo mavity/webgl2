@@ -762,10 +762,10 @@ pub fn translate_expression_component(
         Expression::ImageSample {
             image, coordinate, ..
         } => {
-            // Call the imported texture_sample helper with multi-value return
+            // Call module-local sampling helper
             // Signature: (texture_ptr: i32, unit: i32, u: f32, v: f32) -> (f32, f32, f32, f32)
 
-            if let Some(tex_fetch_idx) = ctx.texture_texel_fetch_idx {
+            if let Some(tex_fetch_idx) = ctx.webgl_texture_sample_idx {
                 // 1. Push texture_ptr (global)
                 ctx.wasm_func
                     .instruction(&Instruction::GlobalGet(output_layout::TEXTURE_PTR_GLOBAL));

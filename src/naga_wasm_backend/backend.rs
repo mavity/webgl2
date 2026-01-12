@@ -5,7 +5,7 @@ use naga::{front::Typifier, valid::ModuleInfo, Module};
 use std::collections::HashMap;
 use wasm_encoder::{
     CodeSection, CustomSection, ExportKind, ExportSection, Function, FunctionSection,
-    ImportSection, Instruction, MemoryType, TypeSection, ValType,
+    ImportSection, Instruction, MemoryType, NameMap, NameSection, TypeSection, ValType,
 };
 
 /// Compile a Naga module to WASM bytecode
@@ -55,8 +55,6 @@ struct Compiler<'a> {
     function_abis: HashMap<naga::Handle<naga::Function>, super::function_abi::FunctionABI>,
     global_offsets: HashMap<naga::Handle<naga::GlobalVariable>, (u32, u32)>,
     debug_step_idx: Option<u32>,
-    /// Index of the low-level texel fetch host import (env.texture_texel_fetch)
-    texture_texel_fetch_idx: Option<u32>,
     /// Index of the emitted module-local helper function `__webgl_texture_sample`
     webgl_texture_sample_idx: Option<u32>,
 
@@ -95,10 +93,27 @@ impl<'a> Compiler<'a> {
             function_abis: HashMap::new(),
             global_offsets: HashMap::new(),
             debug_step_idx: None,
-            texture_texel_fetch_idx: None,
             webgl_texture_sample_idx: None,
             debug_generator,
         }
+    }
+
+    fn has_image_sampling(&self) -> bool {
+        let check_expressions = |func: &naga::Function| {
+            func.expressions
+                .iter()
+                .any(|(_, expr)| matches!(expr, naga::Expression::ImageSample { .. }))
+        };
+
+        self.module
+            .functions
+            .iter()
+            .any(|(_, f)| check_expressions(f))
+            || self
+                .module
+                .entry_points
+                .iter()
+                .any(|ep| check_expressions(&ep.function))
     }
 
     fn emit_texture_sample_helper(&mut self) {
@@ -111,7 +126,7 @@ impl<'a> Compiler<'a> {
         let func_idx = self.function_count;
         self.functions.function(type_index);
         self.function_count += 1;
-        self.texture_texel_fetch_idx = Some(func_idx);
+        self.webgl_texture_sample_idx = Some(func_idx);
 
         let mut func = Function::new(vec![
             (6, ValType::I32), // locals 4..9: desc_addr, width, height, data_ptr, texel_x, texel_y
@@ -270,7 +285,9 @@ impl<'a> Compiler<'a> {
         }
 
         // Emit the module-local texture sampling helper
-        self.emit_texture_sample_helper();
+        if self.has_image_sampling() {
+            self.emit_texture_sample_helper();
+        }
 
         // Define 6 globals for base pointers
         // 0: attr, 1: uniform, 2: varying, 3: private, 4: textures, 5: frame_sp
@@ -700,7 +717,6 @@ impl<'a> Compiler<'a> {
             // Local types and parameter count for type-aware lowering
             local_types: &flattened_local_types,
             param_count: current_param_idx,
-            texture_texel_fetch_idx: self.texture_texel_fetch_idx,
             webgl_texture_sample_idx: self.webgl_texture_sample_idx,
             frame_temp_idx: Some(frame_temp_local),
         };
@@ -754,6 +770,21 @@ impl<'a> Compiler<'a> {
         module.section(&self.globals);
         module.section(&self.exports);
         module.section(&self.code);
+
+        // Add Name section for debugging and validation
+        let mut names = NameSection::new();
+        let mut func_names = NameMap::new();
+        let mut has_names = false;
+
+        if let Some(idx) = self.webgl_texture_sample_idx {
+            func_names.append(idx, "__webgl_texture_sample");
+            has_names = true;
+        }
+
+        if has_names {
+            names.functions(&func_names);
+            module.section(&names);
+        }
 
         // Add DWARF debug information if enabled
         let dwarf_bytes = if let Some(debug_gen) = self.debug_generator {
