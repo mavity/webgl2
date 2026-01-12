@@ -1694,3 +1694,124 @@ export function getShaderWat(ctxHandle, programHandle, shaderType) {
 
   return watText;
 }
+
+/**
+ * Decompile WASM bytes to GLSL source code.
+ * 
+ * This uses the WASM-to-GLSL decompiler to convert compiled shader WASM
+ * back into readable GLSL-like code.
+ * 
+ * @param {number} ctxHandle - Context handle
+ * @param {number} programHandle - Program handle
+ * @param {number} shaderType - Shader type (VERTEX_SHADER or FRAGMENT_SHADER)
+ * @returns {string | null} GLSL source code or null if not available
+ */
+export function getShaderGlsl(ctxHandle, programHandle, shaderType) {
+  const ctx = WasmWebGL2RenderingContext._contexts.get(ctxHandle);
+  if (!ctx) {
+    throw new Error('Invalid context handle');
+  }
+
+  // First get the WASM bytes for the shader
+  const wasmBytes = getShaderModule(ctxHandle, programHandle, shaderType);
+  if (!wasmBytes) {
+    return null;
+  }
+
+  const ex = ctx._instance.exports;
+  if (!ex || typeof ex.wasm_decompile_to_glsl !== 'function') {
+    throw new Error('wasm_decompile_to_glsl not found');
+  }
+
+  // Allocate memory in WASM for the input bytes
+  const wasmBytesLen = wasmBytes.length;
+  const wasmBytesPtr = ex.wasm_alloc(wasmBytesLen);
+  if (wasmBytesPtr === 0) {
+    throw new Error('Failed to allocate memory for WASM bytes');
+  }
+
+  try {
+    // Copy WASM bytes to linear memory
+    const mem = new Uint8Array(ex.memory.buffer);
+    mem.set(wasmBytes, wasmBytesPtr);
+
+    // Call the decompiler
+    const resultLen = ex.wasm_decompile_to_glsl(wasmBytesPtr, wasmBytesLen);
+
+    if (resultLen === 0) {
+      return null;
+    }
+
+    // Get the decompiled GLSL
+    const glslPtr = ex.wasm_get_decompiled_glsl_ptr();
+    const glslLen = ex.wasm_get_decompiled_glsl_len();
+
+    if (glslPtr === 0 || glslLen === 0) {
+      return null;
+    }
+
+    // Read the GLSL string
+    const glslBytes = new Uint8Array(ex.memory.buffer).subarray(glslPtr, glslPtr + glslLen);
+    const decoder = new TextDecoder('utf-8');
+    return decoder.decode(glslBytes);
+  } finally {
+    // Free the allocated memory
+    ex.wasm_free(wasmBytesPtr);
+  }
+}
+
+/**
+ * Decompile raw WASM bytes to GLSL source code.
+ * 
+ * This is a lower-level API that takes raw WASM bytes directly.
+ * 
+ * @param {WasmWebGL2RenderingContext} gl - WebGL2 context
+ * @param {Uint8Array} wasmBytes - Raw WASM bytecode to decompile
+ * @returns {string | null} GLSL source code or null on error
+ */
+export function decompileWasmToGlsl(gl, wasmBytes) {
+  if (!gl || !gl._instance) {
+    throw new Error('Invalid WebGL2 context');
+  }
+
+  const ex = gl._instance.exports;
+  if (!ex || typeof ex.wasm_decompile_to_glsl !== 'function') {
+    throw new Error('wasm_decompile_to_glsl not found');
+  }
+
+  // Allocate memory in WASM for the input bytes
+  const wasmBytesLen = wasmBytes.length;
+  const wasmBytesPtr = ex.wasm_alloc(wasmBytesLen);
+  if (wasmBytesPtr === 0) {
+    throw new Error('Failed to allocate memory for WASM bytes');
+  }
+
+  try {
+    // Copy WASM bytes to linear memory
+    const mem = new Uint8Array(ex.memory.buffer);
+    mem.set(wasmBytes, wasmBytesPtr);
+
+    // Call the decompiler
+    const resultLen = ex.wasm_decompile_to_glsl(wasmBytesPtr, wasmBytesLen);
+
+    if (resultLen === 0) {
+      return null;
+    }
+
+    // Get the decompiled GLSL
+    const glslPtr = ex.wasm_get_decompiled_glsl_ptr();
+    const glslLen = ex.wasm_get_decompiled_glsl_len();
+
+    if (glslPtr === 0 || glslLen === 0) {
+      return null;
+    }
+
+    // Read the GLSL string
+    const glslBytes = new Uint8Array(ex.memory.buffer).subarray(glslPtr, glslPtr + glslLen);
+    const decoder = new TextDecoder('utf-8');
+    return decoder.decode(glslBytes);
+  } finally {
+    // Free the allocated memory
+    ex.wasm_free(wasmBytesPtr);
+  }
+}

@@ -6,7 +6,9 @@ import {
   ERR_INVALID_HANDLE,
   readErrorMessage,
   getShaderModule,
-  getShaderWat
+  getShaderWat,
+  getShaderGlsl,
+  decompileWasmToGlsl
 } from './src/webgl2_context.js';
 import { GPU, GPUBufferUsage, GPUMapMode, GPUTextureUsage } from './src/webgpu_context.js';
 
@@ -15,7 +17,7 @@ export const debug = {
   resetLcovReport
 };
 
-export { ERR_OK, ERR_INVALID_HANDLE, GPUBufferUsage, GPUMapMode, GPUTextureUsage, getShaderModule, getShaderWat };
+export { ERR_OK, ERR_INVALID_HANDLE, GPUBufferUsage, GPUMapMode, GPUTextureUsage, getShaderModule, getShaderWat, getShaderGlsl, decompileWasmToGlsl };
 
 /**
  * WebGL2 Prototype: Rust-owned Context, JS thin-forwarder
@@ -194,6 +196,10 @@ async function initWASM({ debug } = {}) {
         } else {
             console.error("GPU.dispatchUncapturedError not available", msg);
         }
+      },
+      // Required by egg crate for timing measurements
+      now: () => {
+        return performance.now();
       }
     }
   };

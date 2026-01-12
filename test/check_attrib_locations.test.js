@@ -24,7 +24,11 @@ test('Check Attribute Locations', async (t) => {
                 console.log(new TextDecoder('utf-8').decode(bytes));
             },
             wasm_execute_shader: () => {},
-            dispatch_uncaptured_error: () => {}
+            dispatch_uncaptured_error: () => {},
+            // Required by egg crate for timing measurements
+            now: () => {
+                return performance.now();
+            }
         }
     };
     instance = await WebAssembly.instantiate(wasmModule, importObject);

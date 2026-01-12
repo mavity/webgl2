@@ -49,6 +49,10 @@ tera = "1.20"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+# Expression simplification (equality saturation)
+egg = "0.9"
+ordered-float = "4.2"
+
 # CLI removed from this package; move native CLI/tools to an external repo or tools/ directory
 
 # Random number generation (wasm requires "js" feature)
