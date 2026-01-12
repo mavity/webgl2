@@ -596,12 +596,6 @@ impl<'a> Compiler<'a> {
         let mut locals_types = vec![];
         let mut next_local_idx = current_param_idx;
 
-        // Add scratch F32 locals first so float temporaries land in f32-typed locals.
-        // scratch F32 region starts at param_count
-        let scratch_base = next_local_idx;
-        locals_types.push((32, ValType::F32)); // 32 scratch f32s
-        next_local_idx += 32;
-
         // Track CallResult expressions and their declaration indices
         let mut call_result_decl_indices: Vec<(naga::Handle<naga::Expression>, u32, usize)> =
             Vec::new();
@@ -623,10 +617,6 @@ impl<'a> Compiler<'a> {
             }
         }
 
-        // Now add scratch I32 locals after the F32 regions
-        locals_types.push((32, ValType::I32)); // 32 scratch i32s
-        next_local_idx += 32;
-
         // Add explicit swap locals at the END to preserve existing indices
         // These will be used by store_components_to_memory instead of scanning
         let swap_i32_local = next_local_idx;
@@ -641,6 +631,21 @@ impl<'a> Compiler<'a> {
         let frame_temp_local = next_local_idx;
         locals_types.push((1, ValType::I32)); // frame_temp
         next_local_idx += 1;
+
+        // Phase 4: Explicit locals for image sampling results (4 f32s)
+        let uses_sampling = func
+            .expressions
+            .iter()
+            .any(|(_, expr)| matches!(expr, naga::Expression::ImageSample { .. }));
+
+        let sample_f32_locals = if uses_sampling {
+            let idx = next_local_idx;
+            locals_types.push((4, ValType::F32)); // r, g, b, a
+            next_local_idx += 4;
+            Some(idx)
+        } else {
+            None
+        };
 
         // Suppress unused warning for last increment
         let _ = next_local_idx;
@@ -711,7 +716,6 @@ impl<'a> Compiler<'a> {
             attribute_types: self.attribute_types,
             local_origins: &local_origins,
             is_entry_point,
-            scratch_base,
             swap_i32_local,
             swap_f32_local,
             // Local types and parameter count for type-aware lowering
@@ -719,6 +723,7 @@ impl<'a> Compiler<'a> {
             param_count: current_param_idx,
             webgl_texture_sample_idx: self.webgl_texture_sample_idx,
             frame_temp_idx: Some(frame_temp_local),
+            sample_f32_locals,
         };
 
         for (stmt, span) in func.body.span_iter() {

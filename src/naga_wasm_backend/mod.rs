@@ -217,9 +217,6 @@ pub struct TranslationContext<'a> {
     /// Indicates whether the current function is a shader entry point, which
     /// can affect how inputs, outputs, and builtins are lowered.
     pub is_entry_point: bool,
-    /// Base WASM local index reserved for scratch temporaries used during
-    /// expression evaluation and complex instruction lowering.
-    pub scratch_base: u32,
     /// Explicit swap local for i32 store operations (runtime index after grouping)
     pub swap_i32_local: u32,
     /// Explicit swap local for f32 store operations (runtime index after grouping)
@@ -231,6 +228,8 @@ pub struct TranslationContext<'a> {
     pub param_count: u32,
     /// Index of the emitted module-local helper `__webgl_texture_sample`
     pub webgl_texture_sample_idx: Option<u32>,
+    /// Base index for the 4 explicit f32 locals used for texture sampling results
+    pub sample_f32_locals: Option<u32>,
     /// Index of a temp I32 local for frame pointer calculations (if allocated)
     pub frame_temp_idx: Option<u32>,
 }

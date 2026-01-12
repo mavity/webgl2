@@ -792,23 +792,25 @@ pub fn translate_expression_component(
                 // 5. Call host texel fetch import -> returns (f32, f32, f32, f32) on WASM stack
                 ctx.wasm_func.instruction(&Instruction::Call(tex_fetch_idx));
 
-                // 6. Store all 4 results in scratch F32 locals
-                // Scratch F32 locals start at ctx.scratch_base (which is param_count).
+                // 6. Store all 4 results in explicit sampling locals
                 // The multivalue return produces 4 f32 values on the stack: [r, g, b, a]
                 // We need to store them in reverse order due to stack semantics (last value on top).
-                let f32_scratch_base = ctx.scratch_base;
+                let sample_base = ctx
+                    .sample_f32_locals
+                    .expect("Sampling locals not allocated for function with ImageSample?");
+
                 ctx.wasm_func
-                    .instruction(&Instruction::LocalSet(f32_scratch_base + 3)); // a (top of stack)
+                    .instruction(&Instruction::LocalSet(sample_base + 3)); // a (top of stack)
                 ctx.wasm_func
-                    .instruction(&Instruction::LocalSet(f32_scratch_base + 2)); // b
+                    .instruction(&Instruction::LocalSet(sample_base + 2)); // b
                 ctx.wasm_func
-                    .instruction(&Instruction::LocalSet(f32_scratch_base + 1)); // g
+                    .instruction(&Instruction::LocalSet(sample_base + 1)); // g
                 ctx.wasm_func
-                    .instruction(&Instruction::LocalSet(f32_scratch_base)); // r
+                    .instruction(&Instruction::LocalSet(sample_base)); // r
 
                 // 7. Load the requested component
                 ctx.wasm_func
-                    .instruction(&Instruction::LocalGet(f32_scratch_base + component_idx));
+                    .instruction(&Instruction::LocalGet(sample_base + component_idx));
             } else {
                 // Fallback: return black if helper not emitted
                 ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
