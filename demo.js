@@ -371,6 +371,147 @@ function createPNG(width, height, pixels) {
     return buf;
 }
 
+// ASCII art rendering function for terminal
+function renderASCIIArt(pixels, width, height) {
+    // Step 1: Crop - horizontal: 1/6 from each side, vertical: 1/5 from top, 2/15 from bottom
+    const cropX = Math.floor(width / 6);
+    const cropTop = Math.floor(height / 5);
+    const cropBottom = Math.floor(height * 2 / 15);
+    const croppedWidth = width - 2 * cropX;
+    const croppedHeight = height - cropTop - cropBottom;
+
+    // Step 2: Calculate target dimensions (80 chars wide, proportional height)
+    const targetWidth = 80;
+    const targetHeight = Math.floor((croppedHeight / croppedWidth) * targetWidth);
+
+    // Step 3: Downsample the image
+    // Each character represents 2 vertical pixels
+    const charHeight = Math.floor(targetHeight / 2);
+    
+    const sampledPixels = [];
+    for (let charY = 0; charY < charHeight; charY++) {
+        for (let charX = 0; charX < targetWidth; charX++) {
+            // Sample two pixels: top and bottom for this character
+            const topPixel = samplePixel(pixels, width, height, cropX, cropTop, cropBottom, croppedWidth, croppedHeight, charX, charY * 2, targetWidth, targetHeight);
+            const bottomPixel = samplePixel(pixels, width, height, cropX, cropTop, cropBottom, croppedWidth, croppedHeight, charX, charY * 2 + 1, targetWidth, targetHeight);
+            sampledPixels.push({ top: topPixel, bottom: bottomPixel });
+        }
+    }
+
+    // Step 4: Generate ASCII art with ANSI colors
+    let output = '';
+    for (let charY = 0; charY < charHeight; charY++) {
+        for (let charX = 0; charX < targetWidth; charX++) {
+            const idx = charY * targetWidth + charX;
+            const { top, bottom } = sampledPixels[idx];
+            
+            // Determine if pixels are blue, yellow, or something else
+            const topColor = classifyColor(top);
+            const bottomColor = classifyColor(bottom);
+            
+            // Generate character with ANSI codes
+            const charData = generateChar(topColor, bottomColor);
+            output += charData;
+        }
+        output += '\n';
+    }
+    
+    return output;
+}
+
+function samplePixel(pixels, origWidth, origHeight, cropX, cropTop, cropBottom, croppedWidth, croppedHeight, x, y, targetWidth, targetHeight) {
+    // Map from target coordinates to cropped source coordinates
+    const srcX = Math.floor((x / targetWidth) * croppedWidth) + cropX;
+    const srcY = Math.floor((y / targetHeight) * croppedHeight) + cropTop;
+    
+    // Flip Y coordinate (pixels are bottom-up from readPixels)
+    const flippedY = origHeight - 1 - srcY;
+    
+    const idx = (flippedY * origWidth + srcX) * 4;
+    return {
+        r: pixels[idx],
+        g: pixels[idx + 1],
+        b: pixels[idx + 2],
+        a: pixels[idx + 3]
+    };
+}
+
+function classifyColor(pixel) {
+    // Check for transparent/black
+    if (pixel.a < 128 || (pixel.r < 50 && pixel.g < 50 && pixel.b < 50)) {
+        return 'black';
+    }
+    
+    // Check for blue (cornflower blue: 100, 149, 237)
+    const isBlue = pixel.b > pixel.r && pixel.b > pixel.g && pixel.b > 150;
+    if (isBlue) {
+        return 'blue';
+    }
+    
+    // Check for yellow/gold (255, 215, 0)
+    const isYellow = pixel.r > 200 && pixel.g > 150 && pixel.b < 100;
+    if (isYellow) {
+        return 'yellow';
+    }
+    
+    return 'other';
+}
+
+function generateChar(topColor, bottomColor) {
+    // Unicode block characters
+    const FULL_BLOCK = '█';
+    const UPPER_HALF_BLOCK = '▀';
+    const LOWER_HALF_BLOCK = '▄';
+    const SPACE = ' ';
+    
+    // ANSI color codes
+    const RESET = '\x1b[0m';
+    const BLUE_256 = '\x1b[38;5;69m';   // Cornflower blue approximation
+    const YELLOW_256 = '\x1b[38;5;220m'; // Gold approximation
+    const BLUE_16 = '\x1b[34m';          // Fallback blue
+    const YELLOW_16 = '\x1b[33m';        // Fallback yellow
+    
+    // Wrap 256-color in 16-color for graceful degradation
+    const BLUE = BLUE_16 + BLUE_256;
+    const YELLOW = YELLOW_16 + YELLOW_256;
+    
+    // Both same color
+    if (topColor === bottomColor) {
+        if (topColor === 'blue') {
+            return BLUE + FULL_BLOCK + RESET;
+        } else if (topColor === 'yellow') {
+            return YELLOW + FULL_BLOCK + RESET;
+        } else {
+            return SPACE;
+        }
+    }
+    
+    // Different colors - use half blocks
+    if (topColor === 'blue' && bottomColor === 'yellow') {
+        return BLUE + UPPER_HALF_BLOCK + RESET;
+    } else if (topColor === 'yellow' && bottomColor === 'blue') {
+        return BLUE + LOWER_HALF_BLOCK + RESET;
+    } else if (topColor === 'blue' && bottomColor === 'black') {
+        return BLUE + UPPER_HALF_BLOCK + RESET;
+    } else if (topColor === 'black' && bottomColor === 'blue') {
+        return BLUE + LOWER_HALF_BLOCK + RESET;
+    } else if (topColor === 'yellow' && bottomColor === 'black') {
+        return YELLOW + UPPER_HALF_BLOCK + RESET;
+    } else if (topColor === 'black' && bottomColor === 'yellow') {
+        return YELLOW + LOWER_HALF_BLOCK + RESET;
+    } else if (topColor === 'blue') {
+        return BLUE + UPPER_HALF_BLOCK + RESET;
+    } else if (bottomColor === 'blue') {
+        return BLUE + LOWER_HALF_BLOCK + RESET;
+    } else if (topColor === 'yellow') {
+        return YELLOW + UPPER_HALF_BLOCK + RESET;
+    } else if (bottomColor === 'yellow') {
+        return YELLOW + LOWER_HALF_BLOCK + RESET;
+    }
+    
+    return SPACE;
+}
+
 // Main entry point
 async function displayFrame(pixels, width, height) {
     if (!animationState.ctx) return;
@@ -435,6 +576,11 @@ async function main() {
 
         fs.writeFileSync(path.resolve(__dirname, 'output.png'), buf);
         console.log("Saved output.png");
+        
+        // Generate and display ASCII art
+        const asciiArt = renderASCIIArt(pixels, width, height);
+        console.log("\nASCII Art Render:\n");
+        console.log(asciiArt);
     } else {
         // Browser: Apply styles and create UI
         const style = document.createElement('style');
