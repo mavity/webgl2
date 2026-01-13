@@ -179,6 +179,9 @@ pub fn ctx_draw_arrays_instanced(
         uniform_data: &ctx_obj.uniform_data,
         prepare_textures: None,
         blend: ctx_obj.blend_state,
+        color_mask: ctx_obj.color_mask,
+        depth: ctx_obj.depth_state,
+        stencil: ctx_obj.stencil_state,
     };
 
     let fetcher = WebGLVertexFetcher {
@@ -320,6 +323,9 @@ pub fn ctx_draw_elements_instanced(
         uniform_data: &ctx_obj.uniform_data,
         prepare_textures: None,
         blend: ctx_obj.blend_state,
+        color_mask: ctx_obj.color_mask,
+        depth: ctx_obj.depth_state,
+        stencil: ctx_obj.stencil_state,
     };
 
     let fetcher = WebGLVertexFetcher {

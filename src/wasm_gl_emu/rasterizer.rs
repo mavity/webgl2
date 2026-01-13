@@ -58,6 +58,12 @@ pub struct RenderState<'a> {
     pub prepare_textures: Option<Box<dyn Fn(u32) + 'a>>,
     /// Blend state
     pub blend: BlendState,
+    /// Color mask
+    pub color_mask: ColorMaskState,
+    /// Depth state
+    pub depth: DepthState,
+    /// Stencil state
+    pub stencil: StencilState,
 }
 
 /// Interface for fetching vertex attributes
@@ -74,6 +80,78 @@ pub struct VaryingDebug {
     pub location: u32,
     pub type_code: u8,   // 0=float, 1=int, 2=uint
     pub components: u32, // number of scalar components
+}
+
+/// Color mask state
+#[derive(Clone, Copy, Debug)]
+pub struct ColorMaskState {
+    pub r: bool,
+    pub g: bool,
+    pub b: bool,
+    pub a: bool,
+}
+
+impl Default for ColorMaskState {
+    fn default() -> Self {
+        Self {
+            r: true,
+            g: true,
+            b: true,
+            a: true,
+        }
+    }
+}
+
+/// Stencil state for one face (front/back)
+#[derive(Clone, Copy, Debug)]
+pub struct StencilFaceState {
+    pub func: u32,       // Default GL_ALWAYS
+    pub ref_val: i32,    // Default 0
+    pub mask: u32,       // Default all 1s
+    pub fail: u32,       // Default GL_KEEP
+    pub zfail: u32,      // Default GL_KEEP
+    pub zpass: u32,      // Default GL_KEEP
+    pub write_mask: u32, // Default all 1s
+}
+
+impl Default for StencilFaceState {
+    fn default() -> Self {
+        Self {
+            func: 0x0207, // GL_ALWAYS
+            ref_val: 0,
+            mask: 0xFFFFFFFF,
+            fail: 0x1E00,  // GL_KEEP
+            zfail: 0x1E00, // GL_KEEP
+            zpass: 0x1E00, // GL_KEEP
+            write_mask: 0xFFFFFFFF,
+        }
+    }
+}
+
+/// Stencil test state
+#[derive(Clone, Copy, Debug, Default)]
+pub struct StencilState {
+    pub enabled: bool,
+    pub front: StencilFaceState,
+    pub back: StencilFaceState,
+}
+
+/// Depth test state
+#[derive(Clone, Copy, Debug)]
+pub struct DepthState {
+    pub enabled: bool,
+    pub func: u32,  // GL_LESS
+    pub mask: bool, // true
+}
+
+impl Default for DepthState {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            func: 0x0201, // GL_LESS
+            mask: true,
+        }
+    }
 }
 
 /// Blend state for rasterization
@@ -273,7 +351,20 @@ impl Rasterizer {
                     fb.color[idx + 3],
                 ];
                 let blended = blend_pixel(color, existing, &state.blend);
-                fb.color[idx..idx + 4].copy_from_slice(&blended);
+
+                // Color Mask
+                if state.color_mask.r {
+                    fb.color[idx + 0] = blended[0];
+                }
+                if state.color_mask.g {
+                    fb.color[idx + 1] = blended[1];
+                }
+                if state.color_mask.b {
+                    fb.color[idx + 2] = blended[2];
+                }
+                if state.color_mask.a {
+                    fb.color[idx + 3] = blended[3];
+                }
             }
         }
     }
@@ -335,6 +426,13 @@ impl Rasterizer {
             return;
         }
 
+        // Calculate triangle area to determine facing (Back-face culling support)
+        // Assuming Y-axis points down in viewport coordinates:
+        // Area > 0 implies CW screen winding, which matches CCW clip winding (Front)
+        // Area < 0 implies CCW screen winding, which matches CW clip winding (Back)
+        let tri_area = (p1.0 - p0.0) * (p2.1 - p0.1) - (p1.1 - p0.1) * (p2.0 - p0.0);
+        let is_front = tri_area > 0.0;
+
         // Perspective correction factors
         let w0_inv = 1.0 / v0.position[3];
         let w1_inv = 1.0 / v1.position[3];
@@ -354,53 +452,141 @@ impl Rasterizer {
                 let (u, v, w) = barycentric((x as f32 + 0.5, y as f32 + 0.5), p0, p1, p2);
 
                 if u >= 0.0 && v >= 0.0 && w >= 0.0 {
+                    let fb_idx = (y as u32 * fb.width + x as u32) as usize;
+
+                    // --- Stencil Test ---
+                    if state.stencil.enabled {
+                        let current_stencil = fb.stencil[fb_idx];
+                        let face_state = if is_front {
+                            &state.stencil.front
+                        } else {
+                            &state.stencil.back
+                        };
+
+                        // Compare
+                        if !compare_stencil(
+                            face_state.func,
+                            face_state.ref_val,
+                            current_stencil,
+                            face_state.mask,
+                        ) {
+                            // Fail
+                            let new_val = apply_stencil_op(
+                                face_state.fail,
+                                current_stencil,
+                                face_state.ref_val,
+                            );
+                            fb.stencil[fb_idx] = (current_stencil & !face_state.write_mask as u8)
+                                | (new_val & face_state.write_mask as u8);
+                            continue;
+                        }
+                    }
+
+                    // --- Depth Test ---
                     // Interpolate depth (NDC z/w mapped to [0, 1])
                     let z0 = v0.position[2] / v0.position[3];
                     let z1 = v1.position[2] / v1.position[3];
                     let z2 = v2.position[2] / v2.position[3];
                     let depth_ndc = u * z0 + v * z1 + w * z2;
                     let depth = (depth_ndc + 1.0) * 0.5;
+                    let current_depth = fb.depth[fb_idx];
 
-                    let fb_idx = (y as u32 * fb.width + x as u32) as usize;
+                    // Check bounds [0,1]
+                    if !(0.0..=1.0).contains(&depth) {
+                        continue;
+                    }
 
-                    // Depth test
-                    if (0.0..=1.0).contains(&depth) && depth < fb.depth[fb_idx] {
-                        fb.depth[fb_idx] = depth;
+                    let depth_pass = if state.depth.enabled {
+                        compare_depth(state.depth.func, depth, current_depth)
+                    } else {
+                        true
+                    };
 
-                        // Perspective correct interpolation of varyings
-                        let w_interp_inv = u * w0_inv + v * w1_inv + w * w2_inv;
-                        let w_interp = 1.0 / w_interp_inv;
+                    // Handle Depth Fail / Pass for Stencil
+                    if state.stencil.enabled {
+                        let current_stencil = fb.stencil[fb_idx];
+                        let face_state = if is_front {
+                            &state.stencil.front
+                        } else {
+                            &state.stencil.back
+                        };
 
-                        for (k, varying) in interp_varyings.iter_mut().enumerate() {
-                            if (pipeline.flat_varyings_mask & (1 << k)) != 0 {
-                                // Flat shading: copy raw bits from provoking vertex (v2)
-                                *varying = v2.varyings[k];
-                            } else {
-                                // Smooth shading: interpolate as floats, then store as bits
-                                let v0_f = f32::from_bits(v0.varyings[k]);
-                                let v1_f = f32::from_bits(v1.varyings[k]);
-                                let v2_f = f32::from_bits(v2.varyings[k]);
-                                let interp_f =
-                                    (u * v0_f * w0_inv + v * v1_f * w1_inv + w * v2_f * w2_inv)
-                                        * w_interp;
-                                *varying = interp_f.to_bits();
-                            }
+                        if !depth_pass {
+                            // ZFail
+                            let new_val = apply_stencil_op(
+                                face_state.zfail,
+                                current_stencil,
+                                face_state.ref_val,
+                            );
+                            fb.stencil[fb_idx] = (current_stencil & !face_state.write_mask as u8)
+                                | (new_val & face_state.write_mask as u8);
+                            continue; // Discard
+                        } else {
+                            // Pass (ZPass)
+                            let new_val = apply_stencil_op(
+                                face_state.zpass,
+                                current_stencil,
+                                face_state.ref_val,
+                            );
+                            fb.stencil[fb_idx] = (current_stencil & !face_state.write_mask as u8)
+                                | (new_val & face_state.write_mask as u8);
                         }
+                    } else if !depth_pass {
+                        continue; // Discard if depth failed and no stencil updates needed
+                    }
 
-                        // Execute fragment shader and get color
-                        let color = self.execute_fragment_shader(&interp_varyings, pipeline, state);
+                    // --- Write Depth ---
+                    if state.depth.enabled && state.depth.mask {
+                        fb.depth[fb_idx] = depth;
+                    }
 
-                        // Write color to framebuffer
-                        let color_idx = fb_idx * 4;
-                        if color_idx + 3 < fb.color.len() {
-                            let existing = [
-                                fb.color[color_idx],
-                                fb.color[color_idx + 1],
-                                fb.color[color_idx + 2],
-                                fb.color[color_idx + 3],
-                            ];
-                            let blended = blend_pixel(color, existing, &state.blend);
-                            fb.color[color_idx..color_idx + 4].copy_from_slice(&blended);
+                    // --- Fragment Shader & Color Write ---
+                    // Perspective correct interpolation of varyings
+                    let w_interp_inv = u * w0_inv + v * w1_inv + w * w2_inv;
+                    let w_interp = 1.0 / w_interp_inv;
+
+                    for (k, varying) in interp_varyings.iter_mut().enumerate() {
+                        if (pipeline.flat_varyings_mask & (1 << k)) != 0 {
+                            // Flat shading: copy raw bits from provoking vertex (v2)
+                            *varying = v2.varyings[k];
+                        } else {
+                            // Smooth shading: interpolate as floats, then store as bits
+                            let v0_f = f32::from_bits(v0.varyings[k]);
+                            let v1_f = f32::from_bits(v1.varyings[k]);
+                            let v2_f = f32::from_bits(v2.varyings[k]);
+                            let interp_f =
+                                (u * v0_f * w0_inv + v * v1_f * w1_inv + w * v2_f * w2_inv)
+                                    * w_interp;
+                            *varying = interp_f.to_bits();
+                        }
+                    }
+
+                    // Execute fragment shader and get color
+                    let color = self.execute_fragment_shader(&interp_varyings, pipeline, state);
+
+                    // Write color to framebuffer
+                    let color_idx = fb_idx * 4;
+                    if color_idx + 3 < fb.color.len() {
+                        let existing = [
+                            fb.color[color_idx],
+                            fb.color[color_idx + 1],
+                            fb.color[color_idx + 2],
+                            fb.color[color_idx + 3],
+                        ];
+                        let blended = blend_pixel(color, existing, &state.blend);
+
+                        // Color Mask
+                        if state.color_mask.r {
+                            fb.color[color_idx + 0] = blended[0];
+                        }
+                        if state.color_mask.g {
+                            fb.color[color_idx + 1] = blended[1];
+                        }
+                        if state.color_mask.b {
+                            fb.color[color_idx + 2] = blended[2];
+                        }
+                        if state.color_mask.a {
+                            fb.color[color_idx + 3] = blended[3];
                         }
                     }
                 }
@@ -602,6 +788,51 @@ fn is_inside(px: f32, py: f32, p0: (f32, f32), p1: (f32, f32), p2: (f32, f32)) -
     let edge2 = (px - p2.0) * (p0.1 - p2.1) - (py - p2.1) * (p0.0 - p2.0);
 
     (edge0 >= 0.0 && edge1 >= 0.0 && edge2 >= 0.0) || (edge0 <= 0.0 && edge1 <= 0.0 && edge2 <= 0.0)
+}
+
+fn compare_depth(func: u32, incoming: f32, current: f32) -> bool {
+    match func {
+        0x0200 => false,               // GL_NEVER
+        0x0201 => incoming < current,  // GL_LESS
+        0x0202 => incoming == current, // GL_EQUAL
+        0x0203 => incoming <= current, // GL_LEQUAL
+        0x0204 => incoming > current,  // GL_GREATER
+        0x0205 => incoming != current, // GL_NOTEQUAL
+        0x0206 => incoming >= current, // GL_GEQUAL
+        0x0207 => true,                // GL_ALWAYS
+        _ => false,
+    }
+}
+
+fn compare_stencil(func: u32, ref_val: i32, current: u8, mask: u32) -> bool {
+    let c = (current as u32) & mask;
+    let r = (ref_val as u32) & mask;
+    match func {
+        0x0200 => false,  // GL_NEVER
+        0x0201 => r < c,  // GL_LESS
+        0x0202 => r == c, // GL_EQUAL
+        0x0203 => r <= c, // GL_LEQUAL
+        0x0204 => r > c,  // GL_GREATER
+        0x0205 => r != c, // GL_NOTEQUAL
+        0x0206 => r >= c, // GL_GEQUAL
+        0x0207 => true,   // GL_ALWAYS
+        _ => false,
+    }
+}
+
+fn apply_stencil_op(op: u32, current: u8, ref_val: i32) -> u8 {
+    let c = current as i32;
+    match op {
+        0x0000 => 0,                                  // GL_ZERO
+        0x1E00 => current,                            // GL_KEEP
+        0x1E01 => ref_val as u8,                      // GL_REPLACE
+        0x1E02 => c.saturating_add(1).min(255) as u8, // GL_INCR
+        0x1E03 => c.saturating_sub(1).max(0) as u8,   // GL_DECR
+        0x150A => !current,                           // GL_INVERT
+        0x8507 => ((c + 1) % 256) as u8,              // GL_INCR_WRAP
+        0x8508 => ((c - 1 + 256) % 256) as u8,        // GL_DECR_WRAP
+        _ => current,
+    }
 }
 
 #[cfg(test)]

@@ -723,12 +723,15 @@ impl hal::Queue for SoftQueue {
                                             // TODO: Handle actual depth attachment
                                             let mut dummy_depth =
                                                 vec![1.0; (width * height) as usize];
+                                            let mut dummy_stencil =
+                                                vec![0u8; (width * height) as usize];
 
                                             let mut fb = wasm_gl_emu::Framebuffer::new(
                                                 width,
                                                 height,
                                                 &mut data,
                                                 &mut dummy_depth,
+                                                &mut dummy_stencil,
                                             );
 
                                             let rasterizer = wasm_gl_emu::Rasterizer::default();
@@ -746,6 +749,13 @@ impl hal::Queue for SoftQueue {
                                                 prepare_textures: None,
                                                 blend: wasm_gl_emu::rasterizer::BlendState::default(
                                                 ),
+                                                color_mask:
+                                                    wasm_gl_emu::rasterizer::ColorMaskState::default(
+                                                    ),
+                                                depth: wasm_gl_emu::rasterizer::DepthState::default(
+                                                ),
+                                                stencil:
+                                                    wasm_gl_emu::rasterizer::StencilState::default(),
                                             };
 
                                             let raster_pipeline =
@@ -781,12 +791,15 @@ impl hal::Queue for SoftQueue {
 
                                             let mut dummy_depth =
                                                 vec![1.0; (width * height) as usize];
+                                            let mut dummy_stencil =
+                                                vec![0u8; (width * height) as usize];
 
                                             let mut fb = wasm_gl_emu::Framebuffer::new(
                                                 width,
                                                 height,
                                                 &mut data,
                                                 &mut dummy_depth,
+                                                &mut dummy_stencil,
                                             );
 
                                             let rasterizer = wasm_gl_emu::Rasterizer::default();
@@ -804,6 +817,13 @@ impl hal::Queue for SoftQueue {
                                                 prepare_textures: None,
                                                 blend: wasm_gl_emu::rasterizer::BlendState::default(
                                                 ),
+                                                color_mask:
+                                                    wasm_gl_emu::rasterizer::ColorMaskState::default(
+                                                    ),
+                                                depth: wasm_gl_emu::rasterizer::DepthState::default(
+                                                ),
+                                                stencil:
+                                                    wasm_gl_emu::rasterizer::StencilState::default(),
                                             };
 
                                             let raster_pipeline =

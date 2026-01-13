@@ -6,6 +6,7 @@ pub struct OwnedFramebuffer {
     pub height: u32,
     pub color: Vec<u8>,
     pub depth: Vec<f32>,
+    pub stencil: Vec<u8>,
 }
 
 impl OwnedFramebuffer {
@@ -15,6 +16,7 @@ impl OwnedFramebuffer {
             height,
             color: vec![0; (width * height * 4) as usize],
             depth: vec![1.0; (width * height) as usize],
+            stencil: vec![0; (width * height) as usize],
         }
     }
 
@@ -24,6 +26,7 @@ impl OwnedFramebuffer {
             height: self.height,
             color: &mut self.color,
             depth: &mut self.depth,
+            stencil: &mut self.stencil,
         }
     }
 }
@@ -34,15 +37,23 @@ pub struct Framebuffer<'a> {
     pub height: u32,
     pub color: &'a mut [u8],
     pub depth: &'a mut [f32],
+    pub stencil: &'a mut [u8],
 }
 
 impl<'a> Framebuffer<'a> {
-    pub fn new(width: u32, height: u32, color: &'a mut [u8], depth: &'a mut [f32]) -> Self {
+    pub fn new(
+        width: u32,
+        height: u32,
+        color: &'a mut [u8],
+        depth: &'a mut [f32],
+        stencil: &'a mut [u8],
+    ) -> Self {
         Self {
             width,
             height,
             color,
             depth,
+            stencil,
         }
     }
 }

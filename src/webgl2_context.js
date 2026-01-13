@@ -27,7 +27,8 @@ export class WasmWebGL2RenderingContext {
   TRIANGLES = 0x0004;
   COLOR_BUFFER_BIT = 0x00004000;
   DEPTH_BUFFER_BIT = 0x00000100;
-  DEPTH_TEST = 0x0B71;   // <- add this
+  DEPTH_TEST = 0x0B71;
+  STENCIL_TEST = 0x0B90;
   STENCIL_BUFFER_BIT = 0x00000400;
   COMPILE_STATUS = 0x8B81;
   LINK_STATUS = 0x8B82;
@@ -46,6 +47,25 @@ export class WasmWebGL2RenderingContext {
   RGBA = 0x1908;
   VIEWPORT = 0x0BA2;
   COLOR_CLEAR_VALUE = 0x0C22;
+  COLOR_WRITEMASK = 0x0C23;
+  DEPTH_WRITEMASK = 0x0B72;
+  STENCIL_WRITEMASK = 0x0B98;
+  STENCIL_BACK_WRITEMASK = 0x8CA5;
+
+  DEPTH_FUNC = 0x0B74;
+  STENCIL_FUNC = 0x0B92;
+  STENCIL_VALUE_MASK = 0x0B93;
+  STENCIL_REF = 0x0B97;
+  STENCIL_BACK_FUNC = 0x8800;
+  STENCIL_BACK_VALUE_MASK = 0x8CA4;
+  STENCIL_BACK_REF = 0x8CA3;
+  STENCIL_FAIL = 0x0B94;
+  STENCIL_PASS_DEPTH_FAIL = 0x0B95;
+  STENCIL_PASS_DEPTH_PASS = 0x0B96;
+  STENCIL_BACK_FAIL = 0x8801;
+  STENCIL_BACK_PASS_DEPTH_FAIL = 0x8802;
+  STENCIL_BACK_PASS_DEPTH_PASS = 0x8803;
+
   BUFFER_SIZE = 0x8764;
   MAX_VERTEX_ATTRIBS = 0x8869;
   NO_ERROR = 0;
@@ -53,6 +73,9 @@ export class WasmWebGL2RenderingContext {
   INVALID_VALUE = 0x0501;
   INVALID_OPERATION = 0x0502;
   OUT_OF_MEMORY = 0x0505;
+
+  ZERO = 0;
+  ONE = 1;
 
   CURRENT_VERTEX_ATTRIB = 0x8626;
   VERTEX_ATTRIB_ARRAY_ENABLED = 0x8622;
@@ -78,6 +101,27 @@ export class WasmWebGL2RenderingContext {
   DEPTH_ATTACHMENT = 0x8D00;
   STENCIL_ATTACHMENT = 0x8D20;
   DEPTH_STENCIL_ATTACHMENT = 0x821A;
+
+  LESS = 0x0201;
+  EQUAL = 0x0202;
+  LEQUAL = 0x0203;
+  GREATER = 0x0204;
+  NOTEQUAL = 0x0205;
+  GEQUAL = 0x0206;
+  ALWAYS = 0x0207;
+  NEVER = 0x0200;
+
+  KEEP = 0x1E00;
+  REPLACE = 0x1E01;
+  INCR = 0x1E02;
+  DECR = 0x1E03;
+  INVERT = 0x150A;
+  INCR_WRAP = 0x8507;
+  DECR_WRAP = 0x8508;
+
+  FRONT = 0x0404;
+  BACK = 0x0405;
+  FRONT_AND_BACK = 0x0408;
 
   TEXTURE_2D = 0x0DE1;
   TEXTURE_WRAP_S = 0x2802;
@@ -1457,6 +1501,70 @@ export class WasmWebGL2RenderingContext {
       }
     }
 
+    if (pname === 0x0C23 /* COLOR_WRITEMASK */) {
+      const ptr = ex.wasm_alloc(4);
+      try {
+        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
+        _checkErr(code, this._instance);
+        const mem = new Uint8Array(ex.memory.buffer, ptr, 4);
+        return [mem[0] !== 0, mem[1] !== 0, mem[2] !== 0, mem[3] !== 0];
+      } finally {
+        ex.wasm_free(ptr, 4);
+      }
+    }
+
+    if (pname === 0x0B72 /* DEPTH_WRITEMASK */) {
+      const ptr = ex.wasm_alloc(4);
+      try {
+        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
+        _checkErr(code, this._instance);
+        const mem = new Uint8Array(ex.memory.buffer, ptr, 1);
+        return mem[0] !== 0;
+      } finally {
+        ex.wasm_free(ptr, 4);
+      }
+    }
+
+    if (pname === 0x0B98 /* STENCIL_WRITEMASK */ || pname === 0x8CA5 /* STENCIL_BACK_WRITEMASK */) {
+      const ptr = ex.wasm_alloc(4);
+      try {
+        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
+        _checkErr(code, this._instance);
+        const mem = new Int32Array(ex.memory.buffer, ptr, 1);
+        return mem[0];
+      } finally {
+        ex.wasm_free(ptr, 4);
+      }
+    }
+
+    const singleIntParams = [
+      0x0B74, // DEPTH_FUNC
+      0x0B92, // STENCIL_FUNC
+      0x0B93, // STENCIL_VALUE_MASK
+      0x0B97, // STENCIL_REF
+      0x8800, // STENCIL_BACK_FUNC
+      0x8CA4, // STENCIL_BACK_VALUE_MASK
+      0x8CA3, // STENCIL_BACK_REF
+      0x0B94, // STENCIL_FAIL
+      0x0B95, // STENCIL_PASS_DEPTH_FAIL
+      0x0B96, // STENCIL_PASS_DEPTH_PASS
+      0x8801, // STENCIL_BACK_FAIL
+      0x8802, // STENCIL_BACK_PASS_DEPTH_FAIL
+      0x8803, // STENCIL_BACK_PASS_DEPTH_PASS
+    ];
+
+    if (singleIntParams.includes(pname)) {
+      const ptr = ex.wasm_alloc(4);
+      try {
+        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
+        _checkErr(code, this._instance);
+        const mem = new Int32Array(ex.memory.buffer, ptr, 1);
+        return mem[0];
+      } finally {
+        ex.wasm_free(ptr, 4);
+      }
+    }
+
     if (pname === 0x8869 /* MAX_VERTEX_ATTRIBS */) {
       return 16;
     }
@@ -1619,13 +1727,80 @@ export class WasmWebGL2RenderingContext {
     const code = ex.wasm_ctx_depth_func(this._ctxHandle, func >>> 0);
     _checkErr(code, this._instance);
   }
-  depthMask(flag) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  colorMask(r, g, b, a) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  depthMask(flag) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_depth_mask !== 'function') {
+      throw new Error('wasm_ctx_depth_mask not found');
+    }
+    const code = ex.wasm_ctx_depth_mask(this._ctxHandle, flag ? 1 : 0);
+    _checkErr(code, this._instance);
+  }
+  colorMask(r, g, b, a) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_color_mask !== 'function') {
+      throw new Error('wasm_ctx_color_mask not found');
+    }
+    const code = ex.wasm_ctx_color_mask(this._ctxHandle, r ? 1 : 0, g ? 1 : 0, b ? 1 : 0, a ? 1 : 0);
+    _checkErr(code, this._instance);
+  }
   polygonOffset(factor, units) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   sampleCoverage(value, invert) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  stencilFunc(func, ref, mask) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  stencilOp(fail, zfail, zpass) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  stencilMask(mask) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  stencilFunc(func, ref, mask) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_stencil_func !== 'function') {
+      throw new Error('wasm_ctx_stencil_func not found');
+    }
+    const code = ex.wasm_ctx_stencil_func(this._ctxHandle, func >>> 0, ref | 0, mask >>> 0);
+    _checkErr(code, this._instance);
+  }
+  stencilFuncSeparate(face, func, ref, mask) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_stencil_func_separate !== 'function') {
+      throw new Error('wasm_ctx_stencil_func_separate not found');
+    }
+    const code = ex.wasm_ctx_stencil_func_separate(this._ctxHandle, face >>> 0, func >>> 0, ref | 0, mask >>> 0);
+    _checkErr(code, this._instance);
+  }
+  stencilOp(fail, zfail, zpass) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_stencil_op !== 'function') {
+      throw new Error('wasm_ctx_stencil_op not found');
+    }
+    const code = ex.wasm_ctx_stencil_op(this._ctxHandle, fail >>> 0, zfail >>> 0, zpass >>> 0);
+    _checkErr(code, this._instance);
+  }
+  stencilOpSeparate(face, fail, zfail, zpass) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_stencil_op_separate !== 'function') {
+      throw new Error('wasm_ctx_stencil_op_separate not found');
+    }
+    const code = ex.wasm_ctx_stencil_op_separate(this._ctxHandle, face >>> 0, fail >>> 0, zfail >>> 0, zpass >>> 0);
+    _checkErr(code, this._instance);
+  }
+  stencilMask(mask) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_stencil_mask !== 'function') {
+      throw new Error('wasm_ctx_stencil_mask not found');
+    }
+    const code = ex.wasm_ctx_stencil_mask(this._ctxHandle, mask >>> 0);
+    _checkErr(code, this._instance);
+  }
+  stencilMaskSeparate(face, mask) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_stencil_mask_separate !== 'function') {
+      throw new Error('wasm_ctx_stencil_mask_separate not found');
+    }
+    const code = ex.wasm_ctx_stencil_mask_separate(this._ctxHandle, face >>> 0, mask >>> 0);
+    _checkErr(code, this._instance);
+  }
 }
 
 /**

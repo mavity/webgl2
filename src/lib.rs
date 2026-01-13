@@ -372,7 +372,67 @@ pub extern "C" fn wasm_ctx_scissor(ctx: u32, x: i32, y: i32, width: u32, height:
 /// Set the depth function.
 #[no_mangle]
 pub extern "C" fn wasm_ctx_depth_func(ctx: u32, func: u32) -> u32 {
-    webgl2_context::ctx_depth_func(ctx, func)
+    webgl2_context::state::ctx_depth_func(ctx, func)
+}
+
+/// Set depth mask.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_depth_mask(ctx: u32, flag: u32) -> u32 {
+    webgl2_context::state::ctx_depth_mask(ctx, flag != 0)
+}
+
+/// Set color mask.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_color_mask(ctx: u32, r: u32, g: u32, b: u32, a: u32) -> u32 {
+    webgl2_context::state::ctx_color_mask(ctx, r != 0, g != 0, b != 0, a != 0)
+}
+
+/// Set stencil function.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_stencil_func(ctx: u32, func: u32, ref_: i32, mask: u32) -> u32 {
+    webgl2_context::state::ctx_stencil_func(ctx, func, ref_, mask)
+}
+
+/// Set stencil function separate.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_stencil_func_separate(
+    ctx: u32,
+    face: u32,
+    func: u32,
+    ref_: i32,
+    mask: u32,
+) -> u32 {
+    webgl2_context::state::ctx_stencil_func_separate(ctx, face, func, ref_, mask)
+}
+
+/// Set stencil op.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_stencil_op(ctx: u32, fail: u32, zfail: u32, zpass: u32) -> u32 {
+    webgl2_context::state::ctx_stencil_op(ctx, fail, zfail, zpass)
+}
+
+/// Set stencil op separate.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_stencil_op_separate(
+    ctx: u32,
+    face: u32,
+    fail: u32,
+    zfail: u32,
+    zpass: u32,
+) -> u32 {
+    webgl2_context::state::ctx_stencil_op_separate(ctx, face, fail, zfail, zpass)
+}
+
+/// Set stencil mask.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_stencil_mask(ctx: u32, mask: u32) -> u32 {
+    webgl2_context::state::ctx_stencil_mask(ctx, mask)
+}
+
+/// Set stencil mask separate.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_stencil_mask_separate(ctx: u32, face: u32, mask: u32) -> u32 {
+    webgl2_context::state::ctx_stencil_mask_separate(ctx, face, mask)
 }
 
 /// Set the active texture unit.
