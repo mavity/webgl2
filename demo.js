@@ -68,9 +68,9 @@ async function initializeRenderContext() {
 
     void main() {
         small_fn_before(3.0);
-        // uncomment and it blows
-        // small_fn_after(4.0);
+        small_fn_after(4.0);
         fragColor = texture(sampler2D(u_texture, u_sampler), v_uv);
+        // small_fn_after(4.0);
         // fragColor = vec4(v_uv, 0.0, 1.0);
     }`;
 
