@@ -309,6 +309,26 @@ export class WasmWebGL2RenderingContext {
     }
   }
 
+  copyTexImage2D(target, level, internalFormat, x, y, width, height, border) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_copy_tex_image_2d !== 'function') {
+      throw new Error('wasm_ctx_copy_tex_image_2d not found');
+    }
+    const code = ex.wasm_ctx_copy_tex_image_2d(
+      this._ctxHandle,
+      target >>> 0,
+      level >>> 0,
+      internalFormat >>> 0,
+      x | 0,
+      y | 0,
+      width >>> 0,
+      height >>> 0,
+      border >>> 0
+    );
+    _checkErr(code, this._instance);
+  }
+
   createFramebuffer() {
     this._assertNotDestroyed();
     const ex = this._instance.exports;
@@ -1289,8 +1309,35 @@ export class WasmWebGL2RenderingContext {
     const code = ex.wasm_ctx_tex_parameter_i(this._ctxHandle, target >>> 0, pname >>> 0, param | 0);
     _checkErr(code, this._instance);
   }
-  generateMipmap(target) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  copyTexImage2D(target, level, internalformat, x, y, width, height, border) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  generateMipmap(target) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_generate_mipmap !== 'function') {
+      throw new Error('wasm_ctx_generate_mipmap not found');
+    }
+    const code = ex.wasm_ctx_generate_mipmap(this._ctxHandle, target >>> 0);
+    _checkErr(code, this._instance);
+  }
+
+  copyTexImage2D(target, level, internalformat, x, y, width, height, border) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_copy_tex_image_2d !== 'function') {
+      throw new Error('wasm_ctx_copy_tex_image_2d not found');
+    }
+    const code = ex.wasm_ctx_copy_tex_image_2d(
+      this._ctxHandle,
+      target >>> 0,
+      level | 0,
+      internalformat >>> 0,
+      x | 0,
+      y | 0,
+      width | 0,
+      height | 0,
+      border | 0
+    );
+    _checkErr(code, this._instance);
+  }
   copyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   texImage3D(target, level, internalformat, width, height, depth, border, format, type, pixels) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 

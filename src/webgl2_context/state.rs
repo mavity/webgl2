@@ -58,12 +58,14 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
                 match att {
                     Attachment::Texture(tex_handle) => {
                         if let Some(tex) = ctx_obj.textures.get_mut(&tex_handle) {
-                            for i in (0..tex.data.len()).step_by(4) {
-                                if i + 3 < tex.data.len() {
-                                    tex.data[i] = r;
-                                    tex.data[i + 1] = g;
-                                    tex.data[i + 2] = b;
-                                    tex.data[i + 3] = a;
+                            if let Some(level0) = tex.levels.get_mut(&0) {
+                                for i in (0..level0.data.len()).step_by(4) {
+                                    if i + 3 < level0.data.len() {
+                                        level0.data[i] = r;
+                                        level0.data[i + 1] = g;
+                                        level0.data[i + 2] = b;
+                                        level0.data[i + 3] = a;
+                                    }
                                 }
                             }
                         }

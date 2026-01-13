@@ -403,7 +403,13 @@ pub fn ctx_read_pixels(
                             return ERR_INVALID_HANDLE;
                         }
                     };
-                    (&tex.data, tex.width, tex.height, GL_RGBA8) // Textures are RGBA8 in this impl
+                    if let Some(level) = tex.levels.get(&0) {
+                        (&level.data, level.width, level.height, GL_RGBA8)
+                    } else {
+                        // TODO: Handle missing level 0 gracefully (e.g. valid empty texture?)
+                        set_last_error("texture incomplete");
+                        return ERR_INVALID_OPERATION;
+                    }
                 }
                 Some(Attachment::Renderbuffer(rb_handle)) => {
                     let rb = match ctx_obj.renderbuffers.get(&rb_handle) {

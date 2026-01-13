@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 // Errno constants (must match JS constants if exposed)
@@ -54,6 +54,7 @@ pub const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
 pub const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
 pub const GL_TEXTURE_WRAP_S: u32 = 0x2802;
 pub const GL_TEXTURE_WRAP_T: u32 = 0x2803;
+pub const GL_TEXTURE_2D: u32 = 0x0DE1;
 
 pub const GL_VIEWPORT: u32 = 0x0BA2;
 pub const GL_COLOR_CLEAR_VALUE: u32 = 0x0C22;
@@ -73,12 +74,18 @@ pub const GL_STENCIL_INDEX8: u32 = 0x8D48;
 pub(crate) const INVALID_HANDLE: u32 = 0;
 pub(crate) const FIRST_HANDLE: u32 = 1;
 
-/// A WebGL2 texture resource
-#[derive(Clone)]
-pub(crate) struct Texture {
+/// A single mipmap level for a texture
+#[derive(Clone, Debug)]
+pub(crate) struct MipLevel {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) data: Vec<u8>, // RGBA u8
+}
+
+/// A WebGL2 texture resource
+#[derive(Clone)]
+pub(crate) struct Texture {
+    pub(crate) levels: BTreeMap<usize, MipLevel>,
     pub(crate) min_filter: u32,
     pub(crate) mag_filter: u32,
     pub(crate) wrap_s: u32,
@@ -588,12 +595,14 @@ impl Context {
             let offset = i * 32;
             if let Some(h) = tex_handle {
                 if let Some(tex) = self.textures.get(h) {
-                    unsafe {
-                        let base = (dest_ptr + offset as u32) as *mut i32;
-                        *base.offset(0) = tex.width as i32;
-                        *base.offset(1) = tex.height as i32;
-                        *base.offset(2) = tex.data.as_ptr() as i32;
-                        // Rest is padding for now
+                    if let Some(level0) = tex.levels.get(&0) {
+                        unsafe {
+                            let base = (dest_ptr + offset as u32) as *mut i32;
+                            *base.offset(0) = level0.width as i32;
+                            *base.offset(1) = level0.height as i32;
+                            *base.offset(2) = level0.data.as_ptr() as i32;
+                            // Rest is padding for now
+                        }
                     }
                 }
             }

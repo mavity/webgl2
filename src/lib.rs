@@ -251,6 +251,40 @@ pub extern "C" fn wasm_ctx_tex_image_2d(
     )
 }
 
+/// Generate mipmaps.
+/// Returns errno.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_generate_mipmap(ctx: u32, target: u32) -> u32 {
+    webgl2_context::ctx_generate_mipmap(ctx, target)
+}
+
+/// Copy texture image 2D.
+/// Returns errno.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_copy_tex_image_2d(
+    ctx: u32,
+    target: u32,
+    level: i32,
+    internal_format: u32,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    border: i32,
+) -> u32 {
+    webgl2_context::ctx_copy_tex_image_2d(
+        ctx,
+        target,
+        level,
+        internal_format,
+        x,
+        y,
+        width,
+        height,
+        border,
+    )
+}
+
 // ---- Framebuffer Operations ----
 
 /// Create a framebuffer in the given context.
