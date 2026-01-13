@@ -38,7 +38,7 @@ test('ABI: exactly 16 byte struct (at threshold) links', async () => {
   (global (;5;) (mut i32) i32.const 0)
   (export "main" (func 2))
   (func (;0;) (type 0) (param f32 f32 f32 f32) (result f32)
-    (local f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 f32 i32)
+    (local i32 f32 i32)
     global.get 3
     local.get 0
     f32.store
@@ -71,7 +71,7 @@ test('ABI: exactly 16 byte struct (at threshold) links', async () => {
     return
   )
   (func (;1;) (type 1)
-    (local f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 f32 i32)
+    (local f32 i32 f32 i32)
     global.get 3
     f32.const 0x1p+0 (;=1;)
     f32.store
@@ -99,11 +99,11 @@ test('ABI: exactly 16 byte struct (at threshold) links', async () => {
     i32.add
     f32.load
     call 0
-    local.set 32
+    local.set 0
     global.get 3
     i32.const 16
     i32.add
-    local.get 32
+    local.get 0
     f32.store
     global.get 3
     global.get 3
@@ -123,7 +123,7 @@ test('ABI: exactly 16 byte struct (at threshold) links', async () => {
     return
   )
   (func (;2;) (type 2) (param i32 i32 i32 i32 i32 i32)
-    (local f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 f32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 f32 i32)
+    (local i32 f32 i32)
     local.get 1
     global.set 0
     local.get 2
@@ -151,21 +151,21 @@ test('ABI: exactly 16 byte struct (at threshold) links', async () => {
     i32.const 12
     i32.add
     f32.load
-    local.set 71
+    local.set 7
     global.get 3
-    local.get 71
+    local.get 7
     f32.store offset=12
-    local.set 71
+    local.set 7
     global.get 3
-    local.get 71
+    local.get 7
     f32.store offset=8
-    local.set 71
+    local.set 7
     global.get 3
-    local.get 71
+    local.get 7
     f32.store offset=4
-    local.set 71
+    local.set 7
     global.get 3
-    local.get 71
+    local.get 7
     f32.store
     return
   )

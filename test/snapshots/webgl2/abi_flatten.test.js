@@ -25,7 +25,98 @@ test('ABI: single internal function with scalar param (flattened)', async () => 
     gl.linkProgram(program);
 
     const fsWat = getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER);
-    assert.ok(fsWat === null || typeof fsWat === 'string');
+    assert.strictEqual(fsWat, `(module
+  (type (;0;) (func (param f32)))
+  (type (;1;) (func))
+  (type (;2;) (func (param i32 i32 i32 i32 i32 i32)))
+  (import "env" "memory" (memory (;0;) 10))
+  (global (;0;) (mut i32) i32.const 0)
+  (global (;1;) (mut i32) i32.const 0)
+  (global (;2;) (mut i32) i32.const 0)
+  (global (;3;) (mut i32) i32.const 0)
+  (global (;4;) (mut i32) i32.const 0)
+  (global (;5;) (mut i32) i32.const 0)
+  (export "main" (func 2))
+  (func (;0;) (type 0) (param f32)
+    (local i32 f32 i32)
+    global.get 3
+    local.get 0
+    f32.store
+    global.get 3
+    global.get 3
+    f32.load
+    f32.const 0x1p+0 (;=1;)
+    f32.add
+    f32.store
+    return
+  )
+  (func (;1;) (type 1)
+    (local i32 f32 i32)
+    f32.const 0x1.8p+1 (;=3;)
+    call 0
+    global.get 3
+    f32.const 0x1p+0 (;=1;)
+    f32.store
+    global.get 3
+    f32.const 0x1p+0 (;=1;)
+    f32.store offset=4
+    global.get 3
+    f32.const 0x1p+0 (;=1;)
+    f32.store offset=8
+    global.get 3
+    f32.const 0x1p+0 (;=1;)
+    f32.store offset=12
+    return
+  )
+  (func (;2;) (type 2) (param i32 i32 i32 i32 i32 i32)
+    (local i32 f32 i32)
+    local.get 1
+    global.set 0
+    local.get 2
+    global.set 1
+    local.get 3
+    global.set 2
+    local.get 4
+    global.set 3
+    local.get 5
+    global.set 4
+    i32.const 524288
+    global.set 5
+    call 1
+    global.get 3
+    f32.load
+    global.get 3
+    i32.const 4
+    i32.add
+    f32.load
+    global.get 3
+    i32.const 8
+    i32.add
+    f32.load
+    global.get 3
+    i32.const 12
+    i32.add
+    f32.load
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store offset=12
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store offset=8
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store offset=4
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store
+    return
+  )
+)
+`);
   } finally {
     gl.destroy();
   }
@@ -53,7 +144,108 @@ test('ABI: internal function with vec2 param (flattened)', async () => {
     gl.linkProgram(program);
 
     const fsWat = getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER);
-    assert.ok(fsWat === null || typeof fsWat === 'string');
+    assert.strictEqual(fsWat, `(module
+  (type (;0;) (func (param f32 f32) (result f32)))
+  (type (;1;) (func))
+  (type (;2;) (func (param i32 i32 i32 i32 i32 i32)))
+  (import "env" "memory" (memory (;0;) 10))
+  (global (;0;) (mut i32) i32.const 0)
+  (global (;1;) (mut i32) i32.const 0)
+  (global (;2;) (mut i32) i32.const 0)
+  (global (;3;) (mut i32) i32.const 0)
+  (global (;4;) (mut i32) i32.const 0)
+  (global (;5;) (mut i32) i32.const 0)
+  (export "main" (func 2))
+  (func (;0;) (type 0) (param f32 f32) (result f32)
+    (local i32 f32 i32)
+    global.get 3
+    local.get 0
+    f32.store
+    global.get 3
+    local.get 1
+    f32.store offset=4
+    global.get 3
+    f32.load
+    global.get 3
+    i32.const 4
+    i32.add
+    f32.load
+    f32.add
+    return
+  )
+  (func (;1;) (type 1)
+    (local f32 i32 f32 i32)
+    f32.const 0x1p+0 (;=1;)
+    f32.const 0x1p+1 (;=2;)
+    call 0
+    local.set 0
+    global.get 3
+    local.get 0
+    f32.store
+    global.get 3
+    global.get 3
+    f32.load
+    f32.store
+    global.get 3
+    f32.const 0x0p+0 (;=0;)
+    f32.store offset=4
+    global.get 3
+    f32.const 0x0p+0 (;=0;)
+    f32.store offset=8
+    global.get 3
+    f32.const 0x1p+0 (;=1;)
+    f32.store offset=12
+    return
+  )
+  (func (;2;) (type 2) (param i32 i32 i32 i32 i32 i32)
+    (local i32 f32 i32)
+    local.get 1
+    global.set 0
+    local.get 2
+    global.set 1
+    local.get 3
+    global.set 2
+    local.get 4
+    global.set 3
+    local.get 5
+    global.set 4
+    i32.const 524288
+    global.set 5
+    call 1
+    global.get 3
+    f32.load
+    global.get 3
+    i32.const 4
+    i32.add
+    f32.load
+    global.get 3
+    i32.const 8
+    i32.add
+    f32.load
+    global.get 3
+    i32.const 12
+    i32.add
+    f32.load
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store offset=12
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store offset=8
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store offset=4
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store
+    return
+  )
+)
+`);
   } finally {
     gl.destroy();
   }
@@ -81,7 +273,96 @@ test('ABI: internal function with scalar return value', async () => {
     gl.linkProgram(program);
 
     const fsWat = getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER);
-    assert.ok(fsWat === null || typeof fsWat === 'string');
+    assert.strictEqual(fsWat, `(module
+  (type (;0;) (func (result f32)))
+  (type (;1;) (func))
+  (type (;2;) (func (param i32 i32 i32 i32 i32 i32)))
+  (import "env" "memory" (memory (;0;) 10))
+  (global (;0;) (mut i32) i32.const 0)
+  (global (;1;) (mut i32) i32.const 0)
+  (global (;2;) (mut i32) i32.const 0)
+  (global (;3;) (mut i32) i32.const 0)
+  (global (;4;) (mut i32) i32.const 0)
+  (global (;5;) (mut i32) i32.const 0)
+  (export "main" (func 2))
+  (func (;0;) (type 0) (result f32)
+    (local i32 f32 i32)
+    f32.const 0x1p-1 (;=0.5;)
+    return
+  )
+  (func (;1;) (type 1)
+    (local f32 i32 f32 i32)
+    call 0
+    local.set 0
+    global.get 3
+    local.get 0
+    f32.store
+    global.get 3
+    global.get 3
+    f32.load
+    f32.store
+    global.get 3
+    global.get 3
+    f32.load
+    f32.store offset=4
+    global.get 3
+    global.get 3
+    f32.load
+    f32.store offset=8
+    global.get 3
+    f32.const 0x1p+0 (;=1;)
+    f32.store offset=12
+    return
+  )
+  (func (;2;) (type 2) (param i32 i32 i32 i32 i32 i32)
+    (local i32 f32 i32)
+    local.get 1
+    global.set 0
+    local.get 2
+    global.set 1
+    local.get 3
+    global.set 2
+    local.get 4
+    global.set 3
+    local.get 5
+    global.set 4
+    i32.const 524288
+    global.set 5
+    call 1
+    global.get 3
+    f32.load
+    global.get 3
+    i32.const 4
+    i32.add
+    f32.load
+    global.get 3
+    i32.const 8
+    i32.add
+    f32.load
+    global.get 3
+    i32.const 12
+    i32.add
+    f32.load
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store offset=12
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store offset=8
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store offset=4
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store
+    return
+  )
+)
+`);
   } finally {
     gl.destroy();
   }
@@ -109,7 +390,110 @@ test('ABI: internal function with vec3 return (flattened)', async () => {
     gl.linkProgram(program);
 
     const fsWat = getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER);
-    assert.ok(fsWat === null || typeof fsWat === 'string');
+    assert.strictEqual(fsWat, `(module
+  (type (;0;) (func (result f32 f32 f32)))
+  (type (;1;) (func))
+  (type (;2;) (func (param i32 i32 i32 i32 i32 i32)))
+  (import "env" "memory" (memory (;0;) 10))
+  (global (;0;) (mut i32) i32.const 0)
+  (global (;1;) (mut i32) i32.const 0)
+  (global (;2;) (mut i32) i32.const 0)
+  (global (;3;) (mut i32) i32.const 0)
+  (global (;4;) (mut i32) i32.const 0)
+  (global (;5;) (mut i32) i32.const 0)
+  (export "main" (func 2))
+  (func (;0;) (type 0) (result f32 f32 f32)
+    (local i32 f32 i32)
+    f32.const 0x1p+0 (;=1;)
+    f32.const 0x0p+0 (;=0;)
+    f32.const 0x0p+0 (;=0;)
+    return
+  )
+  (func (;1;) (type 1)
+    (local f32 f32 f32 i32 f32 i32)
+    call 0
+    local.set 2
+    local.set 1
+    local.set 0
+    global.get 3
+    local.get 0
+    f32.store
+    global.get 3
+    local.get 1
+    f32.store offset=4
+    global.get 3
+    local.get 2
+    f32.store offset=8
+    global.get 3
+    global.get 3
+    f32.load
+    f32.store
+    global.get 3
+    global.get 3
+    i32.const 4
+    i32.add
+    f32.load
+    f32.store offset=4
+    global.get 3
+    global.get 3
+    i32.const 8
+    i32.add
+    f32.load
+    f32.store offset=8
+    global.get 3
+    f32.const 0x1p+0 (;=1;)
+    f32.store offset=12
+    return
+  )
+  (func (;2;) (type 2) (param i32 i32 i32 i32 i32 i32)
+    (local i32 f32 i32)
+    local.get 1
+    global.set 0
+    local.get 2
+    global.set 1
+    local.get 3
+    global.set 2
+    local.get 4
+    global.set 3
+    local.get 5
+    global.set 4
+    i32.const 524288
+    global.set 5
+    call 1
+    global.get 3
+    f32.load
+    global.get 3
+    i32.const 4
+    i32.add
+    f32.load
+    global.get 3
+    i32.const 8
+    i32.add
+    f32.load
+    global.get 3
+    i32.const 12
+    i32.add
+    f32.load
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store offset=12
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store offset=8
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store offset=4
+    local.set 7
+    global.get 3
+    local.get 7
+    f32.store
+    return
+  )
+)
+`);
   } finally {
     gl.destroy();
   }
