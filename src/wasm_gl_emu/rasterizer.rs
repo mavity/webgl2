@@ -483,7 +483,8 @@ impl Rasterizer {
                     }
 
                     // --- Depth Test ---
-                    // Interpolate depth (NDC z/w mapped to [0, 1])
+                    // Depth is interpolated linearly in screen space (not perspective-correct!)
+                    // This is per OpenGL spec - depth interpolation is different from varying interpolation
                     let z0 = v0.position[2] / v0.position[3];
                     let z1 = v1.position[2] / v1.position[3];
                     let z2 = v2.position[2] / v2.position[3];
@@ -496,11 +497,16 @@ impl Rasterizer {
                         continue;
                     }
 
-                    let depth_pass = if state.depth.enabled {
+                    // Determine depth comparison result
+                    let depth_compare_result = if state.depth.enabled {
                         compare_depth(state.depth.func, depth, current_depth)
                     } else {
-                        true
+                        // When depth test is disabled, use GL_LESS for write decision
+                        // This maintains compatibility with the implicit behavior
+                        depth < current_depth
                     };
+
+                    let depth_pass = depth_compare_result;
 
                     // Handle Depth Fail / Pass for Stencil
                     if state.stencil.enabled {
@@ -536,7 +542,8 @@ impl Rasterizer {
                     }
 
                     // --- Write Depth ---
-                    if state.depth.enabled && state.depth.mask {
+                    // Write depth when mask is true (depth_pass already determined by comparison above)
+                    if state.depth.mask {
                         fb.depth[fb_idx] = depth;
                     }
 
