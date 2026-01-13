@@ -84,14 +84,7 @@ test('ABI: large constant array should not produce WAT (backend unsupported)', a
     const program = gl.createProgram();
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
-    let fsWat;
-    try {
-      gl.linkProgram(program);
-      fsWat = getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER);
-    } catch (e) {
-      fsWat = null;
-    }
-    assert.strictEqual(fsWat, null);
+    assert.throws(() => gl.linkProgram(program));
   } finally {
     gl.destroy();
   }
