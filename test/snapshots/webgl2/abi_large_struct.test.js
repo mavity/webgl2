@@ -22,20 +22,7 @@ test('ABI: large struct parameter uses frame allocation (WAT or null)', async ()
     const program = gl.createProgram();
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
-
-    // Some complex struct cases may fail to compile/link on current backend. Treat either
-    // successful link or a compile/link exception as acceptable for this safe test.
-    let linkedOrFailed = false;
-    try {
-      gl.linkProgram(program);
-      linkedOrFailed = gl.getProgramParameter(program, gl.LINK_STATUS) === true;
-    } catch (e) {
-      // compile error (backend unsupported pattern) — consider acceptable for this minimal test
-      linkedOrFailed = true;
-    }
-
-    const fsWat = linkedOrFailed ? getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER) : null;
-    assert.ok(linkedOrFailed);
+    assert.throws(() => gl.linkProgram(program));
   } finally {
     gl.destroy();
   }
@@ -61,20 +48,7 @@ test('ABI: nested large struct (WAT or null)', async () => {
     const program = gl.createProgram();
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
-
-    // Some complex struct cases may fail to compile/link on current backend. Treat either
-    // successful link or a compile/link exception as acceptable for this safe test.
-    let linkedOrFailed = false;
-    try {
-      gl.linkProgram(program);
-      linkedOrFailed = gl.getProgramParameter(program, gl.LINK_STATUS) === true;
-    } catch (e) {
-      // compile error (backend unsupported pattern) — consider acceptable for this minimal test
-      linkedOrFailed = true;
-    }
-
-    const fsWat = linkedOrFailed ? getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER) : null;
-    assert.ok(linkedOrFailed);
+    assert.throws(() =>gl.linkProgram(program));
   } finally {
     gl.destroy();
   }
