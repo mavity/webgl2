@@ -60,6 +60,7 @@ impl Emitter {
     }
 
     /// Write without newline.
+    #[allow(dead_code)]
     fn write(&mut self, text: &str) {
         let _ = write!(self.output, "{}", text);
     }

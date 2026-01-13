@@ -10,20 +10,20 @@ use wasmparser::{Operator, ValType};
 #[derive(Debug, Clone)]
 enum ControlFrame {
     Block {
-        stack_height: usize,
+        _stack_height: usize,
         body: Vec<Stmt>,
     },
     Loop {
-        stack_height: usize,
+        _stack_height: usize,
         body: Vec<Stmt>,
     },
     If {
-        stack_height: usize,
+        _stack_height: usize,
         condition: Expr,
         then_body: Vec<Stmt>,
     },
     Else {
-        stack_height: usize,
+        _stack_height: usize,
         then_body: Vec<Stmt>,
         else_body: Vec<Stmt>,
     },
@@ -38,9 +38,9 @@ pub struct Lifter {
     /// Statements for the current scope
     current_body: Vec<Stmt>,
     /// Parameter count for the function
-    param_count: u32,
+    _param_count: u32,
     /// Local types (including parameters)
-    local_types: Vec<ScalarType>,
+    _local_types: Vec<ScalarType>,
 }
 
 impl Lifter {
@@ -50,8 +50,8 @@ impl Lifter {
             value_stack: Vec::new(),
             control_stack: Vec::new(),
             current_body: Vec::new(),
-            param_count,
-            local_types,
+            _param_count: param_count,
+            _local_types: local_types,
         }
     }
 
@@ -82,8 +82,9 @@ impl Lifter {
     }
 
     /// Get the type of a local variable.
+    #[allow(dead_code)]
     fn local_type(&self, idx: u32) -> ScalarType {
-        self.local_types
+        self._local_types
             .get(idx as usize)
             .copied()
             .unwrap_or(ScalarType::Int)
@@ -266,27 +267,27 @@ impl Lifter {
             // Control flow
             Operator::Block { blockty: _ } => {
                 self.control_stack.push(ControlFrame::Block {
-                    stack_height: self.value_stack.len(),
+                    _stack_height: self.value_stack.len(),
                     body: Vec::new(),
                 });
             }
             Operator::Loop { blockty: _ } => {
                 self.control_stack.push(ControlFrame::Loop {
-                    stack_height: self.value_stack.len(),
+                    _stack_height: self.value_stack.len(),
                     body: Vec::new(),
                 });
             }
             Operator::If { blockty: _ } => {
                 let condition = self.pop();
                 self.control_stack.push(ControlFrame::If {
-                    stack_height: self.value_stack.len(),
+                    _stack_height: self.value_stack.len(),
                     condition,
                     then_body: Vec::new(),
                 });
             }
             Operator::Else => {
                 if let Some(ControlFrame::If {
-                    stack_height,
+                    _stack_height,
                     condition: _,
                     then_body,
                 }) = self.control_stack.pop()
@@ -294,7 +295,7 @@ impl Lifter {
                     // Get condition from the if frame by peeking before pop
                     // Since we already popped, we need to reconstruct
                     self.control_stack.push(ControlFrame::Else {
-                        stack_height,
+                        _stack_height,
                         then_body,
                         else_body: Vec::new(),
                     });
