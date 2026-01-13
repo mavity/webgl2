@@ -1,4 +1,5 @@
 use super::registry::{clear_last_error, get_registry, set_last_error};
+use super::types::ActiveInfo;
 use super::types::*;
 use crate::naga_wasm_backend::{WasmBackend, WasmBackendConfig};
 use naga::front::glsl::{Frontend, Options};
@@ -207,6 +208,8 @@ pub fn ctx_create_program(ctx: u32) -> u32 {
             attribute_bindings: HashMap::new(),
             uniforms: HashMap::new(),
             uniform_types: HashMap::new(),
+            active_attributes: Vec::new(),
+            active_uniforms: Vec::new(),
             vs_module: None,
             fs_module: None,
             vs_info: None,
@@ -752,6 +755,9 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
 
         p.linked = true;
         p.info_log = "Program linked successfully.".to_string();
+
+        reflect_program_resources(p);
+
         ERR_OK
     } else {
         set_last_error("program not found");
@@ -778,6 +784,8 @@ pub fn ctx_get_program_parameter(ctx: u32, program: u32, pname: u32) -> i32 {
                 }
             }
             GL_ATTACHED_SHADERS => p.attached_shaders.len() as i32,
+            GL_ACTIVE_UNIFORMS => p.active_uniforms.len() as i32,
+            GL_ACTIVE_ATTRIBUTES => p.active_attributes.len() as i32,
             GL_DELETE_STATUS => 0,
             _ => 0,
         }
@@ -1291,5 +1299,240 @@ pub fn ctx_get_program_wat_ref(ctx: u32, program: u32, shader_type: u32) -> (u32
     } else {
         set_last_error("program not found");
         (0, 0)
+    }
+}
+
+fn reflect_program_resources(p: &mut Program) {
+    use naga::{AddressSpace, Binding, ScalarKind, ShaderStage, TypeInner, VectorSize};
+    p.active_attributes.clear();
+    p.active_uniforms.clear();
+
+    fn map_type(ty: &naga::Type, arena: &naga::UniqueArena<naga::Type>) -> (u32, i32) {
+        let gl_float: u32 = 0x1406;
+        let gl_float_vec2: u32 = 0x8B50;
+        let gl_float_vec3: u32 = 0x8B51;
+        let gl_float_vec4: u32 = 0x8B52;
+        let gl_int: u32 = 0x1404;
+        let gl_int_vec2: u32 = 0x8B53;
+        let gl_int_vec3: u32 = 0x8B54;
+        let gl_int_vec4: u32 = 0x8B55;
+        let gl_unsigned_int: u32 = 0x1405;
+        let gl_unsigned_int_vec2: u32 = 0x8DC6;
+        let gl_unsigned_int_vec3: u32 = 0x8DC7;
+        let gl_unsigned_int_vec4: u32 = 0x8DC8;
+        let gl_bool: u32 = 0x8B56;
+        let gl_bool_vec2: u32 = 0x8B57;
+        let gl_bool_vec3: u32 = 0x8B58;
+        let gl_bool_vec4: u32 = 0x8B59;
+        let gl_float_mat2: u32 = 0x8B5A;
+        let gl_float_mat3: u32 = 0x8B5B;
+        let gl_float_mat4: u32 = 0x8B5C;
+        let gl_sampler_2d: u32 = 0x8B5E;
+        let gl_sampler_cube: u32 = 0x8B60;
+
+        match &ty.inner {
+            TypeInner::Scalar(s) => match s.kind {
+                ScalarKind::Float => (gl_float, 1),
+                ScalarKind::Sint => (gl_int, 1),
+                ScalarKind::Uint => (gl_unsigned_int, 1),
+                ScalarKind::Bool => (gl_bool, 1),
+                _ => (0, 1),
+            },
+            TypeInner::Vector { size, scalar } => match (scalar.kind, size) {
+                (ScalarKind::Float, VectorSize::Bi) => (gl_float_vec2, 1),
+                (ScalarKind::Float, VectorSize::Tri) => (gl_float_vec3, 1),
+                (ScalarKind::Float, VectorSize::Quad) => (gl_float_vec4, 1),
+                (ScalarKind::Sint, VectorSize::Bi) => (gl_int_vec2, 1),
+                (ScalarKind::Sint, VectorSize::Tri) => (gl_int_vec3, 1),
+                (ScalarKind::Sint, VectorSize::Quad) => (gl_int_vec4, 1),
+                (ScalarKind::Uint, VectorSize::Bi) => (gl_unsigned_int_vec2, 1),
+                (ScalarKind::Uint, VectorSize::Tri) => (gl_unsigned_int_vec3, 1),
+                (ScalarKind::Uint, VectorSize::Quad) => (gl_unsigned_int_vec4, 1),
+                (ScalarKind::Bool, VectorSize::Bi) => (gl_bool_vec2, 1),
+                (ScalarKind::Bool, VectorSize::Tri) => (gl_bool_vec3, 1),
+                (ScalarKind::Bool, VectorSize::Quad) => (gl_bool_vec4, 1),
+                _ => (0, 1),
+            },
+            TypeInner::Matrix { columns, rows, .. } => match (columns, rows) {
+                (VectorSize::Bi, VectorSize::Bi) => (gl_float_mat2, 1),
+                (VectorSize::Tri, VectorSize::Tri) => (gl_float_mat3, 1),
+                (VectorSize::Quad, VectorSize::Quad) => (gl_float_mat4, 1),
+                _ => (0, 1),
+            },
+            TypeInner::Image {
+                dim, arrayed: _, ..
+            } => match dim {
+                naga::ImageDimension::D2 => (gl_sampler_2d, 1),
+                naga::ImageDimension::Cube => (gl_sampler_cube, 1),
+                _ => (0, 1),
+            },
+            TypeInner::Array { base, size, .. } => {
+                let (base_type, _) = map_type(&arena[*base], arena);
+                let count = match size {
+                    naga::ArraySize::Constant(c) => c.get() as i32,
+                    _ => 1,
+                };
+                (base_type, count)
+            }
+            _ => (0, 1),
+        }
+    }
+
+    if let Some(vs) = &p.vs_module {
+        for ep in &vs.entry_points {
+            if ep.stage == ShaderStage::Vertex {
+                for arg in &ep.function.arguments {
+                    if let Some(name) = &arg.name {
+                        if let Some(Binding::Location { .. }) = arg.binding {
+                            let (gl_type, size) = map_type(&vs.types[arg.ty], &vs.types);
+                            if gl_type != 0 {
+                                p.active_attributes.push(ActiveInfo {
+                                    name: name.clone(),
+                                    size: size,
+                                    type_: gl_type,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut uni_map = HashMap::new();
+
+    let mut extract_uniforms = |module: &naga::Module| {
+        for (_, var) in module.global_variables.iter() {
+            if matches!(var.space, AddressSpace::Uniform | AddressSpace::Handle) {
+                if let Some(name) = &var.name {
+                    let ty = &module.types[var.ty];
+                    let (gl_type, size) = map_type(ty, &module.types);
+                    if gl_type != 0 {
+                        let final_name = if size > 1 {
+                            format!("{}[0]", name)
+                        } else {
+                            name.clone()
+                        };
+                        uni_map.insert(
+                            final_name.clone(),
+                            ActiveInfo {
+                                name: final_name,
+                                size,
+                                type_: gl_type,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    };
+
+    if let Some(vs) = &p.vs_module {
+        extract_uniforms(vs);
+    }
+    if let Some(fs) = &p.fs_module {
+        extract_uniforms(fs);
+    }
+
+    let mut uniforms: Vec<ActiveInfo> = uni_map.into_values().collect();
+    uniforms.sort_by(|a, b| a.name.cmp(&b.name));
+    p.active_uniforms = uniforms;
+}
+
+pub fn ctx_get_active_uniform(
+    ctx: u32,
+    program: u32,
+    index: u32,
+    size_ptr: u32,
+    type_ptr: u32,
+    name_ptr: u32,
+    name_capacity: u32,
+) -> u32 {
+    clear_last_error();
+    let reg = get_registry().borrow();
+    let ctx_obj = match reg.contexts.get(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return 0;
+        }
+    };
+
+    if let Some(p) = ctx_obj.programs.get(&program) {
+        if index as usize >= p.active_uniforms.len() {
+            set_last_error("invalid uniform index");
+            return 0;
+        }
+        let info = &p.active_uniforms[index as usize];
+
+        unsafe {
+            *(size_ptr as *mut i32) = info.size;
+            *(type_ptr as *mut u32) = info.type_;
+        }
+
+        let name_bytes = info.name.as_bytes();
+        let name_len = name_bytes.len();
+
+        if name_capacity > 0 {
+            let copy_len = std::cmp::min(name_len, name_capacity as usize);
+            unsafe {
+                let dest = std::slice::from_raw_parts_mut(name_ptr as *mut u8, copy_len);
+                dest.copy_from_slice(&name_bytes[0..copy_len]);
+            }
+        }
+
+        name_len as u32
+    } else {
+        set_last_error("program not found");
+        0
+    }
+}
+
+pub fn ctx_get_active_attrib(
+    ctx: u32,
+    program: u32,
+    index: u32,
+    size_ptr: u32,
+    type_ptr: u32,
+    name_ptr: u32,
+    name_capacity: u32,
+) -> u32 {
+    clear_last_error();
+    let reg = get_registry().borrow();
+    let ctx_obj = match reg.contexts.get(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return 0;
+        }
+    };
+
+    if let Some(p) = ctx_obj.programs.get(&program) {
+        if index as usize >= p.active_attributes.len() {
+            set_last_error("invalid attribute index");
+            return 0;
+        }
+        let info = &p.active_attributes[index as usize];
+
+        unsafe {
+            *(size_ptr as *mut i32) = info.size;
+            *(type_ptr as *mut u32) = info.type_;
+        }
+
+        let name_bytes = info.name.as_bytes();
+        let name_len = name_bytes.len();
+
+        if name_capacity > 0 {
+            let copy_len = std::cmp::min(name_len, name_capacity as usize);
+            unsafe {
+                let dest = std::slice::from_raw_parts_mut(name_ptr as *mut u8, copy_len);
+                dest.copy_from_slice(&name_bytes[0..copy_len]);
+            }
+        }
+
+        name_len as u32
+    } else {
+        set_last_error("program not found");
+        0
     }
 }

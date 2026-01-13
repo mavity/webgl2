@@ -134,6 +134,14 @@ pub(crate) struct Shader {
 }
 
 /// A WebGL2 program resource
+#[derive(Debug, Clone)]
+pub(crate) struct ActiveInfo {
+    pub(crate) name: String,
+    pub(crate) size: i32,
+    pub(crate) type_: u32,
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct Program {
     pub(crate) attached_shaders: Vec<u32>,
     pub(crate) linked: bool,
@@ -142,6 +150,8 @@ pub(crate) struct Program {
     pub(crate) attribute_bindings: HashMap<String, u32>,
     pub(crate) uniforms: HashMap<String, i32>,
     pub(crate) uniform_types: HashMap<String, (u8, u32)>,
+    pub(crate) active_attributes: Vec<ActiveInfo>,
+    pub(crate) active_uniforms: Vec<ActiveInfo>,
     pub(crate) vs_module: Option<Arc<naga::Module>>,
     pub(crate) fs_module: Option<Arc<naga::Module>>,
     pub(crate) vs_info: Option<Arc<naga::valid::ModuleInfo>>,

@@ -45,6 +45,23 @@ export class WasmWebGL2RenderingContext {
   UNSIGNED_INT = 0x1405;
   FLOAT = 0x1406;
   RGBA = 0x1908;
+  FLOAT_VEC2 = 0x8B50;
+  FLOAT_VEC3 = 0x8B51;
+  FLOAT_VEC4 = 0x8B52;
+  INT_VEC2 = 0x8B53;
+  INT_VEC3 = 0x8B54;
+  INT_VEC4 = 0x8B55;
+  BOOL = 0x8B56;
+  BOOL_VEC2 = 0x8B57;
+  BOOL_VEC3 = 0x8B58;
+  BOOL_VEC4 = 0x8B59;
+  FLOAT_MAT2 = 0x8B5A;
+  FLOAT_MAT3 = 0x8B5B;
+  FLOAT_MAT4 = 0x8B5C;
+  SAMPLER_2D = 0x8B5E;
+  SAMPLER_CUBE = 0x8B60;
+  ACTIVE_UNIFORMS = 0x8B86;
+  ACTIVE_ATTRIBUTES = 0x8B89;
   VIEWPORT = 0x0BA2;
   COLOR_CLEAR_VALUE = 0x0C22;
   COLOR_WRITEMASK = 0x0C23;
@@ -575,6 +592,100 @@ export class WasmWebGL2RenderingContext {
   }
 
   detachShader(program, shader) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+
+  getActiveUniform(program, index) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_active_uniform !== 'function') {
+      throw new Error('wasm_ctx_get_active_uniform not found');
+    }
+    const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
+
+    // Allocate buffers: size(4) + type(4) + name(256)
+    const sizePtr = ex.wasm_alloc(4);
+    const typePtr = ex.wasm_alloc(4);
+    const nameMaxLen = 256;
+    const namePtr = ex.wasm_alloc(nameMaxLen);
+
+    try {
+      const nameLen = ex.wasm_ctx_get_active_uniform(
+        this._ctxHandle,
+        programHandle,
+        index >>> 0,
+        sizePtr,
+        typePtr,
+        namePtr,
+        nameMaxLen
+      );
+
+      if (nameLen === 0) {
+        return null;
+      }
+
+      const mem32SizeIdx = sizePtr >>> 2;
+      const mem32TypeIdx = typePtr >>> 2;
+
+      const size = new Int32Array(ex.memory.buffer)[mem32SizeIdx];
+      const type_ = new Uint32Array(ex.memory.buffer)[mem32TypeIdx];
+
+      const nameBytes = new Uint8Array(ex.memory.buffer, namePtr, nameLen);
+      const name = new TextDecoder().decode(nameBytes);
+
+      return { name, size, type: type_ };
+
+    } finally {
+      ex.wasm_free(sizePtr);
+      ex.wasm_free(typePtr);
+      ex.wasm_free(namePtr);
+    }
+  }
+
+  getActiveAttrib(program, index) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_active_attrib !== 'function') {
+      throw new Error('wasm_ctx_get_active_attrib not found');
+    }
+    const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
+
+    // Allocate buffers: size(4) + type(4) + name(256)
+    const sizePtr = ex.wasm_alloc(4);
+    const typePtr = ex.wasm_alloc(4);
+    const nameMaxLen = 256;
+    const namePtr = ex.wasm_alloc(nameMaxLen);
+
+    try {
+      const nameLen = ex.wasm_ctx_get_active_attrib(
+        this._ctxHandle,
+        programHandle,
+        index >>> 0,
+        sizePtr,
+        typePtr,
+        namePtr,
+        nameMaxLen
+      );
+
+      if (nameLen === 0) {
+        return null;
+      }
+
+      const mem32SizeIdx = sizePtr >>> 2;
+      const mem32TypeIdx = typePtr >>> 2;
+
+      const size = new Int32Array(ex.memory.buffer)[mem32SizeIdx];
+      const type_ = new Uint32Array(ex.memory.buffer)[mem32TypeIdx];
+
+      const nameBytes = new Uint8Array(ex.memory.buffer, namePtr, nameLen);
+      const name = new TextDecoder().decode(nameBytes);
+
+      return { name, size, type: type_ };
+
+    } finally {
+      ex.wasm_free(sizePtr);
+      ex.wasm_free(typePtr);
+      ex.wasm_free(namePtr);
+    }
+  }
 
   linkProgram(program) {
     this._assertNotDestroyed();
@@ -1456,8 +1567,6 @@ export class WasmWebGL2RenderingContext {
       ex.wasm_free(ptr);
     }
   }
-  getActiveUniform(program, index) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  getActiveAttrib(program, index) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
   getVertexAttrib(index, pname) {
     this._assertNotDestroyed();
