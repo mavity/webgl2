@@ -80,6 +80,9 @@ pub fn decompile_to_glsl_with_config(wasm_bytes: &[u8], config: EmitterConfig) -
 
     let mut emitter = Emitter::new(config);
 
+    // Set function names map for proper call emission
+    emitter.set_function_names(module.function_names.clone());
+
     // Emit header
     emitter.emit_header();
 

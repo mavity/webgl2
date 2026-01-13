@@ -4,14 +4,15 @@
 
 | File | Lines Covered | Lines Missed | Total Lines | Coverage |
 |---|---|---|---|---:|
-| src/decompiler/emitter.rs | 15 | 7 | 22 | 68.18% 🟡 |
+| src/decompiler/ast.rs | 0 | 1 | 1 | 0.00% 🟡 |
+| src/decompiler/emitter.rs | 17 | 8 | 25 | 68.00% 🟡 |
 | src/decompiler/lifter.rs | 17 | 21 | 38 | 44.74% 🟠 |
-| src/decompiler/mod.rs | 9 | 5 | 14 | 64.29% 🟡 |
-| src/decompiler/module.rs | 2 | 1 | 3 | 66.67% 🟡 |
-| src/decompiler/parser.rs | 17 | 0 | 17 | 100.00% 🟢 |
-| src/decompiler/simplifier.rs | 50 | 17 | 67 | 74.63% 🟡 |
-| src/error.rs | 8 | 15 | 23 | 34.78% 🟠 |
-| src/lib.rs | 308 | 196 | 504 | 61.11% 🟡 |
+| src/decompiler/mod.rs | 8 | 6 | 14 | 57.14% 🟡 |
+| src/decompiler/module.rs | 1 | 1 | 2 | 50.00% 🟡 |
+| src/decompiler/parser.rs | 16 | 2 | 18 | 88.89% 🟢 |
+| src/decompiler/simplifier.rs | 56 | 18 | 74 | 75.68% 🟡 |
+| src/error.rs | 9 | 15 | 24 | 37.50% 🟠 |
+| src/lib.rs | 309 | 196 | 505 | 61.19% 🟡 |
 | src/naga_wasm_backend/backend.rs | 54 | 1 | 55 | 98.18% 🟢 |
 | src/naga_wasm_backend/call_lowering.rs | 17 | 0 | 17 | 100.00% 🟢 |
 | src/naga_wasm_backend/control_flow.rs | 29 | 15 | 44 | 65.91% 🟡 |
@@ -37,13 +38,13 @@
 | src/webgl2_context/vaos.rs | 36 | 0 | 36 | 100.00% 🟢 |
 | src/webgpu/adapter.rs | 2 | 0 | 2 | 100.00% 🟢 |
 | src/webgpu/backend.rs | 25 | 25 | 50 | 50.00% 🟡 |
-| **Total** | **983** | **368** | **1351** | **72.76% 🟡** |
+| **Total** | **990** | **374** | **1364** | **72.58% 🟡** |
 
 ## Top Missed Files
 
 | File | Lines Missed | Illustrative Line | Coverage |
 |---|---|---|---:|
-| src/lib.rs | 196/504 | [1033] `thread_local! {` | 61.11% 🟡 |
+| src/lib.rs | 196/505 | [1033] `thread_local! {` | 61.19% 🟡 |
 | src/webgpu/backend.rs | 25/50 | [943] `}` | 50.00% 🟡 |
 | src/decompiler/lifter.rs | 21/38 | [455] `fn unary_op(&mut self, op: UnaryOp) {` | 44.74% 🟠 |
-| src/decompiler/simplifier.rs | 17/67 | [90] `#[derive(Debug, Clone, PartialEq)]` | 74.63% 🟡 |
+| src/decompiler/simplifier.rs | 18/74 | [115] `let get_const = |id: &Id| egraph[*id].data.constant;` | 75.68% 🟡 |

@@ -71,6 +71,9 @@ define_language! {
         "int" = ToInt([Id; 1]),
         "float" = ToFloat([Id; 1]),
 
+        // Function calls
+        "call" = Call(Box<[Id]>),
+
         // Literals and symbols
         Num(i64),
         Float(NotNan<f64>),
@@ -333,6 +336,9 @@ impl CostFunction<WasmLang> for GLSLCost {
 
             // Select (ternary)
             WasmLang::Select(_) => 3,
+
+            // Function calls (expensive, should not be eliminated)
+            WasmLang::Call(_) => 5,
         };
 
         // Sum up children costs
@@ -527,8 +533,21 @@ fn build_rec_expr(expr: &Expr, rec: &mut RecExpr<WasmLang>) -> Id {
             };
             rec.add(node)
         }
+        Expr::Call { func_idx, args } => {
+            // Create function symbol as first child
+            let func_sym = egg::Symbol::from(format!("func{}", func_idx));
+            let func_id = rec.add(WasmLang::Symbol(func_sym));
+
+            // Build all arguments
+            let mut children = vec![func_id];
+            for arg in args {
+                children.push(build_rec_expr(arg, rec));
+            }
+
+            rec.add(WasmLang::Call(children.into_boxed_slice()))
+        }
         // For expressions we can't simplify, use a symbol placeholder
-        Expr::MemoryLoad { .. } | Expr::Call { .. } | Expr::Unknown(_) => {
+        Expr::MemoryLoad { .. } | Expr::Unknown(_) => {
             let sym = egg::Symbol::from("__unsimplified__");
             rec.add(WasmLang::Symbol(sym))
         }
@@ -734,6 +753,26 @@ fn rec_expr_node_to_expr(rec: &RecExpr<WasmLang>, id: Id) -> Expr {
             true_val: Box::new(rec_expr_node_to_expr(rec, *t)),
             false_val: Box::new(rec_expr_node_to_expr(rec, *f)),
         },
+        WasmLang::Call(children) => {
+            if children.is_empty() {
+                return Expr::Unknown("empty_call".to_string());
+            }
+
+            // First child is the function symbol
+            let func_expr = rec_expr_node_to_expr(rec, children[0]);
+            let func_idx = match func_expr {
+                Expr::Unknown(ref s) if s.starts_with("func") => s[4..].parse::<u32>().unwrap_or(0),
+                _ => 0,
+            };
+
+            // Remaining children are arguments
+            let args = children[1..]
+                .iter()
+                .map(|id| rec_expr_node_to_expr(rec, *id))
+                .collect();
+
+            Expr::Call { func_idx, args }
+        }
     }
 }
 

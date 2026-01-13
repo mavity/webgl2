@@ -43,7 +43,7 @@ void func_1() {
     memory[((g2) + 4) >> 2] = floatBitsToInt(0.0);
     memory[((g2) + 8) >> 2] = floatBitsToInt(0.0);
     memory[((g2) + 12) >> 2] = floatBitsToInt(0.0);
-    return /* unknown: __unsimplified__ */;
+    return func0();
 }
 void main(int p0, int p1, int p2, int p3, int p4, int p5) {
     int v6;
@@ -64,7 +64,7 @@ void main(int p0, int p1, int p2, int p3, int p4, int p5) {
     memory[((g2) + 4) >> 2] = floatBitsToInt(v7);
     v7 = /* unknown: __unsimplified__ */;
     memory[(g2) >> 2] = floatBitsToInt(v7);
-    return /* unknown: __unsimplified__ */;
+    return func_1();
 }
 `);
   } finally {
@@ -113,7 +113,7 @@ void func_1() {
     memory[((g3) + 4) >> 2] = floatBitsToInt(1.0);
     memory[((g3) + 8) >> 2] = floatBitsToInt(1.0);
     memory[((g3) + 12) >> 2] = floatBitsToInt(1.0);
-    return /* unknown: __unsimplified__ */;
+    return func0();
 }
 void main(int p0, int p1, int p2, int p3, int p4, int p5) {
     int v6;
@@ -134,7 +134,7 @@ void main(int p0, int p1, int p2, int p3, int p4, int p5) {
     memory[((g3) + 4) >> 2] = floatBitsToInt(v7);
     v7 = /* unknown: __unsimplified__ */;
     memory[(g3) >> 2] = floatBitsToInt(v7);
-    return /* unknown: __unsimplified__ */;
+    return func_1();
 }
 `);
   } finally {
@@ -197,7 +197,7 @@ void func_1() {
     memory[((g2) + 4) >> 2] = floatBitsToInt(0.0);
     memory[((g2) + 8) >> 2] = floatBitsToInt(0.0);
     memory[((g2) + 12) >> 2] = floatBitsToInt(0.0);
-    return /* unknown: __unsimplified__ */;
+    return func0();
 }
 void main(int p0, int p1, int p2, int p3, int p4, int p5) {
     int v6;
@@ -218,7 +218,7 @@ void main(int p0, int p1, int p2, int p3, int p4, int p5) {
     memory[((g2) + 4) >> 2] = floatBitsToInt(v7);
     v7 = /* unknown: __unsimplified__ */;
     memory[(g2) >> 2] = floatBitsToInt(v7);
-    return /* unknown: __unsimplified__ */;
+    return func_1();
 }
 `);
   } finally {

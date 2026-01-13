@@ -4,6 +4,7 @@
 //! intermediate representation into readable GLSL code.
 
 use super::ast::{Expr, Function, ScalarType, Stmt, UnaryOp};
+use std::collections::HashMap;
 use std::fmt::Write;
 
 /// Configuration for the GLSL emitter.
@@ -32,6 +33,7 @@ pub struct Emitter {
     config: EmitterConfig,
     output: String,
     indent_level: usize,
+    function_names: HashMap<u32, String>,
 }
 
 impl Emitter {
@@ -41,12 +43,18 @@ impl Emitter {
             config,
             output: String::new(),
             indent_level: 0,
+            function_names: HashMap::new(),
         }
     }
 
     /// Create a new emitter with default configuration.
     pub fn default_config() -> Self {
         Self::new(EmitterConfig::default())
+    }
+
+    /// Set the function names map (should be called before emitting functions).
+    pub fn set_function_names(&mut self, names: HashMap<u32, String>) {
+        self.function_names = names;
     }
 
     /// Get the current indentation string.
@@ -293,7 +301,15 @@ impl Emitter {
                     .iter()
                     .map(|a| self.expr_to_string(a, param_count))
                     .collect();
-                format!("func{}({})", func_idx, args_str.join(", "))
+
+                // Look up function name, fallback to func{idx}
+                let func_name = self
+                    .function_names
+                    .get(func_idx)
+                    .cloned()
+                    .unwrap_or_else(|| format!("func{}", func_idx));
+
+                format!("{}({})", func_name, args_str.join(", "))
             }
             Expr::Select {
                 condition,
