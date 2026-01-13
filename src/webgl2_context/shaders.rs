@@ -13,6 +13,34 @@ use std::sync::Arc;
 // Shader and Program Operations
 // ============================================================================
 
+/// Check if object is a shader.
+pub fn ctx_is_shader(ctx: u32, handle: u32) -> bool {
+    clear_last_error();
+    if handle == 0 {
+        return false;
+    }
+    let reg = get_registry().borrow();
+    if let Some(c) = reg.contexts.get(&ctx) {
+        c.shaders.contains_key(&handle)
+    } else {
+        false
+    }
+}
+
+/// Check if object is a program.
+pub fn ctx_is_program(ctx: u32, handle: u32) -> bool {
+    clear_last_error();
+    if handle == 0 {
+        return false;
+    }
+    let reg = get_registry().borrow();
+    if let Some(c) = reg.contexts.get(&ctx) {
+        c.programs.contains_key(&handle)
+    } else {
+        false
+    }
+}
+
 /// Create a shader.
 pub fn ctx_create_shader(ctx: u32, type_: u32) -> u32 {
     clear_last_error();

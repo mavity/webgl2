@@ -5,6 +5,20 @@ use super::types::*;
 // Framebuffer Operations
 // ============================================================================
 
+/// Check if object is a framebuffer.
+pub fn ctx_is_framebuffer(ctx: u32, handle: u32) -> bool {
+    clear_last_error();
+    if handle == 0 {
+        return false;
+    }
+    let reg = get_registry().borrow();
+    if let Some(c) = reg.contexts.get(&ctx) {
+        c.framebuffers.contains_key(&handle)
+    } else {
+        false
+    }
+}
+
 /// Create a framebuffer in the given context.
 /// Returns framebuffer handle (0 on failure).
 pub fn ctx_create_framebuffer(ctx: u32) -> u32 {

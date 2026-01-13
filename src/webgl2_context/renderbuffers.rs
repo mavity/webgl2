@@ -5,6 +5,20 @@ use super::types::*;
 // Renderbuffer Operations
 // ============================================================================
 
+/// Check if object is a renderbuffer.
+pub fn ctx_is_renderbuffer(ctx: u32, handle: u32) -> bool {
+    clear_last_error();
+    if handle == 0 {
+        return false;
+    }
+    let reg = get_registry().borrow();
+    if let Some(c) = reg.contexts.get(&ctx) {
+        c.renderbuffers.contains_key(&handle)
+    } else {
+        false
+    }
+}
+
 /// Create a renderbuffer object.
 pub fn ctx_create_renderbuffer(ctx: u32) -> u32 {
     clear_last_error();

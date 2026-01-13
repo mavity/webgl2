@@ -1,6 +1,20 @@
 use super::registry::{clear_last_error, get_registry, set_last_error};
 use super::types::*;
 
+/// Check if object is a buffer.
+pub fn ctx_is_buffer(ctx: u32, handle: u32) -> bool {
+    clear_last_error();
+    if handle == 0 {
+        return false;
+    }
+    let reg = get_registry().borrow();
+    if let Some(c) = reg.contexts.get(&ctx) {
+        c.buffers.contains_key(&handle)
+    } else {
+        false
+    }
+}
+
 /// Get buffer parameter.
 pub fn ctx_get_buffer_parameter(ctx: u32, target: u32, pname: u32) -> i32 {
     clear_last_error();

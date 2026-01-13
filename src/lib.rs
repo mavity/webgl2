@@ -198,6 +198,16 @@ pub extern "C" fn wasm_ctx_create_texture(ctx: u32) -> u32 {
     webgl2_context::ctx_create_texture(ctx)
 }
 
+/// Check if object is a texture.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_is_texture(ctx: u32, handle: u32) -> u32 {
+    if webgl2_context::ctx_is_texture(ctx, handle) {
+        1
+    } else {
+        0
+    }
+}
+
 /// Delete a texture.
 /// Returns errno.
 #[no_mangle]
@@ -292,6 +302,16 @@ pub extern "C" fn wasm_ctx_copy_tex_image_2d(
 #[no_mangle]
 pub extern "C" fn wasm_ctx_create_framebuffer(ctx: u32) -> u32 {
     webgl2_context::ctx_create_framebuffer(ctx)
+}
+
+/// Check if object is a framebuffer.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_is_framebuffer(ctx: u32, handle: u32) -> u32 {
+    if webgl2_context::ctx_is_framebuffer(ctx, handle) {
+        1
+    } else {
+        0
+    }
 }
 
 /// Delete a framebuffer.
@@ -501,6 +521,16 @@ pub extern "C" fn wasm_ctx_create_buffer(ctx: u32) -> u32 {
     webgl2_context::ctx_create_buffer(ctx)
 }
 
+/// Check if object is a buffer.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_is_buffer(ctx: u32, handle: u32) -> u32 {
+    if webgl2_context::ctx_is_buffer(ctx, handle) {
+        1
+    } else {
+        0
+    }
+}
+
 /// Delete a buffer.
 #[no_mangle]
 pub extern "C" fn wasm_ctx_delete_buffer(ctx: u32, buf: u32) -> u32 {
@@ -545,6 +575,16 @@ pub extern "C" fn wasm_ctx_create_shader(ctx: u32, type_: u32) -> u32 {
     webgl2_context::ctx_create_shader(ctx, type_)
 }
 
+/// Check if object is a shader.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_is_shader(ctx: u32, handle: u32) -> u32 {
+    if webgl2_context::ctx_is_shader(ctx, handle) {
+        1
+    } else {
+        0
+    }
+}
+
 /// Delete a shader.
 #[no_mangle]
 pub extern "C" fn wasm_ctx_delete_shader(ctx: u32, shader: u32) -> u32 {
@@ -579,6 +619,16 @@ pub extern "C" fn wasm_ctx_get_shader_info_log(ctx: u32, shader: u32, ptr: u32, 
 #[no_mangle]
 pub extern "C" fn wasm_ctx_create_program(ctx: u32) -> u32 {
     webgl2_context::ctx_create_program(ctx)
+}
+
+/// Check if object is a program.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_is_program(ctx: u32, handle: u32) -> u32 {
+    if webgl2_context::ctx_is_program(ctx, handle) {
+        1
+    } else {
+        0
+    }
 }
 
 /// Delete a program.
@@ -1491,6 +1541,16 @@ pub extern "C" fn wasm_webgpu_command_encoder_begin_render_pass_1_color(
 #[no_mangle]
 pub extern "C" fn wasm_ctx_create_renderbuffer(ctx: u32) -> u32 {
     webgl2_context::ctx_create_renderbuffer(ctx)
+}
+
+/// Check if object is a renderbuffer.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_is_renderbuffer(ctx: u32, handle: u32) -> u32 {
+    if webgl2_context::ctx_is_renderbuffer(ctx, handle) {
+        1
+    } else {
+        0
+    }
 }
 
 #[no_mangle]

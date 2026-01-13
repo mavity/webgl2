@@ -2,6 +2,20 @@ use super::registry::{clear_last_error, get_registry, set_last_error};
 use super::types::*;
 use std::collections::BTreeMap;
 
+/// Check if object is a texture.
+pub fn ctx_is_texture(ctx: u32, handle: u32) -> bool {
+    clear_last_error();
+    if handle == 0 {
+        return false;
+    }
+    let reg = get_registry().borrow();
+    if let Some(c) = reg.contexts.get(&ctx) {
+        c.textures.contains_key(&handle)
+    } else {
+        false
+    }
+}
+
 pub fn ctx_create_texture(ctx: u32) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();

@@ -434,6 +434,14 @@ export class WasmWebGL2RenderingContext {
     _checkErr(code, this._instance);
   }
 
+  isRenderbuffer(rb) {
+    this._assertNotDestroyed();
+    if (!rb || typeof rb !== 'object' || !(rb instanceof WasmWebGLRenderbuffer)) return false;
+    if (rb._ctx !== this) return false;
+    const ex = this._instance.exports;
+    return ex.wasm_ctx_is_renderbuffer(this._ctxHandle, rb._handle) !== 0;
+  }
+
   renderbufferStorage(target, internalFormat, width, height) {
     this._assertNotDestroyed();
     const ex = this._instance.exports;
@@ -1283,7 +1291,13 @@ export class WasmWebGL2RenderingContext {
     }
     return val;
   }
-  isBuffer(buffer) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  isBuffer(buffer) {
+    this._assertNotDestroyed();
+    if (!buffer || typeof buffer !== 'object' || !(buffer instanceof WasmWebGLBuffer)) return false;
+    if (buffer._ctx !== this) return false;
+    const ex = this._instance.exports;
+    return ex.wasm_ctx_is_buffer(this._ctxHandle, buffer._handle) !== 0;
+  }
 
   drawArrays(mode, first, count) {
     this._assertNotDestroyed();
@@ -1746,10 +1760,34 @@ export class WasmWebGL2RenderingContext {
   finish() { this._assertNotDestroyed(); throw new Error('not implemented'); }
   flush() { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
-  isTexture(tex) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  isFramebuffer(fb) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  isProgram(p) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  isShader(s) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  isTexture(tex) {
+    this._assertNotDestroyed();
+    if (!tex || typeof tex !== 'object' || !(tex instanceof WasmWebGLTexture)) return false;
+    if (tex._ctx !== this) return false;
+    const ex = this._instance.exports;
+    return ex.wasm_ctx_is_texture(this._ctxHandle, tex._handle) !== 0;
+  }
+  isFramebuffer(fb) {
+    this._assertNotDestroyed();
+    // Framebuffer is currently implemented as a number handle
+    if (typeof fb !== 'number') return false;
+    const ex = this._instance.exports;
+    return ex.wasm_ctx_is_framebuffer(this._ctxHandle, fb) !== 0;
+  }
+  isProgram(p) {
+    this._assertNotDestroyed();
+    if (!p || typeof p !== 'object' || !(p instanceof WasmWebGLProgram)) return false;
+    if (p._ctx !== this) return false;
+    const ex = this._instance.exports;
+    return ex.wasm_ctx_is_program(this._ctxHandle, p._handle) !== 0;
+  }
+  isShader(s) {
+    this._assertNotDestroyed();
+    if (!s || typeof s !== 'object' || !(s instanceof WasmWebGLShader)) return false;
+    if (s._ctx !== this) return false;
+    const ex = this._instance.exports;
+    return ex.wasm_ctx_is_shader(this._ctxHandle, s._handle) !== 0;
+  }
   enable(cap) {
     this._assertNotDestroyed();
     const ex = this._instance.exports;

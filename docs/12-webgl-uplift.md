@@ -45,50 +45,6 @@ Implement lightweight validation helpers.
 
 # Implementation Timeline
 
-Read [](file:///c%3A/Users/mihai/webgl2/src)
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/webgl2_context)
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/wasm_gl_emu)
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/webgl2_context/mod.rs#1-1), lines 1 to 30
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/webgl2_context/state.rs#1-1), lines 1 to 50
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/webgl2_context/registry.rs#50-50), lines 50 to 110
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/webgl2_context/registry.rs#1-1), lines 1 to 50
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/webgl2_context/types.rs#100-100), lines 100 to 200
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/webgl2_context/types.rs#450-450), lines 450 to 597
-
-Searched for text `struct Context` (`**/src/webgl2_context/types.rs`), 1 result
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/webgl2_context/types.rs#200-200), lines 200 to 280
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/webgl2_context.js#1-1), lines 1 to 110
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/webgl2_context.js#120-120), lines 120 to 180
-
-Read [](file:///c%3A/Users/mihai/webgl2/test/blendFunc.test.js)
-
-Read [](file:///c%3A/Users/mihai/webgl2/test/blendEquation.test.js)
-
-Read [](file:///c%3A/Users/mihai/webgl2/test/blendFuncSeparate.test.js)
-
-Read [](file:///c%3A/Users/mihai/webgl2/test/blendEquationSeparate.test.js)
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/wasm_gl_emu/rasterizer.rs#1-1), lines 1 to 100
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/wasm_gl_emu/rasterizer.rs#250-250), lines 250 to 493
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/wasm_gl_emu/rasterizer.rs#390-390), lines 390 to 460
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/wasm_gl_emu/rasterizer.rs#100-100), lines 100 to 250
-
-Read [](file:///c%3A/Users/mihai/webgl2/src/wasm_gl_emu/state.rs)
-
 ## Plan: Implementation of WebGL2 Blending (Step 1)
 
 This plan details the implementation of blending across the compiler, runtime, and emulator layers.

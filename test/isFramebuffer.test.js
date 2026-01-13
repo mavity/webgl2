@@ -2,7 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('isFramebuffer throws not implemented', async () => {
+test('isFramebuffer works', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.isFramebuffer(1), /not implemented/); } finally { gl.destroy(); }
+  try {
+    const fb = gl.createFramebuffer();
+    assert.equal(gl.isFramebuffer(fb), true);
+    gl.deleteFramebuffer(fb);
+    assert.equal(gl.isFramebuffer(fb), false);
+    assert.equal(gl.isFramebuffer(null), false);
+    assert.equal(gl.isFramebuffer({}), false);
+    assert.equal(gl.isFramebuffer(99999), false);
+  } finally {
+    gl.destroy();
+  }
 });

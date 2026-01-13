@@ -2,7 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('isProgram throws not implemented', async () => {
+test('isProgram works', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.isProgram(1), /not implemented/); } finally { gl.destroy(); }
+  try {
+    const p = gl.createProgram();
+    assert.equal(gl.isProgram(p), true);
+    gl.deleteProgram(p);
+    assert.equal(gl.isProgram(p), false);
+    assert.equal(gl.isProgram(null), false);
+  } finally {
+    gl.destroy();
+  }
 });
