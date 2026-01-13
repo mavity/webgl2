@@ -240,7 +240,7 @@ pub struct Context {
     pub(crate) scissor_test_enabled: bool,
     pub(crate) depth_test_enabled: bool,
     pub(crate) depth_func: u32,
-    pub(crate) blend_enabled: bool,
+    pub(crate) blend_state: crate::wasm_gl_emu::rasterizer::BlendState,
     pub(crate) active_texture_unit: u32,
     pub(crate) texture_units: Vec<Option<u32>>,
     pub(crate) gl_error: u32,
@@ -287,7 +287,7 @@ impl Context {
             scissor_test_enabled: false,
             depth_test_enabled: false,
             depth_func: 0x0203, // GL_LEQUAL
-            blend_enabled: false,
+            blend_state: crate::wasm_gl_emu::rasterizer::BlendState::default(),
             active_texture_unit: 0,
             texture_units: vec![None; 16],
             gl_error: GL_NO_ERROR,

@@ -744,6 +744,8 @@ impl hal::Queue for SoftQueue {
                                                 viewport: (0, 0, width, height), // TODO: SetViewport command
                                                 uniform_data: &[],               // TODO: BindGroups
                                                 prepare_textures: None,
+                                                blend: wasm_gl_emu::rasterizer::BlendState::default(
+                                                ),
                                             };
 
                                             let raster_pipeline =
@@ -800,6 +802,8 @@ impl hal::Queue for SoftQueue {
                                                 viewport: (0, 0, width, height),
                                                 uniform_data: &[],
                                                 prepare_textures: None,
+                                                blend: wasm_gl_emu::rasterizer::BlendState::default(
+                                                ),
                                             };
 
                                             let raster_pipeline =

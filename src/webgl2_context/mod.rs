@@ -1,3 +1,4 @@
+pub mod blend;
 pub mod buffers;
 pub mod drawing;
 pub mod framebuffers;
@@ -9,6 +10,7 @@ pub mod textures;
 pub mod types;
 pub mod vaos;
 
+pub use blend::*;
 pub use buffers::*;
 pub use drawing::*;
 pub use framebuffers::*;

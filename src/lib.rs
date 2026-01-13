@@ -322,6 +322,41 @@ pub extern "C" fn wasm_ctx_clear(ctx: u32, mask: u32) -> u32 {
     webgl2_context::ctx_clear(ctx, mask)
 }
 
+#[no_mangle]
+pub extern "C" fn wasm_ctx_blend_func(ctx: u32, sfactor: u32, dfactor: u32) -> u32 {
+    webgl2_context::ctx_blend_func(ctx, sfactor, dfactor)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_blend_func_separate(
+    ctx: u32,
+    src_rgb: u32,
+    dst_rgb: u32,
+    src_alpha: u32,
+    dst_alpha: u32,
+) -> u32 {
+    webgl2_context::ctx_blend_func_separate(ctx, src_rgb, dst_rgb, src_alpha, dst_alpha)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_blend_equation(ctx: u32, mode: u32) -> u32 {
+    webgl2_context::ctx_blend_equation(ctx, mode)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_blend_equation_separate(
+    ctx: u32,
+    mode_rgb: u32,
+    mode_alpha: u32,
+) -> u32 {
+    webgl2_context::ctx_blend_equation_separate(ctx, mode_rgb, mode_alpha)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_blend_color(ctx: u32, r: f32, g: f32, b: f32, a: f32) -> u32 {
+    webgl2_context::ctx_blend_color(ctx, r, g, b, a)
+}
+
 /// Set the viewport.
 #[no_mangle]
 pub extern "C" fn wasm_ctx_viewport(ctx: u32, x: i32, y: i32, width: u32, height: u32) -> u32 {

@@ -244,7 +244,7 @@ pub fn ctx_enable(ctx: u32, cap: u32) -> u32 {
     match cap {
         0x0C11 /* SCISSOR_TEST */ => ctx_obj.scissor_test_enabled = true,
         0x0B71 /* DEPTH_TEST */ => ctx_obj.depth_test_enabled = true,
-        0x0BE2 /* BLEND */ => ctx_obj.blend_enabled = true,
+        0x0BE2 /* BLEND */ => ctx_obj.blend_state.enabled = true,
         _ => {
             set_last_error("unsupported capability");
             return ERR_NOT_IMPLEMENTED;
@@ -266,7 +266,7 @@ pub fn ctx_disable(ctx: u32, cap: u32) -> u32 {
     match cap {
         0x0C11 /* SCISSOR_TEST */ => ctx_obj.scissor_test_enabled = false,
         0x0B71 /* DEPTH_TEST */ => ctx_obj.depth_test_enabled = false,
-        0x0BE2 /* BLEND */ => ctx_obj.blend_enabled = false,
+        0x0BE2 /* BLEND */ => ctx_obj.blend_state.enabled = false,
         _ => {
             set_last_error("unsupported capability");
             return ERR_NOT_IMPLEMENTED;

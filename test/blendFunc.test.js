@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('blendFunc throws not implemented', async () => {
+test('blendFunc sets state', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.blendFunc(0,0), /not implemented/); } finally { gl.destroy(); }
+  try {
+    gl.blendFunc(gl.ONE, gl.ZERO);
+    assert.equal(gl.getError(), gl.NO_ERROR);
+  } finally { gl.destroy(); }
 });

@@ -178,6 +178,7 @@ pub fn ctx_draw_arrays_instanced(
         viewport: (vx, vy, vw, vh),
         uniform_data: &ctx_obj.uniform_data,
         prepare_textures: None,
+        blend: ctx_obj.blend_state,
     };
 
     let fetcher = WebGLVertexFetcher {
@@ -318,6 +319,7 @@ pub fn ctx_draw_elements_instanced(
         viewport: (vx, vy, vw, vh),
         uniform_data: &ctx_obj.uniform_data,
         prepare_textures: None,
+        blend: ctx_obj.blend_state,
     };
 
     let fetcher = WebGLVertexFetcher {

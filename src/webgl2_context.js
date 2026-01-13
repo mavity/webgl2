@@ -1504,6 +1504,73 @@ export class WasmWebGL2RenderingContext {
     const code = ex.wasm_ctx_disable(this._ctxHandle, cap >>> 0);
     _checkErr(code, this._instance);
   }
+
+  blendFunc(sfactor, dfactor) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_blend_func !== 'function') {
+      throw new Error('wasm_ctx_blend_func not found');
+    }
+    const code = ex.wasm_ctx_blend_func(this._ctxHandle, sfactor >>> 0, dfactor >>> 0);
+    _checkErr(code, this._instance);
+  }
+
+  blendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_blend_func_separate !== 'function') {
+      throw new Error('wasm_ctx_blend_func_separate not found');
+    }
+    const code = ex.wasm_ctx_blend_func_separate(
+      this._ctxHandle,
+      srcRGB >>> 0,
+      dstRGB >>> 0,
+      srcAlpha >>> 0,
+      dstAlpha >>> 0
+    );
+    _checkErr(code, this._instance);
+  }
+
+  blendEquation(mode) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_blend_equation !== 'function') {
+      throw new Error('wasm_ctx_blend_equation not found');
+    }
+    const code = ex.wasm_ctx_blend_equation(this._ctxHandle, mode >>> 0);
+    _checkErr(code, this._instance);
+  }
+
+  blendEquationSeparate(modeRGB, modeAlpha) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_blend_equation_separate !== 'function') {
+      throw new Error('wasm_ctx_blend_equation_separate not found');
+    }
+    const code = ex.wasm_ctx_blend_equation_separate(
+      this._ctxHandle,
+      modeRGB >>> 0,
+      modeAlpha >>> 0
+    );
+    _checkErr(code, this._instance);
+  }
+
+  blendColor(red, green, blue, alpha) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_blend_color !== 'function') {
+      throw new Error('wasm_ctx_blend_color not found');
+    }
+    const code = ex.wasm_ctx_blend_color(
+      this._ctxHandle,
+      +red,
+      +green,
+      +blue,
+      +alpha
+    );
+    _checkErr(code, this._instance);
+  }
+
   isEnabled(cap) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
   viewport(x, y, width, height) {
@@ -1559,10 +1626,6 @@ export class WasmWebGL2RenderingContext {
   stencilFunc(func, ref, mask) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   stencilOp(fail, zfail, zpass) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   stencilMask(mask) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  blendFunc(sfactor, dfactor) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  blendFuncSeparate(sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  blendEquation(mode) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  blendEquationSeparate(modeRGB, modeAlpha) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 }
 
 /**

@@ -56,6 +56,8 @@ pub struct RenderState<'a> {
     pub uniform_data: &'a [u8],
     /// Texture metadata preparation callback
     pub prepare_textures: Option<Box<dyn Fn(u32) + 'a>>,
+    /// Blend state
+    pub blend: BlendState,
 }
 
 /// Interface for fetching vertex attributes
@@ -72,6 +74,34 @@ pub struct VaryingDebug {
     pub location: u32,
     pub type_code: u8,   // 0=float, 1=int, 2=uint
     pub components: u32, // number of scalar components
+}
+
+/// Blend state for rasterization
+#[derive(Clone, Copy, Debug)]
+pub struct BlendState {
+    pub enabled: bool,
+    pub src_rgb: u32,
+    pub dst_rgb: u32,
+    pub src_alpha: u32,
+    pub dst_alpha: u32,
+    pub eq_rgb: u32,
+    pub eq_alpha: u32,
+    pub color: [f32; 4],
+}
+
+impl Default for BlendState {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            src_rgb: 1,       // GL_ONE
+            dst_rgb: 0,       // GL_ZERO
+            src_alpha: 1,     // GL_ONE
+            dst_alpha: 0,     // GL_ZERO
+            eq_rgb: 0x8006,   // GL_FUNC_ADD
+            eq_alpha: 0x8006, // GL_FUNC_ADD
+            color: [0.0, 0.0, 0.0, 0.0],
+        }
+    }
 }
 
 pub struct RasterPipeline {
@@ -95,6 +125,115 @@ impl Default for RasterPipeline {
     }
 }
 
+fn get_factor(
+    factor: u32,
+    src: [f32; 4],
+    dst: [f32; 4],
+    constant: [f32; 4],
+    alpha_sat: f32,
+) -> [f32; 4] {
+    match factor {
+        0 => [0.0, 0.0, 0.0, 0.0],                                          // ZERO
+        1 => [1.0, 1.0, 1.0, 1.0],                                          // ONE
+        0x0300 => src,                                                      // SRC_COLOR
+        0x0301 => [1.0 - src[0], 1.0 - src[1], 1.0 - src[2], 1.0 - src[3]], // ONE_MINUS_SRC_COLOR
+        0x0302 => [src[3], src[3], src[3], src[3]],                         // SRC_ALPHA
+        0x0303 => [1.0 - src[3], 1.0 - src[3], 1.0 - src[3], 1.0 - src[3]], // ONE_MINUS_SRC_ALPHA
+        0x0304 => [dst[3], dst[3], dst[3], dst[3]],                         // DST_ALPHA
+        0x0305 => [1.0 - dst[3], 1.0 - dst[3], 1.0 - dst[3], 1.0 - dst[3]], // ONE_MINUS_DST_ALPHA
+        0x0306 => dst,                                                      // DST_COLOR
+        0x0307 => [1.0 - dst[0], 1.0 - dst[1], 1.0 - dst[2], 1.0 - dst[3]], // ONE_MINUS_DST_COLOR
+        0x0308 => [alpha_sat, alpha_sat, alpha_sat, 1.0],                   // SRC_ALPHA_SATURATE
+        0x8001 => constant,                                                 // CONSTANT_COLOR
+        0x8002 => [
+            1.0 - constant[0],
+            1.0 - constant[1],
+            1.0 - constant[2],
+            1.0 - constant[3],
+        ], // ONE_MINUS_CONSTANT_COLOR
+        0x8003 => [constant[3], constant[3], constant[3], constant[3]],     // CONSTANT_ALPHA
+        0x8004 => [
+            1.0 - constant[3],
+            1.0 - constant[3],
+            1.0 - constant[3],
+            1.0 - constant[3],
+        ], // ONE_MINUS_CONSTANT_ALPHA
+        _ => [0.0, 0.0, 0.0, 0.0],
+    }
+}
+
+fn blend_channel(src: f32, dst: f32, s_factor: f32, d_factor: f32, eq: u32) -> f32 {
+    match eq {
+        0x8006 => src * s_factor + dst * d_factor, // FUNC_ADD
+        0x800A => src * s_factor - dst * d_factor, // FUNC_SUBTRACT
+        0x800B => dst * d_factor - src * s_factor, // FUNC_REVERSE_SUBTRACT
+        0x8007 => src.min(dst),                    // MIN
+        0x8008 => src.max(dst),                    // MAX
+        _ => src,
+    }
+}
+
+fn blend_pixel(src: [u8; 4], dst: [u8; 4], state: &BlendState) -> [u8; 4] {
+    if !state.enabled {
+        return src;
+    }
+
+    let src_f = [
+        src[0] as f32 / 255.0,
+        src[1] as f32 / 255.0,
+        src[2] as f32 / 255.0,
+        src[3] as f32 / 255.0,
+    ];
+    let dst_f = [
+        dst[0] as f32 / 255.0,
+        dst[1] as f32 / 255.0,
+        dst[2] as f32 / 255.0,
+        dst[3] as f32 / 255.0,
+    ];
+
+    let alpha_sat = src_f[3].min(1.0 - dst_f[3]);
+    let s_factor_rgb = get_factor(state.src_rgb, src_f, dst_f, state.color, alpha_sat);
+    let d_factor_rgb = get_factor(state.dst_rgb, src_f, dst_f, state.color, alpha_sat);
+    let s_factor_a = get_factor(state.src_alpha, src_f, dst_f, state.color, alpha_sat);
+    let d_factor_a = get_factor(state.dst_alpha, src_f, dst_f, state.color, alpha_sat);
+
+    let r = blend_channel(
+        src_f[0],
+        dst_f[0],
+        s_factor_rgb[0],
+        d_factor_rgb[0],
+        state.eq_rgb,
+    );
+    let g = blend_channel(
+        src_f[1],
+        dst_f[1],
+        s_factor_rgb[1],
+        d_factor_rgb[1],
+        state.eq_rgb,
+    );
+    let b = blend_channel(
+        src_f[2],
+        dst_f[2],
+        s_factor_rgb[2],
+        d_factor_rgb[2],
+        state.eq_rgb,
+    );
+    let a = blend_channel(
+        src_f[3],
+        dst_f[3],
+        s_factor_a[3],
+        d_factor_a[3],
+        state.eq_alpha,
+    );
+
+    [
+        (r.clamp(0.0, 1.0) * 255.0) as u8,
+        (g.clamp(0.0, 1.0) * 255.0) as u8,
+        (b.clamp(0.0, 1.0) * 255.0) as u8,
+        (a.clamp(0.0, 1.0) * 255.0) as u8,
+    ]
+}
+
 /// Software triangle rasterizer
 #[derive(Default)]
 pub struct Rasterizer {}
@@ -114,13 +253,27 @@ pub struct DrawConfig<'a> {
 
 impl Rasterizer {
     /// Draw a single point to the framebuffer
-    pub fn draw_point(&self, fb: &mut super::Framebuffer, x: f32, y: f32, color: [u8; 4]) {
+    pub fn draw_point(
+        &self,
+        fb: &mut super::Framebuffer,
+        x: f32,
+        y: f32,
+        color: [u8; 4],
+        state: &RenderState,
+    ) {
         let ix = x as i32;
         let iy = y as i32;
         if ix >= 0 && ix < fb.width as i32 && iy >= 0 && iy < fb.height as i32 {
             let idx = ((iy as u32 * fb.width + ix as u32) * 4) as usize;
             if idx + 3 < fb.color.len() {
-                fb.color[idx..idx + 4].copy_from_slice(&color);
+                let existing = [
+                    fb.color[idx],
+                    fb.color[idx + 1],
+                    fb.color[idx + 2],
+                    fb.color[idx + 3],
+                ];
+                let blended = blend_pixel(color, existing, &state.blend);
+                fb.color[idx..idx + 4].copy_from_slice(&blended);
             }
         }
     }
@@ -240,7 +393,14 @@ impl Rasterizer {
                         // Write color to framebuffer
                         let color_idx = fb_idx * 4;
                         if color_idx + 3 < fb.color.len() {
-                            fb.color[color_idx..color_idx + 4].copy_from_slice(&color);
+                            let existing = [
+                                fb.color[color_idx],
+                                fb.color[color_idx + 1],
+                                fb.color[color_idx + 2],
+                                fb.color[color_idx + 3],
+                            ];
+                            let blended = blend_pixel(color, existing, &state.blend);
+                            fb.color[color_idx..color_idx + 4].copy_from_slice(&blended);
                         }
                     }
                 }
@@ -397,7 +557,7 @@ impl Rasterizer {
                     // Run FS
                     let color =
                         self.execute_fragment_shader(&v.varyings, config.pipeline, config.state);
-                    self.draw_point(config.fb, screen_x, screen_y, color);
+                    self.draw_point(config.fb, screen_x, screen_y, color, config.state);
                 }
             } else if config.mode == 0x0004 {
                 // GL_TRIANGLES

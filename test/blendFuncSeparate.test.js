@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('blendFuncSeparate throws not implemented', async () => {
+test('blendFuncSeparate sets state', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.blendFuncSeparate(0,0,0,0), /not implemented/); } finally { gl.destroy(); }
+  try {
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ZERO);
+    assert.equal(gl.getError(), gl.NO_ERROR);
+  } finally { gl.destroy(); }
 });
