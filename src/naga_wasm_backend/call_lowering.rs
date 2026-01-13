@@ -3,8 +3,8 @@
 //! This module implements ABI-aware function call lowering, handling both
 //! flattened scalar parameters and frame-based parameter passing for large types.
 
-use super::{function_abi, output_layout, BackendError, TranslationContext};
-use wasm_encoder::Instruction;
+use super::{function_abi, output_layout, types, BackendError, TranslationContext};
+use wasm_encoder::{Instruction, MemArg, ValType};
 
 /// Emit a function call using FunctionABI for proper parameter/result handling.
 ///
@@ -108,11 +108,16 @@ fn emit_frame_based_call(
                 // Push flattened argument onto stack
                 super::expressions::translate_expression(*arg_expr, ctx)?;
             }
-            function_abi::ParameterABI::Frame { offset, .. } => {
-                // For Frame parameters, we pass a pointer to the frame location
-                // TODO: Implement proper copy_in by storing struct/array data into frame
-                // For now, pass the frame pointer directly - the callee will access
-                // the data from the original location via this pointer
+            function_abi::ParameterABI::Frame {
+                offset,
+                copy_in,
+                semantic,
+                ..
+            } => {
+                // Copy data into frame if needed
+                if *copy_in {
+                    copy_value_to_frame(*arg_expr, aligned_temp, *offset, ctx)?;
+                }
 
                 // Push frame pointer as argument
                 ctx.wasm_func
@@ -122,6 +127,15 @@ fn emit_frame_based_call(
                         .instruction(&Instruction::I32Const(*offset as i32));
                     ctx.wasm_func.instruction(&Instruction::I32Add);
                 }
+
+                // For Out parameters, we may need to handle the original expression
+                // location for copy_out later
+                if matches!(semantic, function_abi::ParamSemantic::Out)
+                    || matches!(semantic, function_abi::ParamSemantic::InOut)
+                {
+                    // Store metadata for copy_out (not implemented yet)
+                    // This would require tracking expression -> memory location mapping
+                }
             }
         }
     }
@@ -129,9 +143,27 @@ fn emit_frame_based_call(
     // Emit the call
     ctx.wasm_func.instruction(&Instruction::Call(wasm_idx));
 
-    // TODO: Handle copy_out for Frame parameters (for out/inout semantics)
-    // This would require tracking the source expression location and
-    // copying data back from the frame to the original location
+    // Handle copy_out for Frame parameters with Out/InOut semantics
+    for (arg_idx, arg_expr) in arguments.iter().enumerate() {
+        if arg_idx >= abi.params.len() {
+            continue;
+        }
+
+        if let function_abi::ParameterABI::Frame {
+            offset,
+            copy_out,
+            semantic,
+            ..
+        } = &abi.params[arg_idx]
+        {
+            if *copy_out
+                && (matches!(semantic, function_abi::ParamSemantic::Out)
+                    || matches!(semantic, function_abi::ParamSemantic::InOut))
+            {
+                copy_value_from_frame(*arg_expr, aligned_temp, *offset, ctx)?;
+            }
+        }
+    }
 
     // --- Inline frame deallocation (no locals needed) ---
     // Restore FRAME_SP by subtracting frame_size (we know it at compile time)
@@ -165,9 +197,18 @@ fn handle_call_result(
                             .instruction(&Instruction::LocalSet(runtime_base + i as u32));
                     }
                 }
-                Some(function_abi::ResultABI::Frame { .. }) => {
-                    // Frame results would be written to memory, not returned on stack
-                    // No values to pop
+                Some(function_abi::ResultABI::Frame { size, align }) => {
+                    // Frame results are written to memory by the callee.
+                    // We need to load them from the frame and store to result locals.
+                    // The frame pointer should be passed to the callee, and the callee
+                    // writes the result there.
+                    //
+                    // For now, this is a placeholder - full implementation requires
+                    // the frame pointer to be accessible here (either passed as hidden param
+                    // or stored in a known location).
+                    //
+                    // TODO: Load from frame memory and store to runtime_base locals
+                    let _ = (size, align, runtime_base);
                 }
                 None => {
                     // Void result, nothing to store
@@ -182,7 +223,7 @@ fn handle_call_result(
                     }
                 }
                 Some(function_abi::ResultABI::Frame { .. }) => {
-                    // Frame results don't appear on stack
+                    // Frame results don't appear on stack, nothing to drop
                 }
                 None => {
                     // Void result, nothing to drop
@@ -191,5 +232,116 @@ fn handle_call_result(
         }
     }
 
+    Ok(())
+}
+/// Copy a value from the WASM stack to the frame at the specified offset.
+///
+/// This function evaluates the expression (pushing its flattened scalar components
+/// onto the stack), then stores each component to the frame in memory.
+fn copy_value_to_frame(
+    expr: naga::Handle<naga::Expression>,
+    frame_base_local: u32,
+    frame_offset: u32,
+    ctx: &mut TranslationContext,
+) -> Result<(), BackendError> {
+    // Get the type of the expression
+    let type_inner = ctx.typifier.get(expr, &ctx.module.types);
+
+    // For types that can be resolved to a handle, get the component count
+    // Otherwise, compute directly from the inner type
+    let count = types::component_count(type_inner, &ctx.module.types);
+
+    // We need a type handle to use get_flat_component_type
+    // Try to find it in the module types by matching the inner type
+    let type_handle = ctx
+        .module
+        .types
+        .iter()
+        .find(|(_, ty)| &ty.inner == type_inner)
+        .map(|(handle, _)| handle);
+
+    // Translate expression (pushes 'count' values to stack)
+    super::expressions::translate_expression(expr, ctx)?;
+
+    // Store each component in reverse order (LIFO stack)
+    // We need to use temp locals because the stack is LIFO
+    let mut temp_locals = Vec::new();
+    for i in 0..count {
+        // Determine the value type for this component
+        let val_type = if let Some(handle) = type_handle {
+            types::get_flat_component_type(handle, i, &ctx.module.types)?
+        } else {
+            // Fallback: assume F32 for unknown types (common case)
+            ValType::F32
+        };
+
+        let temp = match val_type {
+            ValType::F32 => ctx.swap_f32_local,
+            ValType::I32 => ctx.swap_i32_local,
+            _ => {
+                return Err(BackendError::UnsupportedFeature(
+                    "Unsupported value type for frame copy".to_string(),
+                ))
+            }
+        };
+        temp_locals.push((temp, val_type));
+        ctx.wasm_func.instruction(&Instruction::LocalSet(temp));
+    }
+
+    // Now store from locals to memory in forward order
+    for (i, (temp_local, val_type)) in temp_locals.iter().enumerate().rev() {
+        let offset = frame_offset + (i as u32 * 4);
+
+        // Calculate address: frame_base + offset
+        ctx.wasm_func
+            .instruction(&Instruction::LocalGet(frame_base_local));
+        if offset > 0 {
+            ctx.wasm_func
+                .instruction(&Instruction::I32Const(offset as i32));
+            ctx.wasm_func.instruction(&Instruction::I32Add);
+        }
+
+        // Load value from temp local
+        ctx.wasm_func
+            .instruction(&Instruction::LocalGet(*temp_local));
+
+        // Store to memory
+        let memarg = MemArg {
+            offset: 0,
+            align: 2, // 4-byte alignment (2^2 = 4)
+            memory_index: 0,
+        };
+        match val_type {
+            ValType::F32 => {
+                ctx.wasm_func.instruction(&Instruction::F32Store(memarg));
+            }
+            ValType::I32 => {
+                ctx.wasm_func.instruction(&Instruction::I32Store(memarg));
+            }
+            _ => unreachable!(),
+        };
+    }
+
+    Ok(())
+}
+
+/// Copy a value from the frame back to its original location (for Out/InOut parameters).
+///
+/// This is a placeholder - full implementation requires tracking the destination
+/// address or local variable for each argument expression.
+fn copy_value_from_frame(
+    _expr: naga::Handle<naga::Expression>,
+    _frame_base_local: u32,
+    _frame_offset: u32,
+    _ctx: &mut TranslationContext,
+) -> Result<(), BackendError> {
+    // TODO: Implement copy_out logic
+    // This requires:
+    // 1. Determining the destination address (if expr is a pointer dereference)
+    // 2. Loading values from frame memory
+    // 3. Storing values to the destination
+    //
+    // For now, Out/InOut parameters are rarely used in typical GLSL shaders,
+    // so this is deferred to a future implementation.
     Ok(())
 }

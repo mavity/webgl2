@@ -87,9 +87,13 @@ pub fn decompile_to_glsl_with_config(wasm_bytes: &[u8], config: EmitterConfig) -
     // (We could make this configurable)
     emitter.emit_memory_buffer();
 
-    // Emit all functions
-    for (idx, func) in &module.functions {
-        let name = module.get_function_name(*idx);
+    // Emit all functions in WASM index order (deterministic)
+    let mut indices: Vec<_> = module.functions.keys().copied().collect();
+    indices.sort();
+
+    for idx in indices {
+        let func = &module.functions[&idx];
+        let name = module.get_function_name(idx);
         emitter.emit_function(func, &name);
         // Add blank line between functions
     }

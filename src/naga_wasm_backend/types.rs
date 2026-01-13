@@ -112,6 +112,56 @@ pub fn type_size(type_inner: &TypeInner) -> Result<u32, BackendError> {
     }
 }
 
+/// Get the scalar type of the N-th flattened component of a type.
+///
+/// For example, if a struct has members `vec3` and `float`, indices 0-2 would
+/// return the vec3's scalar type, and index 3 would return the float's type.
+///
+/// This is used during frame copy operations to know whether to use
+/// `i32.store` or `f32.store` for each component.
+pub fn get_flat_component_type(
+    ty: naga::Handle<naga::Type>,
+    mut flat_index: u32,
+    types: &naga::UniqueArena<naga::Type>,
+) -> Result<ValType, BackendError> {
+    let inner = &types[ty].inner;
+    match inner {
+        TypeInner::Scalar(s) => scalar_to_wasm(s.kind, s.width),
+        TypeInner::Vector { scalar, .. } => scalar_to_wasm(scalar.kind, scalar.width),
+        TypeInner::Matrix { scalar, .. } => scalar_to_wasm(scalar.kind, scalar.width),
+        TypeInner::Array { base, .. } => {
+            let base_count = component_count(&types[*base].inner, types);
+            if base_count == 0 {
+                return Err(BackendError::TypeConversion(
+                    "Array element has zero components".to_string(),
+                ));
+            }
+            let inner_index = flat_index % base_count;
+            get_flat_component_type(*base, inner_index, types)
+        }
+        TypeInner::Struct { members, .. } => {
+            for member in members {
+                let count = component_count(&types[member.ty].inner, types);
+                if flat_index < count {
+                    return get_flat_component_type(member.ty, flat_index, types);
+                }
+                flat_index -= count;
+            }
+            Err(BackendError::TypeConversion(format!(
+                "Flat index {} out of bounds for struct",
+                flat_index
+            )))
+        }
+        TypeInner::Pointer { .. } | TypeInner::Image { .. } | TypeInner::Sampler { .. } => {
+            Ok(ValType::I32)
+        }
+        _ => Err(BackendError::TypeConversion(format!(
+            "Cannot get flat component type for: {:?}",
+            inner
+        ))),
+    }
+}
+
 /// Represents how a type is stored in WASM
 #[derive(Debug, Clone)]
 pub enum WasmTypeLayout {
