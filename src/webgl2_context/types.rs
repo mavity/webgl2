@@ -167,6 +167,9 @@ pub(crate) struct Program {
     pub(crate) varying_types: HashMap<String, (u8, u32)>,
     // Attribute types populated at link time (name -> (type_code, components))
     pub(crate) attribute_types: HashMap<String, (u8, u32)>,
+    /// Function table indices for direct calling
+    pub(crate) vs_table_idx: Option<u32>,
+    pub(crate) fs_table_idx: Option<u32>,
 }
 
 /// A WebGL2 vertex array object

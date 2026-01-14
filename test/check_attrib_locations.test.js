@@ -28,7 +28,8 @@ test('Check Attribute Locations', async (t) => {
             // Required by egg crate for timing measurements
             now: () => {
                 return performance.now();
-            }
+            },
+            __indirect_function_table: new WebAssembly.Table({ initial: 2048, element: 'anyfunc' })
         }
     };
     instance = await WebAssembly.instantiate(wasmModule, importObject);

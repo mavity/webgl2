@@ -249,6 +249,8 @@ pub fn ctx_create_program(ctx: u32) -> u32 {
             varying_locations: HashMap::new(),
             varying_types: HashMap::new(),
             attribute_types: HashMap::new(),
+            vs_table_idx: None,
+            fs_table_idx: None,
         },
     );
     program_id
@@ -1562,5 +1564,30 @@ pub fn ctx_get_active_attrib(
     } else {
         set_last_error("program not found");
         0
+    }
+}
+
+/// Store shader table indices for direct calling.
+/// Called from JS after shader WASM instances are created and registered in the function table.
+pub fn ctx_register_shader_indices(ctx: u32, program: u32, vs_idx: u32, fs_idx: u32) -> u32 {
+    use super::types::{ERR_INVALID_HANDLE, ERR_OK};
+
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+
+    if let Some(prog) = ctx_obj.programs.get_mut(&program) {
+        prog.vs_table_idx = Some(vs_idx);
+        prog.fs_table_idx = Some(fs_idx);
+        ERR_OK
+    } else {
+        set_last_error("invalid program handle");
+        ERR_INVALID_HANDLE
     }
 }

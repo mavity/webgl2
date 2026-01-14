@@ -44,6 +44,46 @@ impl Default for ShaderMemoryLayout {
     }
 }
 
+/// Type alias for shader function signature.
+/// Matches WASM shader exports: (type, attr_ptr, uniform_ptr, varying_ptr, private_ptr, texture_ptr)
+type ShaderFunc = unsafe extern "C" fn(i32, i32, i32, i32, i32, i32);
+
+/// Call shader directly via function table.
+///
+/// # Safety
+/// - `table_index` must be valid (set during linkProgram)
+/// - Memory pointers must be valid and aligned
+/// - Shader WASM instance must still exist
+///
+/// # Implementation Note
+/// In WebAssembly, function pointers ARE table indices.
+/// This transmute is safe because:
+/// 1. WASM spec guarantees table indices map to functions
+/// 2. call_indirect validates signature at runtime
+/// 3. Invalid indices trap (don't cause UB)
+#[inline]
+unsafe fn call_shader_direct(
+    table_index: u32,
+    shader_type: u32,
+    attr_ptr: u32,
+    uniform_ptr: u32,
+    varying_ptr: u32,
+    private_ptr: u32,
+    texture_ptr: u32,
+) {
+    // Transmute table index to function pointer
+    let func: ShaderFunc = std::mem::transmute(table_index as usize);
+
+    func(
+        shader_type as i32,
+        attr_ptr as i32,
+        uniform_ptr as i32,
+        varying_ptr as i32,
+        private_ptr as i32,
+        texture_ptr as i32,
+    );
+}
+
 /// Render state for a draw call
 pub struct RenderState<'a> {
     /// Context handle
@@ -190,6 +230,10 @@ pub struct RasterPipeline {
     pub memory: ShaderMemoryLayout,
     /// Bitmask of flat varyings (1 = flat, 0 = smooth)
     pub flat_varyings_mask: u64,
+    /// Function table index for vertex shader (if available)
+    pub vs_table_idx: Option<u32>,
+    /// Function table index for fragment shader (if available)
+    pub fs_table_idx: Option<u32>,
 }
 
 impl Default for RasterPipeline {
@@ -199,6 +243,8 @@ impl Default for RasterPipeline {
             fragment_shader_type: 0x8B30, // GL_FRAGMENT_SHADER
             memory: ShaderMemoryLayout::default(),
             flat_varyings_mask: 0,
+            vs_table_idx: None,
+            fs_table_idx: None,
         }
     }
 }
@@ -618,15 +664,31 @@ impl Rasterizer {
         }
 
         // Execute fragment shader
-        crate::js_execute_shader(
-            state.ctx_handle,
-            pipeline.fragment_shader_type,
-            0,
-            pipeline.memory.uniform_ptr,
-            pipeline.memory.varying_ptr,
-            pipeline.memory.private_ptr,
-            pipeline.memory.texture_ptr,
-        );
+        // Try direct call if table index available, fallback to JS trampoline
+        if let Some(fs_idx) = pipeline.fs_table_idx {
+            unsafe {
+                call_shader_direct(
+                    fs_idx,
+                    pipeline.fragment_shader_type,
+                    0,
+                    pipeline.memory.uniform_ptr,
+                    pipeline.memory.varying_ptr,
+                    pipeline.memory.private_ptr,
+                    pipeline.memory.texture_ptr,
+                );
+            }
+        } else {
+            // Fallback: JS trampoline (preserves existing behavior)
+            crate::js_execute_shader(
+                state.ctx_handle,
+                pipeline.fragment_shader_type,
+                0,
+                pipeline.memory.uniform_ptr,
+                pipeline.memory.varying_ptr,
+                pipeline.memory.private_ptr,
+                pipeline.memory.texture_ptr,
+            );
+        }
 
         // Read color from private memory
         let mut color_bytes = [0u8; 16];

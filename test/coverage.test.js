@@ -76,7 +76,7 @@ test('coverage module is available with coverage feature', async () => {
       },
       // Add other imports if needed by the module
       __linear_memory: new WebAssembly.Memory({ initial: 100 }),
-      __indirect_function_table: new WebAssembly.Table({ initial: 0, element: 'anyfunc' })
+      __indirect_function_table: new WebAssembly.Table({ initial: 2048, element: 'anyfunc' })
     }
   };
 

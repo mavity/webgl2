@@ -159,6 +159,13 @@ pub fn ctx_draw_arrays_instanced(
         }
     };
 
+    // Get table indices from program
+    let (vs_table_idx, fs_table_idx) = if let Some(prog) = ctx_obj.programs.get(&_program_id) {
+        (prog.vs_table_idx, prog.fs_table_idx)
+    } else {
+        (None, None)
+    };
+
     let (vx, vy, vw, vh) = ctx_obj.viewport;
 
     // Create pipeline configuration
@@ -166,6 +173,8 @@ pub fn ctx_draw_arrays_instanced(
     // Build pipeline and include varying debug info if shaders debugging is enabled
     let pipeline = RasterPipeline {
         flat_varyings_mask: mask,
+        vs_table_idx,
+        fs_table_idx,
         ..Default::default()
     };
 
@@ -248,6 +257,13 @@ pub fn ctx_draw_elements_instanced(
         }
     };
 
+    // Get table indices from program
+    let (vs_table_idx, fs_table_idx) = if let Some(prog) = ctx_obj.programs.get(&_program_id) {
+        (prog.vs_table_idx, prog.fs_table_idx)
+    } else {
+        (None, None)
+    };
+
     // Get EBO
     let ebo_handle = if let Some(vao) = ctx_obj.vertex_arrays.get(&ctx_obj.bound_vertex_array) {
         vao.element_array_buffer
@@ -310,6 +326,8 @@ pub fn ctx_draw_elements_instanced(
     // Create pipeline configuration
     let pipeline = RasterPipeline {
         flat_varyings_mask: get_flat_varyings_mask(ctx_obj),
+        vs_table_idx,
+        fs_table_idx,
         ..Default::default()
     };
 

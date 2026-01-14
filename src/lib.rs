@@ -661,6 +661,18 @@ pub extern "C" fn wasm_ctx_get_program_info_log(ctx: u32, program: u32, ptr: u32
     webgl2_context::ctx_get_program_info_log(ctx, program, ptr, len)
 }
 
+/// Register compiled shader function table indices.
+/// Called from JS after shader WASM instances are created.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_register_shader_indices(
+    ctx: u32,
+    program: u32,
+    vs_idx: u32,
+    fs_idx: u32,
+) -> u32 {
+    webgl2_context::ctx_register_shader_indices(ctx, program, vs_idx, fs_idx)
+}
+
 /// Get the length of the generated WASM for a program's shader.
 #[no_mangle]
 pub extern "C" fn wasm_ctx_get_program_wasm_len(ctx: u32, program: u32, shader_type: u32) -> u32 {

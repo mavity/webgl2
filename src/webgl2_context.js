@@ -162,7 +162,7 @@ export class WasmWebGL2RenderingContext {
    * @param {number} height
    * @param {boolean} [debugShaders]
    */
-  constructor({ instance, ctxHandle, width, height, debugShaders = false }) {
+  constructor({ instance, ctxHandle, width, height, debugShaders = false, sharedTable = null, tableAllocator = null }) {
     this._instance = instance;
     this._ctxHandle = ctxHandle;
     this._destroyed = false;
@@ -172,6 +172,8 @@ export class WasmWebGL2RenderingContext {
     this._debugShaders = !!debugShaders;
     this._drawingBufferWidth = width;
     this._drawingBufferHeight = height;
+    this._sharedTable = sharedTable;
+    this._tableAllocator = tableAllocator;
 
     WasmWebGL2RenderingContext._contexts.set(this._ctxHandle, this);
   }
@@ -721,6 +723,10 @@ export class WasmWebGL2RenderingContext {
     const vsWasm = this.getProgramWasm(program, this.VERTEX_SHADER);
     const fsWasm = this.getProgramWasm(program, this.FRAGMENT_SHADER);
 
+    // Allocate table slots for both shaders
+    const vsIdx = this._tableAllocator ? this._tableAllocator.allocate() : null;
+    const fsIdx = this._tableAllocator ? this._tableAllocator.allocate() : null;
+
     const createDebugEnv = (type, instanceRef) => {
       if (!this._debugShaders) return {};
 
@@ -773,10 +779,17 @@ export class WasmWebGL2RenderingContext {
     program._vsInstance = new WebAssembly.Instance(vsModule, {
       env: {
         memory: this._instance.exports.memory,
+        __indirect_function_table: this._sharedTable,
         ...vsDebugEnv
       }
     });
     vsInstanceRef.current = program._vsInstance;
+
+    // Register in table
+    if (this._sharedTable && vsIdx !== null && program._vsInstance.exports.main) {
+      this._sharedTable.set(vsIdx, program._vsInstance.exports.main);
+      program._vsTableIndex = vsIdx;
+    }
 
     let fsModule;
     fsModule = new WebAssembly.Module(fsWasm);
@@ -787,10 +800,30 @@ export class WasmWebGL2RenderingContext {
     program._fsInstance = new WebAssembly.Instance(fsModule, {
       env: {
         memory: this._instance.exports.memory,
+        __indirect_function_table: this._sharedTable,
         ...fsDebugEnv
       }
     });
     fsInstanceRef.current = program._fsInstance;
+
+    // Register in table
+    if (this._sharedTable && fsIdx !== null && program._fsInstance.exports.main) {
+      this._sharedTable.set(fsIdx, program._fsInstance.exports.main);
+      program._fsTableIndex = fsIdx;
+    }
+
+    // Notify Rust of table indices (requires Phase 4)
+    if (vsIdx !== null && fsIdx !== null) {
+      const ex = this._instance.exports;
+      if (ex.wasm_ctx_register_shader_indices) {
+        ex.wasm_ctx_register_shader_indices(
+          this._ctxHandle,
+          program._handle,
+          vsIdx,
+          fsIdx
+        );
+      }
+    }
   }
 
   getProgramDebugStub(program, shaderType) {
@@ -846,6 +879,17 @@ export class WasmWebGL2RenderingContext {
       throw new Error('wasm_ctx_delete_program not found');
     }
     const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
+    
+    // Free table indices
+    if (program && typeof program === 'object') {
+      if (program._vsTableIndex !== undefined && this._tableAllocator) {
+        this._tableAllocator.free(program._vsTableIndex);
+      }
+      if (program._fsTableIndex !== undefined && this._tableAllocator) {
+        this._tableAllocator.free(program._fsTableIndex);
+      }
+    }
+    
     const code = ex.wasm_ctx_delete_program(this._ctxHandle, programHandle);
     _checkErr(code, this._instance);
     if (program && typeof program === 'object') {

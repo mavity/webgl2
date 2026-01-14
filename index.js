@@ -20,6 +20,30 @@ export const debug = {
 export { ERR_OK, ERR_INVALID_HANDLE, GPUBufferUsage, GPUMapMode, GPUTextureUsage, getShaderModule, getShaderWat, getShaderGlsl, decompileWasmToGlsl };
 
 /**
+ * Simple allocator for function table indices.
+ * Tracks which slots are in use to enable reuse.
+ */
+class TableAllocator {
+  constructor() {
+    // Rust uses the first ~1900 slots for its indirect function table (dyn calls, etc).
+    // We must valid collision by starting allocations after that region.
+    this.nextIndex = 2000;
+    this.freeList = [];
+  }
+
+  allocate() {
+    if (this.freeList.length > 0) {
+      return this.freeList.pop();
+    }
+    return this.nextIndex++;
+  }
+
+  free(index) {
+    this.freeList.push(index);
+  }
+}
+
+/**
  * WebGL2 Prototype: Rust-owned Context, JS thin-forwarder
  * Implements docs/1.1.1-webgl2-prototype.md
  *
@@ -75,7 +99,7 @@ export async function webGL2({ debug = (typeof process !== 'undefined' ? process
       }
     });
   }
-  const { ex, instance } = await promise;
+  const { ex, instance, sharedTable, tableAllocator } = await promise;
 
   // Initialize coverage if available
   if (ex.wasm_init_coverage && ex.COV_MAP_PTR) {
@@ -105,7 +129,15 @@ export async function webGL2({ debug = (typeof process !== 'undefined' ? process
   }
 
   // Wrap and return, pass debug booleans to the JS wrapper
-  const gl = new WasmWebGL2RenderingContext({ instance, ctxHandle, width, height, debugShaders: !!debugShaders });
+  const gl = new WasmWebGL2RenderingContext({
+    instance,
+    ctxHandle,
+    width,
+    height,
+    debugShaders: !!debugShaders,
+    sharedTable,
+    tableAllocator
+  });
 
   if (size && typeof size.width === 'number' && typeof size.height === 'number') {
     gl.resize(size.width, size.height);
@@ -172,8 +204,18 @@ async function initWASM({ debug } = {}) {
 
   // Instantiate WASM (no imports needed, memory is exported)
   let instance;
+
+  // Create shared function table for direct shader calls
+  const sharedTable = new WebAssembly.Table({
+    initial: 4096,   // WASM module requires at least 1982
+    maximum: 4096,   // Prevent unbounded growth
+    element: "anyfunc"
+  });
+  const tableAllocator = new TableAllocator();
+
   const importObject = {
     env: {
+      __indirect_function_table: sharedTable,  // Exact name LLVM expects
       print: (ptr, len) => {
         const mem = new Uint8Array(instance.exports.memory.buffer);
         const bytes = mem.subarray(ptr, ptr + len);
@@ -192,9 +234,9 @@ async function initWASM({ debug } = {}) {
         const bytes = mem.subarray(ptr, ptr + len);
         const msg = new TextDecoder('utf-8').decode(bytes);
         if (typeof GPU !== 'undefined' && typeof GPU.dispatchUncapturedError === 'function') {
-            GPU.dispatchUncapturedError(msg);
+          GPU.dispatchUncapturedError(msg);
         } else {
-            console.error("GPU.dispatchUncapturedError not available", msg);
+          console.error("GPU.dispatchUncapturedError not available", msg);
         }
       },
       // Required by egg crate for timing measurements
@@ -213,7 +255,7 @@ async function initWASM({ debug } = {}) {
   if (!(ex.memory instanceof WebAssembly.Memory)) {
     throw new Error('WASM module missing memory export');
   }
-  return { ex, instance, module: wasmModule };
+  return { ex, instance, module: wasmModule, sharedTable, tableAllocator };
 }
 
 /**
