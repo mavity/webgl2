@@ -111,3 +111,121 @@ The "Table Call" pattern allows tight integration.
 *   **Shader -> Rasterizer**: Calls `Math` / `Texture` functions via Import.
 
 Ensure the `ImportSection` in `backend.rs` perfectly matches the `Exports` provided by the `wasm_gl_emu` or `webgl2_context` host.
+
+## 5. Detailed Implementation Plan & Execution Mandate
+
+**CRITICAL MANDATE**: The implementation must follow a strict incremental pattern.
+1.  **One Step at a Time**: Do not attempt to implement multiple groups simultaneously.
+2.  **Verify & Commit**: After completing a lead opcode or a group, run the full build (`npm run build`) and the full test suite (`npm test`). **ALL** tests must pass.
+3.  **Clean State**: Only proceed to the next step when the codebase is in a stable, passing state.
+4. Commit each such safe step AFTER green build and all tests pass as a separate commit.
+
+---
+
+### Phase 1: Straightforward Instructions & patterns
+
+These instructions map directly to WASM operations or simple sequences. They should be implemented first to clear the "low hanging fruit" and build momentum.
+
+#### Group 1.1: Missing Arithmetic & Bitwise
+**Pattern**: Direct mapping to `wasm_encoder::Instruction` similar to `BinaryOperator::Add`.
+**Reference**: `src/naga_wasm_backend/expressions.rs` -> `translate_expression_component` (Binary match).
+
+*   **`BinaryOperator::Rem` (Float)**:
+    *   **Note**: WASM `F32Nearest` does NOT equal modulo. Use logic: `a - b * trunc(a/b)`.
+    *   **Ref**: `BinaryOperator::Div`.
+*   **`BinaryOperator::And/Or/Xor` (Integer)**:
+    *   **Implementation**: Map to `I32And`, `I32Or`, `I32Xor`.
+    *   **Ref**: `BinaryOperator::Add`.
+*   **`BinaryOperator::ShiftLeft/ShiftRight`**:
+    *   **Implementation**: Map to `I32Shl`, `I32ShrS` (signed) or `I32ShrU` (unsigned).
+    *   **Ref**: `BinaryOperator::Add`.
+
+#### Group 1.2: Simple Relational
+**Pattern**: Floating point comparison returning 0/1 (i32).
+**Reference**: `src/naga_wasm_backend/expressions.rs` -> `translate_expression_component` (Relational match).
+
+*   **`RelationalFunction::IsInf`**:
+    *   **Implementation**: Check if `abs(x) == Infinity`. In WASM: `f32.abs`, `f32.const inf`, `f32.eq`.
+*   **`RelationalFunction::IsNan`**:
+    *   **Implementation**: `x != x` is the standard NaN check. In WASM: `f32.ne`.
+
+---
+
+### Phase 2: Complex Pattern - Control Flow
+
+This group requires managing block labels and stack depth.
+
+#### Group 2.1: The Lead - `Statement::Break` (with Block)
+**Goal**: Implement `Statement::Block` nesting and `Statement::Break`.
+**Lead Task**:
+1.  Modify `TranslationContext` in `control_flow.rs` to have a `block_stack` (vector of labels/depths).
+2.  Implement `Statement::Block`: Push label, emit `block`, emit statements, emit `end`, pop label.
+3.  Implement `Statement::Break`: Emit `br <depth>`.
+4.  **Validate**: Create a test case with a nested block and a break that skips code. Ensure build/test pass.
+
+#### Group 2.2: The Pack - Loop, Continue, Switch
+**Task**: Once 2.1 is stable, implement the rest.
+1.  **`Statement::Loop`**:
+    *   Pattern: `loop (label: continue) block (label: break) ... br <continue> end end`.
+    *   Push *two* labels to the stack (continue target and break target).
+2.  **`Statement::Continue`**:
+    *   Emit `br <continue_depth>`.
+3.  **`Statement::Switch`**:
+    *   Pattern: `block (default)`, `block (case 1)`, `br_table`.
+    *   Requires calculating jump offsets.
+4.  **`Statement::Kill`**:
+    *   Pattern: `unreachable` (trap).
+
+---
+
+### Phase 3: Complex Pattern - Host Math Calls
+
+This group requires modifying the ABI to import functions.
+
+#### Group 3.1: The Lead - `sin(f32)`
+**Goal**: Establish the "Import -> Call" pipeline.
+**Lead Task**:
+1.  Modify `backend.rs` -> `Compiler`: Add `ImportSection`.
+2.  Define import "env.gl_sin" (f32 -> f32).
+3.  Modify `expressions.rs` -> `Expression::Math`: Handle `MathFunction::Sin`.
+4.  Emit `Call <func_idx>`.
+5.  **Host Side**: Update `wasm_gl_emu` or test runner to provide `gl_sin`.
+6.  **Validate**: Test case calling `sin(0.0)` loops through WASM and returns correct value.
+
+#### Group 3.2: The Pack - Rest of Standard Library
+**Task**: Once 3.1 works, mass-implement the rest.
+1.  **Scalar Math**: `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Sinh`, `Cosh`, `Tanh`, `Exp`, `Log`, `Sqrt`, `Floor`, `Ceil`, `Fract`.
+    *   Map them to new imports in `backend.rs`.
+2.  **Pow**: `Pow(f32, f32) -> f32`.
+3.  **Vectorize**: Ensure `vec4(v).sin()` generates 4 distinct calls.
+
+---
+
+### Phase 4: Complex Pattern - Dynamic Access
+
+This group requires calculated memory offsets.
+
+#### Group 4.1: The Lead - `Array Load [Dynamic Index]`
+**Goal**: Read from an array using a runtime variable index.
+**Lead Task**:
+1.  Modify `expressions.rs` -> `Expression::Access`.
+2.  Decode `base` type stride.
+3.  Formula: `base_addr + (index * stride) + component_offset`.
+4.  Emit: `Get base_ptr`, `Get index`, `Const stride`, `Mul`, `Add`, `Load`.
+5.  **Validate**: Test case with `var a: array<f32, 4>; ... x = a[i];`.
+
+#### Group 4.2: The Pack - Store & Matrix
+**Task**: Extend logic to writes and matrices.
+1.  **`Store Statement`**: Update `control_flow.rs` to use same address calculation for *writing* to dynamic indices.
+2.  **Matrix Access**: `mat[col][row]`. Treat column access as array access (stride = vec size).
+
+---
+
+## REMINDER:
+
+Each separate lead opcode, and each group or subgroup should end with SAFE STATE:
+`npm run build` succeeds, `npm test` ALL pass. If not, fix ALL failing tests.
+NO exclusions, NO cases "these tests failed before". Fix ALL tests, build succeeds.
+
+**Final Verification**:
+After Phase 4, run the full "All Compatibility" suite. The backend should now support >90% of conformance tests.
