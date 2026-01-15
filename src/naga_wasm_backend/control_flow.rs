@@ -152,6 +152,9 @@ pub fn translate_statement(
     match stmt {
         naga::Statement::Block(block) => {
             // Push a block label onto the stack
+            // Note: We use a WASM block here to allow "breaking" out of the block scope if needed,
+            // though standard Naga Statement::Break targets Loops/Switches only.
+            // Our logic in Break handles skipping this if it's not the target.
             ctx.block_stack.push(super::BlockLabel::Block);
 
             // Emit WASM block instruction
@@ -169,18 +172,89 @@ pub fn translate_statement(
             // Pop the block label from the stack
             ctx.block_stack.pop();
         }
+        naga::Statement::Loop {
+            body,
+            continuing,
+            break_if,
+        } => {
+            // WASM Loop Structure (Naga-compatible):
+            // block $break (depth 1 from header)
+            //   loop $header (depth 0 from header)
+            //     block $continue (depth 0 from body)
+            //       [body]
+            //     end (fell through or branched via Statement::Continue)
+            //     [continuing]
+            //     [break_if condition] -> br_if 1 ($break)
+            //     br 0 ($header)
+            //   end
+            // end
+
+            // 1. Emit break block
+            ctx.wasm_func
+                .instruction(&Instruction::Block(wasm_encoder::BlockType::Empty));
+            ctx.block_stack.push(super::BlockLabel::Block);
+
+            // 2. Emit loop block (target for branching back to start)
+            ctx.wasm_func
+                .instruction(&Instruction::Loop(wasm_encoder::BlockType::Empty));
+            ctx.block_stack.push(super::BlockLabel::Block);
+
+            // 3. Emit body wrapper block (target for Continue)
+            ctx.wasm_func
+                .instruction(&Instruction::Block(wasm_encoder::BlockType::Empty));
+            ctx.block_stack.push(super::BlockLabel::Loop {
+                continue_depth: 0,
+                break_depth: 2,
+            });
+
+            // 4. Body
+            for (s, s_span) in body.span_iter() {
+                translate_statement(s, s_span, ctx)?;
+            }
+
+            // Close body wrapper block
+            ctx.wasm_func.instruction(&Instruction::End);
+            ctx.block_stack.pop();
+
+            // 5. Continuing
+            // Now we are at depth 0 relative to LoopHeader
+            for (s, s_span) in continuing.span_iter() {
+                translate_statement(s, s_span, ctx)?;
+            }
+
+            // 6. Break if
+            if let Some(break_cond) = break_if {
+                super::expressions::translate_expression(*break_cond, ctx)?;
+                ctx.wasm_func.instruction(&Instruction::BrIf(1)); // Break out of LoopHeader (depth 1)
+            }
+
+            // 7. Unconditional branch back to loop start
+            ctx.wasm_func.instruction(&Instruction::Br(0));
+
+            // End loop block
+            ctx.wasm_func.instruction(&Instruction::End);
+            ctx.block_stack.pop();
+
+            // End break block
+            ctx.wasm_func.instruction(&Instruction::End);
+            ctx.block_stack.pop();
+        }
         naga::Statement::Break => {
             // Find the depth to the nearest breakable block/loop
             let mut depth = 0;
             for label in ctx.block_stack.iter().rev() {
                 match label {
-                    super::BlockLabel::Block => {
-                        // Found a block we can break from
-                        ctx.wasm_func.instruction(&Instruction::Br(depth));
-                        return Ok(());
+                    super::BlockLabel::Block | super::BlockLabel::If => {
+                        // Skip simple blocks and ifs, they are just scopes
                     }
                     super::BlockLabel::Loop { break_depth, .. } => {
                         // Found a loop, use its break depth
+                        ctx.wasm_func
+                            .instruction(&Instruction::Br(*break_depth + depth));
+                        return Ok(());
+                    }
+                    super::BlockLabel::Switch { break_depth } => {
+                        // Found a switch, use its break depth
                         ctx.wasm_func
                             .instruction(&Instruction::Br(*break_depth + depth));
                         return Ok(());
@@ -190,8 +264,132 @@ pub fn translate_statement(
             }
             // If we get here, there's no enclosing breakable block - this is an error
             return Err(BackendError::UnsupportedFeature(
-                "Break statement outside of block or loop".to_string(),
+                "Break statement outside of loop or switch".to_string(),
             ));
+        }
+        naga::Statement::Continue => {
+            // Find enclosing Loop and jump to continue_depth
+            let mut depth = 0;
+            for label in ctx.block_stack.iter().rev() {
+                match label {
+                    super::BlockLabel::Loop { continue_depth, .. } => {
+                        ctx.wasm_func
+                            .instruction(&Instruction::Br(*continue_depth + depth));
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+                depth += 1;
+            }
+            return Err(BackendError::UnsupportedFeature(
+                "Continue statement outside of loop".to_string(),
+            ));
+        }
+        naga::Statement::Kill => {
+            ctx.wasm_func.instruction(&Instruction::Unreachable);
+        }
+        naga::Statement::Switch { selector, cases } => {
+            // New Switch Implementation using a series of blocks and explicit branching
+            // Structure:
+            // block $break (label: Switch)
+            //   block $bodyN
+            //     ...
+            //     block $body0
+            //       block $selector
+            //         [Selector Logic] -> br $bodyX
+            //       end $selector
+            //       br $break (if no default)
+            //     end $body0
+            //     [Body 0]
+            //     br $break (if not fallthrough)
+            //   end $body1
+            //   ...
+            // end $break
+
+            // 1. Emit break block
+            ctx.wasm_func
+                .instruction(&Instruction::Block(wasm_encoder::BlockType::Empty));
+            // break_depth is 0 (immediate parent is the Switch block)
+            ctx.block_stack
+                .push(super::BlockLabel::Switch { break_depth: 0 });
+
+            // 2. Emit blocks for each case body (in reverse so first case is innermost)
+            for _ in cases.iter().rev() {
+                ctx.wasm_func
+                    .instruction(&Instruction::Block(wasm_encoder::BlockType::Empty));
+                ctx.block_stack.push(super::BlockLabel::Block);
+            }
+
+            // 3. Emit selector block
+            ctx.wasm_func
+                .instruction(&Instruction::Block(wasm_encoder::BlockType::Empty));
+
+            // Selector Logic
+            super::expressions::translate_expression(*selector, ctx)?;
+            ctx.wasm_func
+                .instruction(&Instruction::LocalSet(ctx.swap_i32_local));
+
+            let mut default_idx = None;
+            for (i, case) in cases.iter().enumerate() {
+                match &case.value {
+                    naga::SwitchValue::I32(val) => {
+                        ctx.wasm_func
+                            .instruction(&Instruction::LocalGet(ctx.swap_i32_local));
+                        ctx.wasm_func.instruction(&Instruction::I32Const(*val));
+                        ctx.wasm_func.instruction(&Instruction::I32Eq);
+                        // br $bodyX. Selector block is depth 0. Case 0 is depth 1. Case i is depth i+1.
+                        ctx.wasm_func.instruction(&Instruction::BrIf(i as u32 + 1));
+                    }
+                    naga::SwitchValue::U32(val) => {
+                        ctx.wasm_func
+                            .instruction(&Instruction::LocalGet(ctx.swap_i32_local));
+                        ctx.wasm_func
+                            .instruction(&Instruction::I32Const(*val as i32));
+                        ctx.wasm_func.instruction(&Instruction::I32Eq);
+                        ctx.wasm_func.instruction(&Instruction::BrIf(i as u32 + 1));
+                    }
+                    naga::SwitchValue::Default => {
+                        default_idx = Some(i as u32);
+                    }
+                }
+            }
+
+            // Jump to default or break
+            if let Some(idx) = default_idx {
+                ctx.wasm_func.instruction(&Instruction::Br(idx + 1));
+            } else {
+                // Break out of the whole Switch (Switch block is depth total_cases + 1)
+                ctx.wasm_func
+                    .instruction(&Instruction::Br(cases.len() as u32 + 1));
+            }
+
+            // End selector block
+            ctx.wasm_func.instruction(&Instruction::End);
+
+            // 4. Emit bodies
+            let total_cases = cases.len() as u32;
+            for (i, case) in cases.iter().enumerate() {
+                // Pop wrapper block and pop block_stack
+                ctx.wasm_func.instruction(&Instruction::End);
+                ctx.block_stack.pop();
+
+                // Body statements
+                for (s, s_span) in case.body.span_iter() {
+                    translate_statement(s, s_span, ctx)?;
+                }
+
+                // Handle fallthrough
+                if !case.fall_through {
+                    // Break to Switch end.
+                    // Remaining blocks: Switch (at depth total_cases - 1 - i)
+                    let break_depth = total_cases - 1 - i as u32;
+                    ctx.wasm_func.instruction(&Instruction::Br(break_depth));
+                }
+            }
+
+            // Close Switch block and pop label
+            ctx.wasm_func.instruction(&Instruction::End);
+            ctx.block_stack.pop();
         }
         naga::Statement::Store { pointer, value } => {
             // Debug: Check if storing to global
@@ -438,16 +636,22 @@ pub fn translate_statement(
 
             ctx.wasm_func
                 .instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+
+            // Push If label to track stack depth
+            ctx.block_stack.push(super::BlockLabel::If);
+
             for (s, s_span) in accept.span_iter() {
                 translate_statement(s, s_span, ctx)?;
             }
             if !reject.is_empty() {
                 ctx.wasm_func.instruction(&Instruction::Else);
+                // Note: Else block shares the same stack depth/scope as If block relative to outside
                 for (s, s_span) in reject.span_iter() {
                     translate_statement(s, s_span, ctx)?;
                 }
             }
             ctx.wasm_func.instruction(&Instruction::End);
+            ctx.block_stack.pop();
         }
         _ => {}
     }

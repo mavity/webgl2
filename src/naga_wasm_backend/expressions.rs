@@ -195,6 +195,11 @@ pub fn translate_expression_component(
             let left_scalar_kind = match left_ty {
                 naga::TypeInner::Scalar(scalar) => scalar.kind,
                 naga::TypeInner::Vector { scalar, .. } => scalar.kind,
+                naga::TypeInner::Pointer { base, .. } => match &ctx.module.types[*base].inner {
+                    naga::TypeInner::Scalar(scalar) => scalar.kind,
+                    naga::TypeInner::Vector { scalar, .. } => scalar.kind,
+                    _ => naga::ScalarKind::Float,
+                },
                 _ => naga::ScalarKind::Float,
             };
 
@@ -408,12 +413,50 @@ pub fn translate_expression_component(
                         ctx.wasm_func.instruction(&Instruction::I32ShrU);
                     }
                 },
-                _ => {
-                    return Err(BackendError::UnsupportedFeature(format!(
-                        "Unsupported binary operator: {:?}",
-                        op
-                    )));
-                }
+                BinaryOperator::Less => match left_scalar_kind {
+                    naga::ScalarKind::Float | naga::ScalarKind::AbstractFloat => {
+                        ctx.wasm_func.instruction(&Instruction::F32Lt);
+                    }
+                    naga::ScalarKind::Sint | naga::ScalarKind::AbstractInt => {
+                        ctx.wasm_func.instruction(&Instruction::I32LtS);
+                    }
+                    naga::ScalarKind::Uint | naga::ScalarKind::Bool => {
+                        ctx.wasm_func.instruction(&Instruction::I32LtU);
+                    }
+                },
+                BinaryOperator::LessEqual => match left_scalar_kind {
+                    naga::ScalarKind::Float | naga::ScalarKind::AbstractFloat => {
+                        ctx.wasm_func.instruction(&Instruction::F32Le);
+                    }
+                    naga::ScalarKind::Sint | naga::ScalarKind::AbstractInt => {
+                        ctx.wasm_func.instruction(&Instruction::I32LeS);
+                    }
+                    naga::ScalarKind::Uint | naga::ScalarKind::Bool => {
+                        ctx.wasm_func.instruction(&Instruction::I32LeU);
+                    }
+                },
+                BinaryOperator::Greater => match left_scalar_kind {
+                    naga::ScalarKind::Float | naga::ScalarKind::AbstractFloat => {
+                        ctx.wasm_func.instruction(&Instruction::F32Gt);
+                    }
+                    naga::ScalarKind::Sint | naga::ScalarKind::AbstractInt => {
+                        ctx.wasm_func.instruction(&Instruction::I32GtS);
+                    }
+                    naga::ScalarKind::Uint | naga::ScalarKind::Bool => {
+                        ctx.wasm_func.instruction(&Instruction::I32GtU);
+                    }
+                },
+                BinaryOperator::GreaterEqual => match left_scalar_kind {
+                    naga::ScalarKind::Float | naga::ScalarKind::AbstractFloat => {
+                        ctx.wasm_func.instruction(&Instruction::F32Ge);
+                    }
+                    naga::ScalarKind::Sint | naga::ScalarKind::AbstractInt => {
+                        ctx.wasm_func.instruction(&Instruction::I32GeS);
+                    }
+                    naga::ScalarKind::Uint | naga::ScalarKind::Bool => {
+                        ctx.wasm_func.instruction(&Instruction::I32GeU);
+                    }
+                },
             }
         }
         Expression::Unary { op, expr } => {
@@ -425,28 +468,19 @@ pub fn translate_expression_component(
             match op {
                 naga::UnaryOperator::Negate => {
                     if is_int {
-                        // 0 - x
-                        ctx.wasm_func.instruction(&Instruction::I32Const(0));
-                        ctx.wasm_func.instruction(&Instruction::I32Sub);
-                        // Wait, stack is [x], we need [0, x] -> sub -> -x
-                        // But we already pushed x.
-                        // Correct sequence:
-                        // 1. Push 0
-                        // 2. Push x (already done by translate_expression_component)
-                        // 3. Sub
-                        // Ah, we can't inject 0 before x easily here without re-translating.
-                        // Better: x * -1
+                        // x * -1
                         ctx.wasm_func.instruction(&Instruction::I32Const(-1));
                         ctx.wasm_func.instruction(&Instruction::I32Mul);
                     } else {
                         ctx.wasm_func.instruction(&Instruction::F32Neg);
                     }
                 }
-                _ => {
-                    return Err(BackendError::UnsupportedFeature(format!(
-                        "Unsupported unary operator: {:?}",
-                        op
-                    )));
+                naga::UnaryOperator::LogicalNot => {
+                    ctx.wasm_func.instruction(&Instruction::I32Eqz);
+                }
+                naga::UnaryOperator::BitwiseNot => {
+                    ctx.wasm_func.instruction(&Instruction::I32Const(-1));
+                    ctx.wasm_func.instruction(&Instruction::I32Xor);
                 }
             }
         }
@@ -930,9 +964,6 @@ pub fn translate_expression_component(
                     .instruction(&Instruction::F32Const(f32::INFINITY));
                 // Compare: abs(x) == Infinity
                 ctx.wasm_func.instruction(&Instruction::F32Eq);
-            }
-            _ => {
-                ctx.wasm_func.instruction(&Instruction::I32Const(0));
             }
         },
         _ => {

@@ -642,7 +642,7 @@ impl<'a> Compiler<'a> {
 
         // Detect need for Float Modulo swap local
         let mut uses_float_modulo = false;
-        for (handle, expr) in func.expressions.iter() {
+        for (_handle, expr) in func.expressions.iter() {
             if let naga::Expression::Binary {
                 op: naga::BinaryOperator::Modulo,
                 left,
@@ -775,6 +775,51 @@ impl<'a> Compiler<'a> {
             sample_f32_locals,
             block_stack: Vec::new(),
         };
+
+        // Initialize local variables that have init expressions.
+        // This handles GLSL patterns like `int x = 1;` where the frontend
+        // encodes the initializer as LocalVariable.init rather than a separate Store statement.
+        for (handle, var) in func.local_variables.iter() {
+            if let Some(init_expr) = var.init {
+                let offset = local_offsets.get(&handle).copied().unwrap_or(0);
+                let var_ty = &self.module.types[var.ty].inner;
+                let num_components = super::types::component_count(var_ty, &self.module.types);
+                let is_int = super::expressions::is_integer_type(var_ty);
+
+                // Store each component of the initializer value
+                for i in 0..num_components {
+                    // Calculate destination address: private_ptr + offset + component_offset
+                    ctx.wasm_func
+                        .instruction(&Instruction::GlobalGet(output_layout::PRIVATE_PTR_GLOBAL));
+                    let total_offset = offset + i * 4;
+                    if total_offset > 0 {
+                        ctx.wasm_func
+                            .instruction(&Instruction::I32Const(total_offset as i32));
+                        ctx.wasm_func.instruction(&Instruction::I32Add);
+                    }
+
+                    // Evaluate the init expression component and push to stack
+                    super::expressions::translate_expression_component(init_expr, i, &mut ctx)?;
+
+                    // Store the value using the appropriate instruction
+                    if is_int {
+                        ctx.wasm_func
+                            .instruction(&Instruction::I32Store(wasm_encoder::MemArg {
+                                offset: 0,
+                                align: 2,
+                                memory_index: 0,
+                            }));
+                    } else {
+                        ctx.wasm_func
+                            .instruction(&Instruction::F32Store(wasm_encoder::MemArg {
+                                offset: 0,
+                                align: 2,
+                                memory_index: 0,
+                            }));
+                    }
+                }
+            }
+        }
 
         for (stmt, span) in func.body.span_iter() {
             super::control_flow::translate_statement(stmt, span, &mut ctx)?;

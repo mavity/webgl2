@@ -242,11 +242,15 @@ pub struct TranslationContext<'a> {
 /// Label information for a block or loop
 #[derive(Clone, Debug)]
 pub enum BlockLabel {
-    /// A simple block that can be broken out of
+    /// A simple block that contributes to stack depth but isn't a break target for Statement::Break
     Block,
+    /// An If/Else block that contributes to stack depth
+    If,
     /// A loop with separate break and continue targets  
     Loop {
         continue_depth: u32,
         break_depth: u32,
     },
+    /// A switch statement (break target)
+    Switch { break_depth: u32 },
 }
