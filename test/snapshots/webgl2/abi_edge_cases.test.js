@@ -40,45 +40,45 @@ test('ABI: exactly 16 byte struct (at threshold) links', async () => {
   (func (;0;) (type 0) (param f32 f32 f32 f32) (result f32)
     (local i32 f32 i32)
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     local.get 0
     f32.store
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     local.get 1
     f32.store offset=4
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     local.get 2
     f32.store offset=8
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     local.get 3
     f32.store offset=12
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     f32.load
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     i32.const 4
     i32.add
     f32.load
     f32.add
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     i32.const 8
     i32.add
     f32.load
     f32.add
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     i32.const 12
     i32.add
@@ -89,43 +89,43 @@ test('ABI: exactly 16 byte struct (at threshold) links', async () => {
   (func (;1;) (type 1)
     (local f32 i32 f32 i32)
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     f32.const 0x1p+0 (;=1;)
     f32.store
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     f32.const 0x1p+0 (;=1;)
     f32.store offset=4
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     f32.const 0x1p+0 (;=1;)
     f32.store offset=8
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     f32.const 0x1p+0 (;=1;)
     f32.store offset=12
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     f32.load
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     i32.const 4
     i32.add
     f32.load
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     i32.const 8
     i32.add
     f32.load
     global.get 3
-    i32.const 2048
+    i32.const 16
     i32.add
     i32.const 12
     i32.add
@@ -133,13 +133,13 @@ test('ABI: exactly 16 byte struct (at threshold) links', async () => {
     call 0
     local.set 0
     global.get 3
-    i32.const 2064
+    i32.const 32
     i32.add
     local.get 0
     f32.store
     global.get 3
     global.get 3
-    i32.const 2064
+    i32.const 32
     i32.add
     f32.load
     f32.store
@@ -260,3 +260,4 @@ test('ABI: deeply nested struct links', async () => {
     gl.destroy();
   }
 });
+

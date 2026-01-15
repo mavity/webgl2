@@ -11,6 +11,7 @@ pub mod debug;
 mod expressions;
 pub mod function_abi;
 pub mod functions;
+mod memory_layout;
 pub mod output_layout;
 pub mod types;
 
@@ -226,6 +227,8 @@ pub struct TranslationContext<'a> {
     /// Flattened list of local types (corresponding to WASM local indices starting
     /// at `param_count`). Use this to determine a local's declared type.
     pub local_types: &'a [wasm_encoder::ValType],
+    /// Memory layout for private memory (Fragment entry points)
+    pub private_memory_layout: Option<&'a memory_layout::PrivateMemoryLayout>,
     /// Number of function parameters (WASM locals reserved for params start at 0)
     pub param_count: u32,
     /// Index of the emitted module-local helper `__webgl_texture_sample`

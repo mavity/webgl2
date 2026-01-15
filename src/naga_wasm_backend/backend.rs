@@ -530,16 +530,25 @@ impl<'a> Compiler<'a> {
                 })?;
         }
 
-        // Calculate local variable offsets
-        let mut local_offsets = HashMap::new();
-        // Start locals at an offset to avoid collisions with the color output region (0-1024 bytes)
-        // and FragDepth (at 4096 bytes). 2048 is a safe middle ground.
-        let mut current_local_offset = 2048;
-        for (handle, var) in func.local_variables.iter() {
-            let size = super::types::type_size(&self.module.types[var.ty].inner).unwrap_or(4);
-            local_offsets.insert(handle, current_local_offset);
-            current_local_offset += size;
-        }
+        // Calculate proper memory layout for private memory region
+        // This replaces the old hardcoded offsets (2048 for locals, 4096 for FragDepth)
+        // with a calculated, validated layout
+        let memory_layout =
+            super::memory_layout::PrivateMemoryLayout::compute(self.module, func, self.stage)?;
+
+        // Log the calculated layout for debugging
+        tracing::debug!(
+            "Private memory layout - Frag outputs: {} bytes, Locals: {} bytes (start: {}), \
+             FragDepth: {:?}, Total: {} bytes",
+            memory_layout.frag_outputs_size,
+            memory_layout.locals_size,
+            memory_layout.locals_start,
+            memory_layout.frag_depth_offset,
+            memory_layout.total_size
+        );
+
+        // Use the pre-calculated local variable offsets from the memory_layout
+        let local_offsets = memory_layout.local_offsets.clone();
 
         // Attempt to discover local variables that are initialized from globals (pointer origin tracing).
         // We scan the function body for Store statements that assign a global-derived pointer to a local.
@@ -787,6 +796,7 @@ impl<'a> Compiler<'a> {
                             attribute_types: self.attribute_types,
                             local_origins: &local_origins,
                             is_entry_point,
+                            private_memory_layout: Some(&memory_layout),
                             swap_i32_local,
                             swap_f32_local,
                             swap_f32_local_2,
@@ -846,6 +856,7 @@ impl<'a> Compiler<'a> {
             attribute_types: self.attribute_types,
             local_origins: &local_origins,
             is_entry_point,
+            private_memory_layout: Some(&memory_layout),
             swap_i32_local,
             swap_f32_local,
             swap_f32_local_2,

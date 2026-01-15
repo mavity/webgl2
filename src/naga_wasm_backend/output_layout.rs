@@ -13,10 +13,10 @@
 //!
 //! ## Fragment Shader Outputs
 //! - **Location(n)**: `private_ptr + n*16` bytes (color outputs, up to ~1KB for 64 targets)
-//! - **FragDepth**: `private_ptr + 0x1000` (f32, 4 bytes at offset 4096)
+//! - **FragDepth**: `private_ptr + frag_depth_offset` (f32, dynamic offset)
 //!
-//! The FragDepth offset is intentionally placed at 4KB to avoid any collision with
-//! color outputs, allowing shaders to safely output both colors and depth.
+//! The FragDepth offset is calculated dynamically to follow color outputs and local variables,
+//! ensuring no memory collisions while maintaining tight packing.
 //!
 //! # Design Rationale
 //!
@@ -99,6 +99,16 @@ pub const FRAME_STACK_SIZE: u32 = 0x20000; // 128KB size
 /// - `byte_offset`: Offset in bytes from the base pointer
 /// - `global_pointer_index`: Which memory pointer global to use (2=varying, 3=private)
 ///
+/// # Fragment Shader Private Memory Layout
+///
+/// The private memory region is calculated dynamically (see memory_layout.rs):
+///
+/// ```text
+/// 0x0000-0x00??  Fragment color outputs (16-byte slots)
+/// 0x00??-0x????  Local variables (type-aware packing)
+/// 0x????         FragDepth (follows locals)
+/// ```
+///
 /// # Examples
 ///
 /// ``ignore
@@ -123,14 +133,6 @@ pub fn compute_output_destination(binding: &Binding, stage: ShaderStage) -> (u32
     match binding {
         // Position is always at offset 0 in the varying buffer
         Binding::BuiltIn(BuiltIn::Position { .. }) => (0, VARYING_PTR_GLOBAL),
-
-        // FragDepth goes to a dedicated offset in private buffer
-        // IMPORTANT: FragDepth is placed at a high offset (0x1000 = 4096) to avoid
-        // collisions with color outputs. This allows both FragDepth and color targets
-        // to coexist in the same shader.
-        // Color outputs: private_ptr + 0, 16, 32, ... (up to ~1024 bytes for 64 color targets)
-        // FragDepth: private_ptr + 4096
-        Binding::BuiltIn(BuiltIn::FragDepth) => (0x1000, PRIVATE_PTR_GLOBAL),
 
         // PointSize could be handled here if needed
         Binding::BuiltIn(BuiltIn::PointSize) => {
@@ -354,16 +356,6 @@ mod tests {
             ShaderStage::Fragment,
         );
         assert_eq!(offset, 16);
-        assert_eq!(ptr, PRIVATE_PTR_GLOBAL);
-    }
-
-    #[test]
-    fn test_fragment_depth() {
-        let (offset, ptr) = compute_output_destination(
-            &Binding::BuiltIn(BuiltIn::FragDepth),
-            ShaderStage::Fragment,
-        );
-        assert_eq!(offset, 0x1000);
         assert_eq!(ptr, PRIVATE_PTR_GLOBAL);
     }
 

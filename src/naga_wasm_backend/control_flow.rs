@@ -26,6 +26,13 @@ const TEXTURE_PTR_GLOBAL: u32 = 4;
 /// - `offset`: Byte offset within the memory region
 /// - `base_ptr_index`: Global index of the memory pointer (2=varying_ptr, 3=private_ptr)
 fn get_output_destination(binding: &naga::Binding, ctx: &TranslationContext) -> (u32, u32) {
+    if let naga::Binding::BuiltIn(naga::BuiltIn::FragDepth) = binding {
+        if let Some(layout) = ctx.private_memory_layout {
+            if let Some(offset) = layout.frag_depth_offset {
+                return (offset, PRIVATE_PTR_GLOBAL);
+            }
+        }
+    }
     output_layout::compute_output_destination(binding, ctx.stage)
 }
 
