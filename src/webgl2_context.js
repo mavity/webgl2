@@ -296,6 +296,7 @@ export class WasmWebGL2RenderingContext {
     else if (!(data instanceof Uint8Array)) data = new Uint8Array(data);
 
     const len = data.length;
+    console.log('DEBUG JS: texImage2D called len=' + len);
     const ptr = ex.wasm_alloc(len);
     if (ptr === 0) throw new Error('Failed to allocate memory for pixel data');
 

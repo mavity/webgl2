@@ -385,8 +385,8 @@ pub fn ctx_read_pixels(
     y: i32,
     width: u32,
     height: u32,
-    _format: u32,
-    _type_: u32,
+    format: u32,
+    type_: u32,
     dest_ptr: u32,
     dest_len: u32,
 ) -> u32 {
@@ -422,7 +422,12 @@ pub fn ctx_read_pixels(
                         }
                     };
                     if let Some(level) = tex.levels.get(&0) {
-                        (&level.data, level.width, level.height, GL_RGBA8)
+                        (
+                            &level.data,
+                            level.width,
+                            level.height,
+                            level.internal_format,
+                        )
                     } else {
                         // TODO: Handle missing level 0 gracefully (e.g. valid empty texture?)
                         set_last_error("texture incomplete");
@@ -449,14 +454,34 @@ pub fn ctx_read_pixels(
                 &ctx_obj.default_framebuffer.color,
                 ctx_obj.default_framebuffer.width,
                 ctx_obj.default_framebuffer.height,
-                GL_RGBA8,
+                ctx_obj.default_framebuffer.internal_format,
             )
         };
+
+    // Debug: when reading tiny buffers, print their contents to help debugging
+    if src_width == 1 && src_height == 1 {}
+
+    // Calculate bytes per pixel based on format and type
+    let bytes_per_pixel = if type_ == 0x1406 {
+        // GL_FLOAT
+        match format {
+            0x1903 => 4,  // GL_RED: 1 channel
+            0x8227 => 8,  // GL_RG: 2 channels
+            0x1908 => 16, // GL_RGBA: 4 channels
+            _ => 4,       // Default
+        }
+    } else {
+        // GL_UNSIGNED_BYTE or other
+        match format {
+            0x1908 => 4, // GL_RGBA: 4 bytes
+            _ => 4,
+        }
+    };
 
     // Verify output buffer size
     let expected_size = (width as u64)
         .saturating_mul(height as u64)
-        .saturating_mul(4);
+        .saturating_mul(bytes_per_pixel as u64);
     if dest_len as u64 != expected_size {
         set_last_error("output buffer size mismatch");
         return ERR_INVALID_ARGS;
@@ -466,6 +491,7 @@ pub fn ctx_read_pixels(
     let dest_slice =
         unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut u8, dest_len as usize) };
 
+    let src_bytes_per_pixel = get_bytes_per_pixel(src_format);
     let mut dst_off = 0;
     for row in 0..height {
         for col in 0..width {
@@ -473,9 +499,41 @@ pub fn ctx_read_pixels(
             let sy = y + row as i32;
 
             if sx >= 0 && sx < src_width as i32 && sy >= 0 && sy < src_height as i32 {
+                let src_idx = ((sy as u32 * src_width + sx as u32) * src_bytes_per_pixel) as usize;
+
+                // For float formats, copy bytes directly
+                if is_float_format(src_format) && type_ == 0x1406 {
+                    // GL_FLOAT
+                    let bytes_to_copy = bytes_per_pixel.min(src_bytes_per_pixel) as usize;
+                    if src_idx + bytes_to_copy <= src_data.len()
+                        && dst_off + bytes_to_copy <= dest_slice.len()
+                    {
+                        dest_slice[dst_off..dst_off + bytes_to_copy]
+                            .copy_from_slice(&src_data[src_idx..src_idx + bytes_to_copy]);
+                    }
+                    dst_off += bytes_per_pixel as usize;
+                    continue;
+                }
+
+                // If source and destination formats are both 4-byte RGBA (but might have different codes),
+                // copy them directly to avoid complex logic.
+                if (src_format == GL_RGBA8 || src_format == 0x1908)
+                    && (format == GL_RGBA8 || format == 0x1908)
+                    && src_bytes_per_pixel == 4
+                    && bytes_per_pixel == 4
+                {
+                    if src_idx + 3 < src_data.len() && dst_off + 3 < dest_slice.len() {
+                        dest_slice[dst_off] = src_data[src_idx];
+                        dest_slice[dst_off + 1] = src_data[src_idx + 1];
+                        dest_slice[dst_off + 2] = src_data[src_idx + 2];
+                        dest_slice[dst_off + 3] = src_data[src_idx + 3];
+                    }
+                    dst_off += 4;
+                    continue;
+                }
+
                 match src_format {
-                    GL_RGBA8 => {
-                        let src_idx = ((sy as u32 * src_width + sx as u32) * 4) as usize;
+                    GL_RGBA8 | 0x1908 => {
                         if src_idx + 3 < src_data.len() {
                             dest_slice[dst_off] = src_data[src_idx];
                             dest_slice[dst_off + 1] = src_data[src_idx + 1];
@@ -489,7 +547,6 @@ pub fn ctx_read_pixels(
                         }
                     }
                     GL_RGBA4 => {
-                        let src_idx = ((sy as u32 * src_width + sx as u32) * 2) as usize;
                         if src_idx + 1 < src_data.len() {
                             let val =
                                 u16::from_le_bytes([src_data[src_idx], src_data[src_idx + 1]]);
@@ -511,7 +568,6 @@ pub fn ctx_read_pixels(
                         }
                     }
                     GL_RGB565 => {
-                        let src_idx = ((sy as u32 * src_width + sx as u32) * 2) as usize;
                         if src_idx + 1 < src_data.len() {
                             let val =
                                 u16::from_le_bytes([src_data[src_idx], src_data[src_idx + 1]]);
@@ -534,7 +590,6 @@ pub fn ctx_read_pixels(
                         }
                     }
                     GL_RGB5_A1 => {
-                        let src_idx = ((sy as u32 * src_width + sx as u32) * 2) as usize;
                         if src_idx + 1 < src_data.len() {
                             let val =
                                 u16::from_le_bytes([src_data[src_idx], src_data[src_idx + 1]]);

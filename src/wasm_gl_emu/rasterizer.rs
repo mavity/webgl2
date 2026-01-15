@@ -382,34 +382,47 @@ impl Rasterizer {
         fb: &mut super::Framebuffer,
         x: f32,
         y: f32,
-        color: [u8; 4],
+        color: &[u8],
         state: &RenderState,
     ) {
         let ix = x as i32;
         let iy = y as i32;
         if ix >= 0 && ix < fb.width as i32 && iy >= 0 && iy < fb.height as i32 {
-            let idx = ((iy as u32 * fb.width + ix as u32) * 4) as usize;
-            if idx + 3 < fb.color.len() {
-                let existing = [
-                    fb.color[idx],
-                    fb.color[idx + 1],
-                    fb.color[idx + 2],
-                    fb.color[idx + 3],
-                ];
-                let blended = blend_pixel(color, existing, &state.blend);
+            let bytes_per_pixel = match fb.internal_format {
+                0x822E => 4,  // GL_R32F
+                0x8230 => 8,  // GL_RG32F
+                0x8814 => 16, // GL_RGBA32F
+                _ => 4,       // GL_RGBA8
+            };
+            let idx = ((iy as u32 * fb.width + ix as u32) * bytes_per_pixel) as usize;
+            if idx + color.len() <= fb.color.len() {
+                if fb.internal_format == 0x8058 {
+                    // GL_RGBA8: Use quantized blending
+                    let existing = [
+                        fb.color[idx],
+                        fb.color[idx + 1],
+                        fb.color[idx + 2],
+                        fb.color[idx + 3],
+                    ];
+                    let color_arr = [color[0], color[1], color[2], color[3]];
+                    let blended = blend_pixel(color_arr, existing, &state.blend);
 
-                // Color Mask
-                if state.color_mask.r {
-                    fb.color[idx + 0] = blended[0];
-                }
-                if state.color_mask.g {
-                    fb.color[idx + 1] = blended[1];
-                }
-                if state.color_mask.b {
-                    fb.color[idx + 2] = blended[2];
-                }
-                if state.color_mask.a {
-                    fb.color[idx + 3] = blended[3];
+                    // Color Mask
+                    if state.color_mask.r {
+                        fb.color[idx + 0] = blended[0];
+                    }
+                    if state.color_mask.g {
+                        fb.color[idx + 1] = blended[1];
+                    }
+                    if state.color_mask.b {
+                        fb.color[idx + 2] = blended[2];
+                    }
+                    if state.color_mask.a {
+                        fb.color[idx + 3] = blended[3];
+                    }
+                } else {
+                    // Float formats: Direct write
+                    fb.color[idx..idx + color.len()].copy_from_slice(color);
                 }
             }
         }
@@ -615,31 +628,52 @@ impl Rasterizer {
                     }
 
                     // Execute fragment shader and get color
-                    let color = self.execute_fragment_shader(&interp_varyings, pipeline, state);
+                    let color = self.execute_fragment_shader(
+                        &interp_varyings,
+                        pipeline,
+                        state,
+                        fb.internal_format,
+                    );
 
-                    // Write color to framebuffer
-                    let color_idx = fb_idx * 4;
-                    if color_idx + 3 < fb.color.len() {
-                        let existing = [
-                            fb.color[color_idx],
-                            fb.color[color_idx + 1],
-                            fb.color[color_idx + 2],
-                            fb.color[color_idx + 3],
-                        ];
-                        let blended = blend_pixel(color, existing, &state.blend);
+                    // Write color to framebuffer (format-aware)
+                    let bytes_per_pixel = match fb.internal_format {
+                        0x822E => 4,  // GL_R32F
+                        0x8230 => 8,  // GL_RG32F
+                        0x8814 => 16, // GL_RGBA32F
+                        _ => 4,       // GL_RGBA8
+                    };
+                    let color_idx = fb_idx * bytes_per_pixel as usize;
 
-                        // Color Mask
-                        if state.color_mask.r {
-                            fb.color[color_idx + 0] = blended[0];
-                        }
-                        if state.color_mask.g {
-                            fb.color[color_idx + 1] = blended[1];
-                        }
-                        if state.color_mask.b {
-                            fb.color[color_idx + 2] = blended[2];
-                        }
-                        if state.color_mask.a {
-                            fb.color[color_idx + 3] = blended[3];
+                    if color_idx + color.len() <= fb.color.len() {
+                        // For float formats, write directly without blending (for now)
+                        // For RGBA8, use existing blend logic
+                        if fb.internal_format == 0x8058 {
+                            // GL_RGBA8: Use quantized blending
+                            let existing = [
+                                fb.color[color_idx],
+                                fb.color[color_idx + 1],
+                                fb.color[color_idx + 2],
+                                fb.color[color_idx + 3],
+                            ];
+                            let color_arr = [color[0], color[1], color[2], color[3]];
+                            let blended = blend_pixel(color_arr, existing, &state.blend);
+
+                            // Color Mask
+                            if state.color_mask.r {
+                                fb.color[color_idx + 0] = blended[0];
+                            }
+                            if state.color_mask.g {
+                                fb.color[color_idx + 1] = blended[1];
+                            }
+                            if state.color_mask.b {
+                                fb.color[color_idx + 2] = blended[2];
+                            }
+                            if state.color_mask.a {
+                                fb.color[color_idx + 3] = blended[3];
+                            }
+                        } else {
+                            // Float formats: Direct write (no blending yet)
+                            fb.color[color_idx..color_idx + color.len()].copy_from_slice(&color);
                         }
                     }
                 }
@@ -647,13 +681,14 @@ impl Rasterizer {
         }
     }
 
-    /// Execute fragment shader and return RGBA color
+    /// Execute fragment shader and return color (format-aware)
     fn execute_fragment_shader(
         &self,
         varyings: &[u32],
         pipeline: &RasterPipeline,
         state: &RenderState,
-    ) -> [u8; 4] {
+        target_format: u32,
+    ) -> Vec<u8> {
         // Copy varyings to shader memory as raw bits
         unsafe {
             std::ptr::copy_nonoverlapping(
@@ -702,12 +737,38 @@ impl Rasterizer {
 
         let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
 
-        [
-            (c[0].clamp(0.0, 1.0) * 255.0) as u8,
-            (c[1].clamp(0.0, 1.0) * 255.0) as u8,
-            (c[2].clamp(0.0, 1.0) * 255.0) as u8,
-            (c[3].clamp(0.0, 1.0) * 255.0) as u8,
-        ]
+        // Format-aware output
+        match target_format {
+            0x822E => {
+                // GL_R32F: 1 channel × 4 bytes
+                c[0].to_ne_bytes().to_vec()
+            }
+            0x8230 => {
+                // GL_RG32F: 2 channels × 4 bytes
+                let mut result = Vec::with_capacity(8);
+                result.extend_from_slice(&c[0].to_ne_bytes());
+                result.extend_from_slice(&c[1].to_ne_bytes());
+                result
+            }
+            0x8814 => {
+                // GL_RGBA32F: 4 channels × 4 bytes
+                let mut result = Vec::with_capacity(16);
+                result.extend_from_slice(&c[0].to_ne_bytes());
+                result.extend_from_slice(&c[1].to_ne_bytes());
+                result.extend_from_slice(&c[2].to_ne_bytes());
+                result.extend_from_slice(&c[3].to_ne_bytes());
+                result
+            }
+            _ => {
+                // GL_RGBA8: Quantize to u8
+                vec![
+                    (c[0].clamp(0.0, 1.0) * 255.0) as u8,
+                    (c[1].clamp(0.0, 1.0) * 255.0) as u8,
+                    (c[2].clamp(0.0, 1.0) * 255.0) as u8,
+                    (c[3].clamp(0.0, 1.0) * 255.0) as u8,
+                ]
+            }
+        }
     }
 
     /// Draw primitives
@@ -810,9 +871,13 @@ impl Rasterizer {
                         vy as f32 + (v.position[1] / v.position[3] + 1.0) * 0.5 * vh as f32;
 
                     // Run FS
-                    let color =
-                        self.execute_fragment_shader(&v.varyings, config.pipeline, config.state);
-                    self.draw_point(config.fb, screen_x, screen_y, color, config.state);
+                    let color = self.execute_fragment_shader(
+                        &v.varyings,
+                        config.pipeline,
+                        config.state,
+                        config.fb.internal_format,
+                    );
+                    self.draw_point(config.fb, screen_x, screen_y, &color, config.state);
                 }
             } else if config.mode == 0x0004 {
                 // GL_TRIANGLES

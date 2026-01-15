@@ -721,6 +721,16 @@ impl hal::Queue for SoftQueue {
 
                                             // Dummy depth buffer if not present
                                             // TODO: Handle actual depth attachment
+                                            let internal_format = match att.view.texture_desc.format
+                                            {
+                                                wgt::TextureFormat::R32Float => 0x822E,
+                                                wgt::TextureFormat::Rg32Float => 0x8230,
+                                                wgt::TextureFormat::Rgba32Float => 0x8814,
+                                                wgt::TextureFormat::Rgba8Unorm
+                                                | wgt::TextureFormat::Bgra8Unorm => 0x8058,
+                                                _ => 0x8058,
+                                            };
+
                                             let mut dummy_depth =
                                                 vec![1.0; (width * height) as usize];
                                             let mut dummy_stencil =
@@ -729,6 +739,7 @@ impl hal::Queue for SoftQueue {
                                             let mut fb = wasm_gl_emu::Framebuffer::new(
                                                 width,
                                                 height,
+                                                internal_format,
                                                 &mut data,
                                                 &mut dummy_depth,
                                                 &mut dummy_stencil,
@@ -789,6 +800,16 @@ impl hal::Queue for SoftQueue {
                                             let width = att.view.texture_desc.size.width;
                                             let height = att.view.texture_desc.size.height;
 
+                                            let internal_format = match att.view.texture_desc.format
+                                            {
+                                                wgt::TextureFormat::R32Float => 0x822E,
+                                                wgt::TextureFormat::Rg32Float => 0x8230,
+                                                wgt::TextureFormat::Rgba32Float => 0x8814,
+                                                wgt::TextureFormat::Rgba8Unorm
+                                                | wgt::TextureFormat::Bgra8Unorm => 0x8058,
+                                                _ => 0x8058,
+                                            };
+
                                             let mut dummy_depth =
                                                 vec![1.0; (width * height) as usize];
                                             let mut dummy_stencil =
@@ -797,6 +818,7 @@ impl hal::Queue for SoftQueue {
                                             let mut fb = wasm_gl_emu::Framebuffer::new(
                                                 width,
                                                 height,
+                                                internal_format,
                                                 &mut data,
                                                 &mut dummy_depth,
                                                 &mut dummy_stencil,

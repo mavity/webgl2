@@ -69,6 +69,9 @@ pub const GL_RGB565: u32 = 0x8D62;
 pub const GL_RGB5_A1: u32 = 0x8057;
 pub const GL_RGBA8: u32 = 0x8058;
 pub const GL_STENCIL_INDEX8: u32 = 0x8D48;
+pub const GL_R32F: u32 = 0x822E;
+pub const GL_RG32F: u32 = 0x8230;
+pub const GL_RGBA32F: u32 = 0x8814;
 
 // Handle constants
 pub(crate) const INVALID_HANDLE: u32 = 0;
@@ -79,13 +82,15 @@ pub(crate) const FIRST_HANDLE: u32 = 1;
 pub(crate) struct MipLevel {
     pub(crate) width: u32,
     pub(crate) height: u32,
-    pub(crate) data: Vec<u8>, // RGBA u8
+    pub(crate) internal_format: u32,
+    pub(crate) data: Vec<u8>,
 }
 
 /// A WebGL2 texture resource
 #[derive(Clone)]
 pub(crate) struct Texture {
     pub(crate) levels: BTreeMap<usize, MipLevel>,
+    pub(crate) internal_format: u32,
     pub(crate) min_filter: u32,
     pub(crate) mag_filter: u32,
     pub(crate) wrap_s: u32,
@@ -621,4 +626,25 @@ impl Context {
             }
         }
     }
+}
+
+/// Get bytes per pixel for a given internal format
+pub(crate) fn get_bytes_per_pixel(internal_format: u32) -> u32 {
+    match internal_format {
+        GL_R32F => 4,              // 1 channel × 4 bytes
+        GL_RG32F => 8,             // 2 channels × 4 bytes
+        GL_RGBA32F => 16,          // 4 channels × 4 bytes
+        GL_RGBA8 => 4,             // 4 channels × 1 byte
+        GL_RGBA4 => 2,             // packed 16-bit
+        GL_RGB565 => 2,            // packed 16-bit
+        GL_RGB5_A1 => 2,           // packed 16-bit
+        GL_DEPTH_COMPONENT16 => 2, // 16-bit depth
+        GL_STENCIL_INDEX8 => 1,    // 8-bit stencil
+        _ => 4,                    // Default to RGBA8
+    }
+}
+
+/// Check if format is a float format
+pub(crate) fn is_float_format(internal_format: u32) -> bool {
+    matches!(internal_format, GL_R32F | GL_RG32F | GL_RGBA32F)
 }

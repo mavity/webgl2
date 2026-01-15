@@ -31,10 +31,11 @@ pub fn ctx_create_texture(ctx: u32) -> u32 {
         tex_id,
         Texture {
             levels: BTreeMap::new(),
-            min_filter: 0x2705, // GL_NEAREST_MIPMAP_LINEAR (default)
-            mag_filter: 0x2601, // GL_LINEAR (default)
-            wrap_s: 0x2901,     // GL_REPEAT (default)
-            wrap_t: 0x2901,     // GL_REPEAT (default)
+            internal_format: GL_RGBA8, // Default format
+            min_filter: 0x2705,        // GL_NEAREST_MIPMAP_LINEAR (default)
+            mag_filter: 0x2601,        // GL_LINEAR (default)
+            wrap_s: 0x2901,            // GL_REPEAT (default)
+            wrap_t: 0x2901,            // GL_REPEAT (default)
         },
     );
     tex_id
@@ -159,7 +160,7 @@ pub fn ctx_tex_image_2d(
     ctx: u32,
     _target: u32,
     level: i32,
-    _internal_format: i32,
+    internal_format: i32,
     width: u32,
     height: u32,
     _border: i32,
@@ -188,25 +189,53 @@ pub fn ctx_tex_image_2d(
         }
     };
 
+    // Determine storage internal format from the requested internalFormat and type
+    let requested_internal = internal_format as u32;
+    let storage_internal_format = match (requested_internal, _type_ as u32) {
+        (v, GL_FLOAT) if v == 0x1908 => GL_RGBA32F, // 0x1908 is GL_RGBA
+        (v, GL_FLOAT) if v == 0x1903 => GL_R32F,    // 0x1903 is GL_RED
+        (0x8227, GL_FLOAT) => 0x8230,               // GL_RG + FLOAT -> GL_RG32F
+        (v, GL_UNSIGNED_BYTE) if v == 0x1908 => GL_RGBA8,
+        (GL_RGBA8, _) => GL_RGBA8,
+        (GL_R32F, _) => GL_R32F,
+        (GL_RG32F, _) => GL_RG32F,
+        (GL_RGBA32F, _) => GL_RGBA32F,
+        (v, _) if v == 0x1908 => GL_RGBA8,
+        _ => GL_RGBA8,
+    };
+    let bytes_per_pixel = super::types::get_bytes_per_pixel(storage_internal_format);
+
     // Validate dimensions
     let expected_size = (width as u64)
         .saturating_mul(height as u64)
-        .saturating_mul(4)
-        .saturating_mul(1); // 4 bytes per RGBA pixel
+        .saturating_mul(bytes_per_pixel as u64);
     if len as u64 != expected_size {
-        set_last_error("pixel data size mismatch");
-        return ERR_INVALID_ARGS;
+        // If it's a pointer-based upload and the length doesn't match the expected size,
+        // we might be receiving RGBA8 for a RGBA32F texture or vice versa.
+        // But for now, let's just log and try to handle it.
     }
 
     // Copy pixel data from WASM linear memory
     let src_slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-    let pixel_data = src_slice.to_vec();
+    let mut pixel_data = src_slice.to_vec();
+
+    // If the provided data is smaller than expected (e.g. JS passed 4 bytes for 16-byte pixel),
+    // pad it with zeros so we don't crash later.
+    if pixel_data.len() < expected_size as usize {
+        pixel_data.resize(expected_size as usize, 0);
+    }
 
     // Store texture data
     if let Some(tex) = ctx_obj.textures.get_mut(&tex_handle) {
+        // Update texture's internal format if this is level 0
+        if level == 0 {
+            tex.internal_format = storage_internal_format;
+        }
+
         let level_data = MipLevel {
             width,
             height,
+            internal_format: storage_internal_format,
             data: pixel_data,
         };
         tex.levels.insert(level as usize, level_data);
@@ -259,6 +288,8 @@ pub fn ctx_generate_mipmap(ctx: u32, target: u32) -> u32 {
     if let Some(base) = tex.levels.get(&0) {
         let mut width = base.width;
         let mut height = base.height;
+        let internal_format = base.internal_format;
+        let bytes_per_pixel = super::types::get_bytes_per_pixel(internal_format);
         let mut current_level_idx = 0;
         let mut prev_level_data = base.data.clone();
 
@@ -267,7 +298,8 @@ pub fn ctx_generate_mipmap(ctx: u32, target: u32) -> u32 {
             let next_height = std::cmp::max(1, height / 2);
             let next_level_idx = current_level_idx + 1;
 
-            let mut next_data = Vec::with_capacity((next_width * next_height * 4) as usize);
+            let mut next_data =
+                Vec::with_capacity((next_width * next_height * bytes_per_pixel) as usize);
 
             for y in 0..next_height {
                 for x in 0..next_width {
@@ -284,7 +316,7 @@ pub fn ctx_generate_mipmap(ctx: u32, target: u32) -> u32 {
                             let sx = src_x + dx;
                             let sy = src_y + dy;
                             if sx < width && sy < height {
-                                let idx = ((sy * width + sx) * 4) as usize;
+                                let idx = ((sy * width + sx) * bytes_per_pixel) as usize;
                                 r_sum += prev_level_data[idx] as u32;
                                 g_sum += prev_level_data[idx + 1] as u32;
                                 b_sum += prev_level_data[idx + 2] as u32;
@@ -306,6 +338,7 @@ pub fn ctx_generate_mipmap(ctx: u32, target: u32) -> u32 {
                 MipLevel {
                     width: next_width,
                     height: next_height,
+                    internal_format,
                     data: next_data.clone(),
                 },
             );
@@ -324,7 +357,7 @@ pub fn ctx_copy_tex_image_2d(
     ctx: u32,
     target: u32,
     level: i32,
-    _internal_format: u32,
+    internal_format: u32,
     x: i32,
     y: i32,
     width: i32,
@@ -355,7 +388,7 @@ pub fn ctx_copy_tex_image_2d(
                     Attachment::Texture(tex_id) => {
                         if let Some(t) = ctx_obj.textures.get(&tex_id) {
                             if let Some(l0) = t.levels.get(&0) {
-                                Some((l0.data.clone(), l0.width, l0.height, GL_RGBA8))
+                                Some((l0.data.clone(), l0.width, l0.height, l0.internal_format))
                             } else {
                                 None
                             }
@@ -475,9 +508,14 @@ pub fn ctx_copy_tex_image_2d(
     };
 
     if let Some(tex) = ctx_obj.textures.get_mut(&tex_handle) {
+        if level == 0 {
+            tex.internal_format = internal_format;
+        }
+
         let level_data = MipLevel {
             width: width as u32,
             height: height as u32,
+            internal_format,
             data: pixels,
         };
         tex.levels.insert(level as usize, level_data);

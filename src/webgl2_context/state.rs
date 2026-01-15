@@ -59,12 +59,45 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
                     Attachment::Texture(tex_handle) => {
                         if let Some(tex) = ctx_obj.textures.get_mut(&tex_handle) {
                             if let Some(level0) = tex.levels.get_mut(&0) {
-                                for i in (0..level0.data.len()).step_by(4) {
-                                    if i + 3 < level0.data.len() {
-                                        level0.data[i] = r;
-                                        level0.data[i + 1] = g;
-                                        level0.data[i + 2] = b;
-                                        level0.data[i + 3] = a;
+                                // Ensure backing storage is large enough for the level
+                                let expected = (level0.width
+                                    * level0.height
+                                    * super::types::get_bytes_per_pixel(level0.internal_format))
+                                    as usize;
+                                if level0.data.len() < expected {
+                                    level0.data.resize(expected, 0);
+                                }
+                                let bpp = super::types::get_bytes_per_pixel(level0.internal_format);
+                                if is_float_format(level0.internal_format) {
+                                    let clr = [
+                                        ctx_obj.clear_color[0],
+                                        ctx_obj.clear_color[1],
+                                        ctx_obj.clear_color[2],
+                                        ctx_obj.clear_color[3],
+                                    ];
+                                    let clr_u8 = unsafe {
+                                        std::slice::from_raw_parts(clr.as_ptr() as *const u8, 16)
+                                    };
+                                    for i in (0..level0.data.len()).step_by(bpp as usize) {
+                                        if i + bpp as usize <= level0.data.len() {
+                                            level0.data[i..i + bpp as usize]
+                                                .copy_from_slice(&clr_u8[..bpp as usize]);
+                                        }
+                                    }
+                                } else {
+                                    for i in (0..level0.data.len()).step_by(bpp as usize) {
+                                        if i + bpp as usize <= level0.data.len() {
+                                            level0.data[i] = r;
+                                            if bpp > 1 {
+                                                level0.data[i + 1] = g;
+                                            }
+                                            if bpp > 2 {
+                                                level0.data[i + 2] = b;
+                                            }
+                                            if bpp > 3 {
+                                                level0.data[i + 3] = a;
+                                            }
+                                        }
                                     }
                                 }
                             }
