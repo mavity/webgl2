@@ -104,6 +104,197 @@ pub fn js_execute_shader(
     }
 }
 
+// ============================================================================
+// Math Builtins (Skip Host)
+// ============================================================================
+
+use micromath::F32Ext;
+
+#[no_mangle]
+pub extern "C" fn gl_sin(x: f32) -> f32 {
+    x.sin()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_cos(x: f32) -> f32 {
+    x.cos()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_tan(x: f32) -> f32 {
+    x.tan()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_asin(x: f32) -> f32 {
+    x.asin()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_acos(x: f32) -> f32 {
+    x.acos()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_atan(x: f32) -> f32 {
+    x.atan()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_atan2(y: f32, x: f32) -> f32 {
+    y.atan2(x)
+}
+
+#[no_mangle]
+pub extern "C" fn gl_exp(x: f32) -> f32 {
+    x.exp()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_exp2(x: f32) -> f32 {
+    x.exp2()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_log(x: f32) -> f32 {
+    x.ln()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_log2(x: f32) -> f32 {
+    x.log2()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_pow(base: f32, exp: f32) -> f32 {
+    base.powf(exp)
+}
+
+#[no_mangle]
+pub extern "C" fn gl_sinh(x: f32) -> f32 {
+    x.sinh()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_cosh(x: f32) -> f32 {
+    x.cosh()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_tanh(x: f32) -> f32 {
+    x.tanh()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_asinh(x: f32) -> f32 {
+    x.asinh()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_acosh(x: f32) -> f32 {
+    x.acosh()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_atanh(x: f32) -> f32 {
+    x.atanh()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_sqrt(x: f32) -> f32 {
+    x.sqrt()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_inverse_sqrt(x: f32) -> f32 {
+    x.invsqrt()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_abs(x: f32) -> f32 {
+    x.abs()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_sign(x: f32) -> f32 {
+    if x > 0.0 {
+        1.0
+    } else if x < 0.0 {
+        -1.0
+    } else {
+        0.0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn gl_floor(x: f32) -> f32 {
+    x.floor()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_ceil(x: f32) -> f32 {
+    x.ceil()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_fract(x: f32) -> f32 {
+    x.fract()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_mod(x: f32, y: f32) -> f32 {
+    x - y * (x / y).floor()
+}
+
+#[no_mangle]
+pub extern "C" fn gl_min(x: f32, y: f32) -> f32 {
+    if x < y {
+        x
+    } else {
+        y
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn gl_max(x: f32, y: f32) -> f32 {
+    if x > y {
+        x
+    } else {
+        y
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn gl_clamp(x: f32, min_val: f32, max_val: f32) -> f32 {
+    if x < min_val {
+        min_val
+    } else if x > max_val {
+        max_val
+    } else {
+        x
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn gl_mix(x: f32, y: f32, a: f32) -> f32 {
+    x * (1.0 - a) + y * a
+}
+
+#[no_mangle]
+pub extern "C" fn gl_step(edge: f32, x: f32) -> f32 {
+    if x < edge {
+        0.0
+    } else {
+        1.0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn gl_smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0)).max(0.0).min(1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
 // Texture sampling used to be implemented in Rust as `texture_sample` returning a `F32x4`.
 // That high-level Rust implementation has been intentionally removed in favor of a
 // WASM-local sampling primitive (`__webgl_texture_sample`) emitted by the compiler and a

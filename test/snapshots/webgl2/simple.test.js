@@ -30,17 +30,53 @@ test('basic vertex shader WAT', async () => {
     // WAT files start with (module
     assert.equal(
       wat, `(module
-  (type (;0;) (func))
-  (type (;1;) (func (param i32 i32 i32 i32 i32 i32)))
+  (type (;0;) (func (param f32) (result f32)))
+  (type (;1;) (func (param f32) (result f32)))
+  (type (;2;) (func (param f32) (result f32)))
+  (type (;3;) (func (param f32) (result f32)))
+  (type (;4;) (func (param f32) (result f32)))
+  (type (;5;) (func (param f32) (result f32)))
+  (type (;6;) (func (param f32 f32) (result f32)))
+  (type (;7;) (func (param f32) (result f32)))
+  (type (;8;) (func (param f32) (result f32)))
+  (type (;9;) (func (param f32) (result f32)))
+  (type (;10;) (func (param f32) (result f32)))
+  (type (;11;) (func (param f32 f32) (result f32)))
+  (type (;12;) (func (param f32) (result f32)))
+  (type (;13;) (func (param f32) (result f32)))
+  (type (;14;) (func (param f32) (result f32)))
+  (type (;15;) (func (param f32) (result f32)))
+  (type (;16;) (func (param f32) (result f32)))
+  (type (;17;) (func (param f32) (result f32)))
+  (type (;18;) (func))
+  (type (;19;) (func (param i32 i32 i32 i32 i32 i32)))
   (import "env" "memory" (memory (;0;) 10))
+  (import "env" "gl_sin" (func (;0;) (type 0)))
+  (import "env" "gl_cos" (func (;1;) (type 1)))
+  (import "env" "gl_tan" (func (;2;) (type 2)))
+  (import "env" "gl_asin" (func (;3;) (type 3)))
+  (import "env" "gl_acos" (func (;4;) (type 4)))
+  (import "env" "gl_atan" (func (;5;) (type 5)))
+  (import "env" "gl_atan2" (func (;6;) (type 6)))
+  (import "env" "gl_exp" (func (;7;) (type 7)))
+  (import "env" "gl_exp2" (func (;8;) (type 8)))
+  (import "env" "gl_log" (func (;9;) (type 9)))
+  (import "env" "gl_log2" (func (;10;) (type 10)))
+  (import "env" "gl_pow" (func (;11;) (type 11)))
+  (import "env" "gl_sinh" (func (;12;) (type 12)))
+  (import "env" "gl_cosh" (func (;13;) (type 13)))
+  (import "env" "gl_tanh" (func (;14;) (type 14)))
+  (import "env" "gl_asinh" (func (;15;) (type 15)))
+  (import "env" "gl_acosh" (func (;16;) (type 16)))
+  (import "env" "gl_atanh" (func (;17;) (type 17)))
   (global (;0;) (mut i32) i32.const 0)
   (global (;1;) (mut i32) i32.const 0)
   (global (;2;) (mut i32) i32.const 0)
   (global (;3;) (mut i32) i32.const 0)
   (global (;4;) (mut i32) i32.const 0)
   (global (;5;) (mut i32) i32.const 0)
-  (export "main" (func 1))
-  (func (;0;) (type 0)
+  (export "main" (func 19))
+  (func (;18;) (type 18)
     (local i32 f32 i32)
     global.get 2
     f32.const 0x0p+0 (;=0;)
@@ -56,7 +92,7 @@ test('basic vertex shader WAT', async () => {
     f32.store offset=12
     return
   )
-  (func (;1;) (type 1) (param i32 i32 i32 i32 i32 i32)
+  (func (;19;) (type 19) (param i32 i32 i32 i32 i32 i32)
     (local i32 f32 i32)
     local.get 1
     global.set 0
@@ -70,7 +106,7 @@ test('basic vertex shader WAT', async () => {
     global.set 4
     i32.const 524288
     global.set 5
-    call 0
+    call 18
     global.get 2
     f32.load
     global.get 2
@@ -137,17 +173,53 @@ test('basic fragment shader WAT', async () => {
     // WAT files start with (module
     assert.equal(
       wat, `(module
-  (type (;0;) (func))
-  (type (;1;) (func (param i32 i32 i32 i32 i32 i32)))
+  (type (;0;) (func (param f32) (result f32)))
+  (type (;1;) (func (param f32) (result f32)))
+  (type (;2;) (func (param f32) (result f32)))
+  (type (;3;) (func (param f32) (result f32)))
+  (type (;4;) (func (param f32) (result f32)))
+  (type (;5;) (func (param f32) (result f32)))
+  (type (;6;) (func (param f32 f32) (result f32)))
+  (type (;7;) (func (param f32) (result f32)))
+  (type (;8;) (func (param f32) (result f32)))
+  (type (;9;) (func (param f32) (result f32)))
+  (type (;10;) (func (param f32) (result f32)))
+  (type (;11;) (func (param f32 f32) (result f32)))
+  (type (;12;) (func (param f32) (result f32)))
+  (type (;13;) (func (param f32) (result f32)))
+  (type (;14;) (func (param f32) (result f32)))
+  (type (;15;) (func (param f32) (result f32)))
+  (type (;16;) (func (param f32) (result f32)))
+  (type (;17;) (func (param f32) (result f32)))
+  (type (;18;) (func))
+  (type (;19;) (func (param i32 i32 i32 i32 i32 i32)))
   (import "env" "memory" (memory (;0;) 10))
+  (import "env" "gl_sin" (func (;0;) (type 0)))
+  (import "env" "gl_cos" (func (;1;) (type 1)))
+  (import "env" "gl_tan" (func (;2;) (type 2)))
+  (import "env" "gl_asin" (func (;3;) (type 3)))
+  (import "env" "gl_acos" (func (;4;) (type 4)))
+  (import "env" "gl_atan" (func (;5;) (type 5)))
+  (import "env" "gl_atan2" (func (;6;) (type 6)))
+  (import "env" "gl_exp" (func (;7;) (type 7)))
+  (import "env" "gl_exp2" (func (;8;) (type 8)))
+  (import "env" "gl_log" (func (;9;) (type 9)))
+  (import "env" "gl_log2" (func (;10;) (type 10)))
+  (import "env" "gl_pow" (func (;11;) (type 11)))
+  (import "env" "gl_sinh" (func (;12;) (type 12)))
+  (import "env" "gl_cosh" (func (;13;) (type 13)))
+  (import "env" "gl_tanh" (func (;14;) (type 14)))
+  (import "env" "gl_asinh" (func (;15;) (type 15)))
+  (import "env" "gl_acosh" (func (;16;) (type 16)))
+  (import "env" "gl_atanh" (func (;17;) (type 17)))
   (global (;0;) (mut i32) i32.const 0)
   (global (;1;) (mut i32) i32.const 0)
   (global (;2;) (mut i32) i32.const 0)
   (global (;3;) (mut i32) i32.const 0)
   (global (;4;) (mut i32) i32.const 0)
   (global (;5;) (mut i32) i32.const 0)
-  (export "main" (func 1))
-  (func (;0;) (type 0)
+  (export "main" (func 19))
+  (func (;18;) (type 18)
     (local i32 f32 i32)
     global.get 3
     f32.const 0x1p+0 (;=1;)
@@ -163,7 +235,7 @@ test('basic fragment shader WAT', async () => {
     f32.store offset=12
     return
   )
-  (func (;1;) (type 1) (param i32 i32 i32 i32 i32 i32)
+  (func (;19;) (type 19) (param i32 i32 i32 i32 i32 i32)
     (local i32 f32 i32)
     local.get 1
     global.set 0
@@ -177,7 +249,7 @@ test('basic fragment shader WAT', async () => {
     global.set 4
     i32.const 524288
     global.set 5
-    call 0
+    call 18
     global.get 3
     f32.load
     global.get 3

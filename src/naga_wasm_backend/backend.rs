@@ -60,6 +60,10 @@ struct Compiler<'a> {
     debug_step_idx: Option<u32>,
     /// Index of the emitted module-local helper function `__webgl_texture_sample`
     webgl_texture_sample_idx: Option<u32>,
+    /// Index of the emitted module-local helper function `__webgl_image_load`
+    webgl_image_load_idx: Option<u32>,
+    /// Mapping of Naga math functions to their imported WASM function indices
+    math_import_map: HashMap<naga::MathFunction, u32>,
 
     // Debug info (if enabled)
     debug_generator: Option<super::debug::DwarfGenerator>,
@@ -102,6 +106,8 @@ impl<'a> Compiler<'a> {
             global_offsets: HashMap::new(),
             debug_step_idx: None,
             webgl_texture_sample_idx: None,
+            webgl_image_load_idx: None,
+            math_import_map: HashMap::new(),
             debug_generator,
         }
     }
@@ -122,6 +128,143 @@ impl<'a> Compiler<'a> {
                 .entry_points
                 .iter()
                 .any(|ep| check_expressions(&ep.function))
+    }
+
+    fn has_image_load(&self) -> bool {
+        let check_expressions = |func: &naga::Function| {
+            func.expressions
+                .iter()
+                .any(|(_, expr)| matches!(expr, naga::Expression::ImageLoad { .. }))
+        };
+
+        self.module
+            .functions
+            .iter()
+            .any(|(_, f)| check_expressions(f))
+            || self
+                .module
+                .entry_points
+                .iter()
+                .any(|ep| check_expressions(&ep.function))
+    }
+
+    fn emit_image_load_helper(&mut self) {
+        let type_index = self.types.len();
+        self.types.ty().function(
+            vec![ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+            vec![ValType::F32, ValType::F32, ValType::F32, ValType::F32],
+        );
+
+        let func_idx = self.function_count;
+        self.functions.function(type_index);
+        self.function_count += 1;
+        self.webgl_image_load_idx = Some(func_idx);
+
+        let mut func = Function::new(vec![
+            (4, ValType::I32), // locals 4..7: desc_addr, width, height, data_ptr
+        ]);
+
+        // 1. Compute descriptor address: ptr + unit * 32
+        func.instruction(&Instruction::LocalGet(0));
+        func.instruction(&Instruction::LocalGet(1));
+        func.instruction(&Instruction::I32Const(32));
+        func.instruction(&Instruction::I32Mul);
+        func.instruction(&Instruction::I32Add);
+        func.instruction(&Instruction::LocalSet(4));
+
+        // 2. Load descriptor fields
+        func.instruction(&Instruction::LocalGet(4));
+        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+            offset: 0,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::LocalSet(5)); // width
+
+        func.instruction(&Instruction::LocalGet(4));
+        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+            offset: 4,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::LocalSet(6)); // height
+
+        func.instruction(&Instruction::LocalGet(4));
+        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+            offset: 8,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::LocalSet(7)); // data_ptr
+
+        // 3. Compute byte offset: (clamp(y, 0, h-1) * width + clamp(x, 0, w-1)) * 4
+        // Clamp Y
+        func.instruction(&Instruction::LocalGet(3));
+        func.instruction(&Instruction::I32Const(0));
+        func.instruction(&Instruction::LocalGet(6));
+        func.instruction(&Instruction::I32Const(1));
+        func.instruction(&Instruction::I32Sub);
+        // local.get 3 (y)
+        func.instruction(&Instruction::LocalGet(3));
+        func.instruction(&Instruction::I32Const(0));
+        func.instruction(&Instruction::I32LtS);
+        func.instruction(&Instruction::Select); // clamp min 0
+                                                // stack: [clamp_min_0]
+        func.instruction(&Instruction::LocalGet(6));
+        func.instruction(&Instruction::I32Const(1));
+        func.instruction(&Instruction::I32Sub);
+        // stack: [clamp_min_0, max_y]
+        func.instruction(&Instruction::LocalGet(3));
+        func.instruction(&Instruction::LocalGet(6));
+        func.instruction(&Instruction::I32Const(1));
+        func.instruction(&Instruction::I32Sub);
+        func.instruction(&Instruction::I32LtS);
+        func.instruction(&Instruction::Select); // clamp max max_y
+
+        func.instruction(&Instruction::LocalGet(5)); // width
+        func.instruction(&Instruction::I32Mul);
+
+        // Clamp X
+        func.instruction(&Instruction::LocalGet(2));
+        func.instruction(&Instruction::I32Const(0));
+        func.instruction(&Instruction::LocalGet(5));
+        func.instruction(&Instruction::I32Const(1));
+        func.instruction(&Instruction::I32Sub);
+
+        func.instruction(&Instruction::LocalGet(2));
+        func.instruction(&Instruction::I32Const(0));
+        func.instruction(&Instruction::I32LtS);
+        func.instruction(&Instruction::Select);
+
+        func.instruction(&Instruction::LocalGet(5));
+        func.instruction(&Instruction::I32Const(1));
+        func.instruction(&Instruction::I32Sub);
+
+        func.instruction(&Instruction::LocalGet(2));
+        func.instruction(&Instruction::LocalGet(5));
+        func.instruction(&Instruction::I32Const(1));
+        func.instruction(&Instruction::I32Sub);
+        func.instruction(&Instruction::I32LtS);
+        func.instruction(&Instruction::Select);
+
+        func.instruction(&Instruction::I32Add);
+        func.instruction(&Instruction::I32Const(4));
+        func.instruction(&Instruction::I32Mul);
+        func.instruction(&Instruction::LocalGet(7)); // data_ptr
+        func.instruction(&Instruction::I32Add);
+        func.instruction(&Instruction::LocalSet(4)); // address
+
+        // 4. Load RGBA
+        for i in 0..4 {
+            func.instruction(&Instruction::LocalGet(4));
+            func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+                offset: i * 4,
+                align: 2,
+                memory_index: 0,
+            }));
+        }
+
+        self.code.function(&func);
     }
 
     fn emit_texture_sample_helper(&mut self) {
@@ -292,9 +435,47 @@ impl<'a> Compiler<'a> {
             self.function_count += 1;
         }
 
+        // Add math imports for transcendental functions
+        let math_funcs = [
+            (naga::MathFunction::Sin, "gl_sin", 1),
+            (naga::MathFunction::Cos, "gl_cos", 1),
+            (naga::MathFunction::Tan, "gl_tan", 1),
+            (naga::MathFunction::Asin, "gl_asin", 1),
+            (naga::MathFunction::Acos, "gl_acos", 1),
+            (naga::MathFunction::Atan, "gl_atan", 1),
+            (naga::MathFunction::Atan2, "gl_atan2", 2),
+            (naga::MathFunction::Exp, "gl_exp", 1),
+            (naga::MathFunction::Exp2, "gl_exp2", 1),
+            (naga::MathFunction::Log, "gl_log", 1),
+            (naga::MathFunction::Log2, "gl_log2", 1),
+            (naga::MathFunction::Pow, "gl_pow", 2),
+            (naga::MathFunction::Sinh, "gl_sinh", 1),
+            (naga::MathFunction::Cosh, "gl_cosh", 1),
+            (naga::MathFunction::Tanh, "gl_tanh", 1),
+            (naga::MathFunction::Asinh, "gl_asinh", 1),
+            (naga::MathFunction::Acosh, "gl_acosh", 1),
+            (naga::MathFunction::Atanh, "gl_atanh", 1),
+        ];
+
+        for (func, name, param_count) in math_funcs {
+            let type_idx = self.types.len();
+            let params = vec![ValType::F32; param_count];
+            let results = vec![ValType::F32];
+            self.types.ty().function(params, results);
+
+            self.imports
+                .import("env", name, wasm_encoder::EntityType::Function(type_idx));
+            self.math_import_map.insert(func, self.function_count);
+            self.function_count += 1;
+        }
+
         // Emit the module-local texture sampling helper
         if self.has_image_sampling() {
             self.emit_texture_sample_helper();
+        }
+
+        if self.has_image_load() {
+            self.emit_image_load_helper();
         }
 
         // Define 6 globals for base pointers
@@ -784,6 +965,7 @@ impl<'a> Compiler<'a> {
                             stage,
                             debug_shaders: self._backend.config.debug_shaders,
                             debug_step_idx: self.debug_step_idx,
+                            math_import_map: &self.math_import_map,
                             typifier: &typifier,
                             naga_function_map: &self.naga_function_map,
                             function_registry: self.function_registry,
@@ -803,6 +985,7 @@ impl<'a> Compiler<'a> {
                             local_types: &flattened_local_types,
                             param_count: current_param_idx,
                             webgl_texture_sample_idx: self.webgl_texture_sample_idx,
+                            webgl_image_load_idx: self.webgl_image_load_idx,
                             frame_temp_idx: Some(frame_temp_local),
                             sample_f32_locals,
                             block_stack: Vec::new(),
@@ -844,6 +1027,7 @@ impl<'a> Compiler<'a> {
             stage,
             debug_shaders: self._backend.config.debug_shaders,
             debug_step_idx: self.debug_step_idx,
+            math_import_map: &self.math_import_map,
             typifier: &typifier,
             naga_function_map: &self.naga_function_map,
             function_registry: self.function_registry,
@@ -864,6 +1048,7 @@ impl<'a> Compiler<'a> {
             local_types: &flattened_local_types,
             param_count: current_param_idx,
             webgl_texture_sample_idx: self.webgl_texture_sample_idx,
+            webgl_image_load_idx: self.webgl_image_load_idx,
             frame_temp_idx: Some(frame_temp_local),
             sample_f32_locals,
             block_stack: Vec::new(),

@@ -59,6 +59,7 @@ ordered-float = "4.2"
 getrandom = { version = "0.2", features = ["js"] }
 rustc-demangle = "0.1.26"
 raw-window-handle = "0.6"
+micromath = "2.1.0"
 
 # Browser bindings (optional, for web runtime)
 

@@ -775,13 +775,26 @@ export class WasmWebGL2RenderingContext {
     const vsInstanceRef = { current: null };
     const vsDebugEnv = createDebugEnv(this.VERTEX_SHADER, vsInstanceRef);
 
+    const env = {
+      memory: this._instance.exports.memory,
+      __indirect_function_table: this._sharedTable,
+      ...vsDebugEnv
+    };
+
+    // Add math builtins from renderer (skipping host)
+    const mathFuncs = [
+      'gl_sin', 'gl_cos', 'gl_tan', 'gl_asin', 'gl_acos', 'gl_atan', 'gl_atan2',
+      'gl_exp', 'gl_exp2', 'gl_log', 'gl_log2', 'gl_pow',
+      'gl_sinh', 'gl_cosh', 'gl_tanh', 'gl_asinh', 'gl_acosh', 'gl_atanh'
+    ];
+    for (const name of mathFuncs) {
+      if (this._instance.exports[name]) {
+        env[name] = this._instance.exports[name];
+      }
+    }
 
     program._vsInstance = new WebAssembly.Instance(vsModule, {
-      env: {
-        memory: this._instance.exports.memory,
-        __indirect_function_table: this._sharedTable,
-        ...vsDebugEnv
-      }
+      env
     });
     vsInstanceRef.current = program._vsInstance;
 
@@ -796,13 +809,20 @@ export class WasmWebGL2RenderingContext {
     const fsInstanceRef = { current: null };
     const fsDebugEnv = createDebugEnv(this.FRAGMENT_SHADER, fsInstanceRef);
 
+    const fsEnv = {
+      memory: this._instance.exports.memory,
+      __indirect_function_table: this._sharedTable,
+      ...fsDebugEnv
+    };
+
+    for (const name of mathFuncs) {
+      if (this._instance.exports[name]) {
+        fsEnv[name] = this._instance.exports[name];
+      }
+    }
 
     program._fsInstance = new WebAssembly.Instance(fsModule, {
-      env: {
-        memory: this._instance.exports.memory,
-        __indirect_function_table: this._sharedTable,
-        ...fsDebugEnv
-      }
+      env: fsEnv
     });
     fsInstanceRef.current = program._fsInstance;
 

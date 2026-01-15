@@ -233,8 +233,12 @@ pub struct TranslationContext<'a> {
     pub param_count: u32,
     /// Index of the emitted module-local helper `__webgl_texture_sample`
     pub webgl_texture_sample_idx: Option<u32>,
+    /// Index of the emitted module-local helper `__webgl_image_load`
+    pub webgl_image_load_idx: Option<u32>,
     /// Base index for the 4 explicit f32 locals used for texture sampling results
     pub sample_f32_locals: Option<u32>,
+    /// Mapping of Naga math functions to their imported WASM function indices
+    pub math_import_map: &'a HashMap<naga::MathFunction, u32>,
     /// Index of a temp I32 local for frame pointer calculations (if allocated)
     pub frame_temp_idx: Option<u32>,
     /// Stack of block labels for tracking break/continue targets.

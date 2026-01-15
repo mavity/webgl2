@@ -243,6 +243,20 @@ async function initWASM({ debug } = {}) {
       now: () => {
         return performance.now();
       }
+    },
+    math: {
+      sin: Math.sin,
+      cos: Math.cos,
+      tan: Math.tan,
+      asin: Math.asin,
+      acos: Math.acos,
+      atan: Math.atan,
+      atan2: Math.atan2,
+      exp: Math.exp,
+      exp2: (x) => Math.pow(2, x),
+      log: Math.log,
+      log2: Math.log2,
+      pow: Math.pow
     }
   };
   instance = await WebAssembly.instantiate(wasmModule, importObject);

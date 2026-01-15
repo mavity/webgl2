@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
+// Ensure consistent environment for decompiler tests (debug mode)
+process.env.WEBGL2_DEBUG = 'true';
+
 import { webGL2, getShaderModule, getShaderWat, getShaderGlsl, decompileWasmToGlsl } from '../index.js';
 
 test('getShaderGlsl returns GLSL for compiled vertex shader', async () => {
@@ -34,7 +38,7 @@ layout(std430, binding = 0) buffer MemoryBuffer {
     int memory[];
 };
 
-void func_1() {
+void func_19() {
     int v0;
     float v1;
     int v2;
@@ -64,7 +68,7 @@ void main(int p0, int p1, int p2, int p3, int p4, int p5) {
     memory[((g2) + 4) >> 2] = floatBitsToInt(v7);
     v7 = /* unknown: __unsimplified__ */;
     memory[(g2) >> 2] = floatBitsToInt(v7);
-    return func_1();
+    return func_19();
 }
 `);
   } finally {
@@ -104,7 +108,7 @@ layout(std430, binding = 0) buffer MemoryBuffer {
     int memory[];
 };
 
-void func_1() {
+void func_19() {
     int v0;
     float v1;
     int v2;
@@ -134,7 +138,7 @@ void main(int p0, int p1, int p2, int p3, int p4, int p5) {
     memory[((g3) + 4) >> 2] = floatBitsToInt(v7);
     v7 = /* unknown: __unsimplified__ */;
     memory[(g3) >> 2] = floatBitsToInt(v7);
-    return func_1();
+    return func_19();
 }
 `);
   } finally {
@@ -188,7 +192,7 @@ layout(std430, binding = 0) buffer MemoryBuffer {
     int memory[];
 };
 
-void func_1() {
+void func_19() {
     int v0;
     float v1;
     int v2;
@@ -218,7 +222,7 @@ void main(int p0, int p1, int p2, int p3, int p4, int p5) {
     memory[((g2) + 4) >> 2] = floatBitsToInt(v7);
     v7 = /* unknown: __unsimplified__ */;
     memory[(g2) >> 2] = floatBitsToInt(v7);
-    return func_1();
+    return func_19();
 }
 `);
   } finally {
