@@ -387,7 +387,7 @@ function renderASCIIArt(pixels, width, height) {
     // Step 3: Downsample the image
     // Each character represents 2 vertical pixels
     const charHeight = Math.floor(targetHeight / 2);
-    
+
     const sampledPixels = [];
     for (let charY = 0; charY < charHeight; charY++) {
         for (let charX = 0; charX < targetWidth; charX++) {
@@ -404,18 +404,18 @@ function renderASCIIArt(pixels, width, height) {
         for (let charX = 0; charX < targetWidth; charX++) {
             const idx = charY * targetWidth + charX;
             const { top, bottom } = sampledPixels[idx];
-            
+
             // Determine if pixels are blue, yellow, or something else
             const topColor = classifyColor(top);
             const bottomColor = classifyColor(bottom);
-            
+
             // Generate character with ANSI codes
             const charData = generateChar(topColor, bottomColor);
             output += charData;
         }
         output += '\n';
     }
-    
+
     return output;
 }
 
@@ -423,10 +423,10 @@ function samplePixel(pixels, origWidth, origHeight, cropX, cropTop, cropBottom, 
     // Map from target coordinates to cropped source coordinates
     const srcX = Math.floor((x / targetWidth) * croppedWidth) + cropX;
     const srcY = Math.floor((y / targetHeight) * croppedHeight) + cropTop;
-    
+
     // Flip Y coordinate (pixels are bottom-up from readPixels)
     const flippedY = origHeight - 1 - srcY;
-    
+
     const idx = (flippedY * origWidth + srcX) * 4;
     return {
         r: pixels[idx],
@@ -441,19 +441,19 @@ function classifyColor(pixel) {
     if (pixel.a < 128 || (pixel.r < 50 && pixel.g < 50 && pixel.b < 50)) {
         return 'black';
     }
-    
+
     // Check for blue (cornflower blue: 100, 149, 237)
     const isBlue = pixel.b > pixel.r && pixel.b > pixel.g && pixel.b > 150;
     if (isBlue) {
         return 'blue';
     }
-    
+
     // Check for yellow/gold (255, 215, 0)
     const isYellow = pixel.r > 200 && pixel.g > 150 && pixel.b < 100;
     if (isYellow) {
         return 'yellow';
     }
-    
+
     return 'other';
 }
 
@@ -463,18 +463,18 @@ function generateChar(topColor, bottomColor) {
     const UPPER_HALF_BLOCK = '▀';
     const LOWER_HALF_BLOCK = '▄';
     const SPACE = ' ';
-    
+
     // ANSI color codes
     const RESET = '\x1b[0m';
     const BLUE_256 = '\x1b[38;5;69m';   // Cornflower blue approximation
     const YELLOW_256 = '\x1b[38;5;220m'; // Gold approximation
     const BLUE_16 = '\x1b[34m';          // Fallback blue
     const YELLOW_16 = '\x1b[33m';        // Fallback yellow
-    
+
     // Wrap 256-color in 16-color for graceful degradation
     const BLUE = BLUE_16 + BLUE_256;
     const YELLOW = YELLOW_16 + YELLOW_256;
-    
+
     // Both same color
     if (topColor === bottomColor) {
         if (topColor === 'blue') {
@@ -485,7 +485,7 @@ function generateChar(topColor, bottomColor) {
             return SPACE;
         }
     }
-    
+
     // Different colors - use half blocks
     if (topColor === 'blue' && bottomColor === 'yellow') {
         return BLUE + UPPER_HALF_BLOCK + RESET;
@@ -508,7 +508,7 @@ function generateChar(topColor, bottomColor) {
     } else if (bottomColor === 'yellow') {
         return YELLOW + LOWER_HALF_BLOCK + RESET;
     }
-    
+
     return SPACE;
 }
 
@@ -559,6 +559,77 @@ async function animate() {
     requestAnimationFrame(animate);
 }
 
+// Detect ANSI support in terminal
+function detectANSISupport() {
+    // Check for explicit indicators of no ANSI support
+    const term = process.env.TERM;
+    const noColor = process.env.NO_COLOR;
+
+    // Definitely no ANSI support
+    if (term === 'dumb' || noColor !== undefined) {
+        return false;
+    }
+
+    // Otherwise assume support (or ambiguous = support as per requirements)
+    return true;
+}
+
+// Terminal animation loop
+async function runTerminalAnimation(width, height, duration = 20000) {
+    const startTime = Date.now();
+    const fps = 20;
+    const frameDelay = 1000 / fps;
+
+    let firstFrame = true;
+    let numLines = 0;
+    let frameCount = 0;
+    let lastFrameTime = startTime;
+
+    const renderFrame = async () => {
+        const now = Date.now();
+        const elapsedTime = now - startTime;
+
+        if (elapsedTime >= duration) {
+            // Animation complete
+            return;
+        }
+
+        // Calculate average FPS
+        frameCount++;
+        const avgFps = elapsedTime > 0 ? Math.round((frameCount * 1000) / elapsedTime) : 0;
+
+        // Render cube with current rotation
+        const result = await renderCube(elapsedTime);
+        const { pixels } = result;
+
+        // Generate ASCII art
+        const asciiArt = renderASCIIArt(pixels, width, height);
+
+        // Add FPS counter at the top
+        const fpsLine = `FPS: ${avgFps} | Frame: ${frameCount} | Time: ${(elapsedTime / 1000).toFixed(1)}s\n`;
+        const output = fpsLine + asciiArt;
+
+        if (firstFrame) {
+            // First frame: just print it
+            process.stdout.write(output);
+            numLines = output.split('\n').length - 1;
+            firstFrame = false;
+        } else {
+            // Move cursor up to overwrite previous frame
+            process.stdout.write(`\x1b[${numLines}A`);
+            process.stdout.write(output);
+        }
+
+        lastFrameTime = now;
+
+        // Schedule next frame
+        setTimeout(renderFrame, frameDelay);
+    };
+
+    console.log("\nASCII Art Animation (20 seconds):\n");
+    await renderFrame();
+}
+
 async function main() {
     const result = await renderCube();
     const { pixels, width, height } = result;
@@ -576,11 +647,19 @@ async function main() {
 
         fs.writeFileSync(path.resolve(__dirname, 'output.png'), buf);
         console.log("Saved output.png");
-        
-        // Generate and display ASCII art
-        const asciiArt = renderASCIIArt(pixels, width, height);
-        console.log("\nASCII Art Render:\n");
-        console.log(asciiArt);
+
+        // Check ANSI support
+        const hasANSI = detectANSISupport();
+
+        if (!hasANSI) {
+            // No ANSI support: static output only
+            const asciiArt = renderASCIIArt(pixels, width, height);
+            console.log("\nASCII Art Render:\n");
+            console.log(asciiArt);
+        } else {
+            // ANSI support: run animation
+            await runTerminalAnimation(width, height, 20000);
+        }
     } else {
         // Browser: Apply styles and create UI
         const style = document.createElement('style');
