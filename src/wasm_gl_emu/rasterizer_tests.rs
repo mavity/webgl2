@@ -36,6 +36,8 @@ fn test_raster_pipeline_custom() {
         fragment_shader_type: 200,
         memory: ShaderMemoryLayout::default(),
         flat_varyings_mask: 0,
+        vs_table_idx: None,
+        fs_table_idx: None,
     };
 
     assert_eq!(pipeline.vertex_shader_type, 100);
@@ -101,9 +103,20 @@ fn test_rasterizer_draw_point() {
     let rasterizer = Rasterizer::default();
     let mut owned_fb = OwnedFramebuffer::new(100, 100);
     let mut fb = owned_fb.as_framebuffer();
+    let state = RenderState {
+        ctx_handle: 0,
+        memory: ShaderMemoryLayout::default(),
+        viewport: (0, 0, 100, 100),
+        uniform_data: &[],
+        prepare_textures: None,
+        blend: BlendState::default(),
+        color_mask: ColorMaskState::default(),
+        depth: DepthState::default(),
+        stencil: StencilState::default(),
+    };
 
     // Draw a point at (50, 50)
-    rasterizer.draw_point(&mut fb, 50.0, 50.0, [255, 0, 0, 255]);
+    rasterizer.draw_point(&mut fb, 50.0, 50.0, &[255, 0, 0, 255], &state);
 
     // Check the pixel was written
     let idx = (50 * 100 + 50) * 4;
@@ -118,10 +131,21 @@ fn test_rasterizer_draw_point_out_of_bounds() {
     let rasterizer = Rasterizer::default();
     let mut owned_fb = OwnedFramebuffer::new(100, 100);
     let mut fb = owned_fb.as_framebuffer();
+    let state = RenderState {
+        ctx_handle: 0,
+        memory: ShaderMemoryLayout::default(),
+        viewport: (0, 0, 100, 100),
+        uniform_data: &[],
+        prepare_textures: None,
+        blend: BlendState::default(),
+        color_mask: ColorMaskState::default(),
+        depth: DepthState::default(),
+        stencil: StencilState::default(),
+    };
 
     // Try to draw outside framebuffer
-    rasterizer.draw_point(&mut fb, -10.0, -10.0, [255, 0, 0, 255]);
-    rasterizer.draw_point(&mut fb, 200.0, 200.0, [255, 0, 0, 255]);
+    rasterizer.draw_point(&mut fb, -10.0, -10.0, &[255, 0, 0, 255], &state);
+    rasterizer.draw_point(&mut fb, 200.0, 200.0, &[255, 0, 0, 255], &state);
 
     // Framebuffer should remain unchanged (all zeros)
     let all_zero = fb.color.iter().all(|&x| x == 0);
@@ -171,6 +195,10 @@ fn test_render_state_creation() {
         viewport: (0, 0, 800, 600),
         uniform_data: &uniform_data,
         prepare_textures: None,
+        blend: BlendState::default(),
+        color_mask: ColorMaskState::default(),
+        depth: DepthState::default(),
+        stencil: StencilState::default(),
     };
 
     assert_eq!(state.viewport.2, 800);

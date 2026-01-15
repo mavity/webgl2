@@ -17,6 +17,11 @@ pub fn create_buffer(
             None => return super::NULL_HANDLE,
         };
 
+        let mut size = size;
+        if mapped_at_creation {
+            size = (size + 3) & !3;
+        }
+
         let desc = wgt::BufferDescriptor {
             label: None,
             size,
@@ -162,7 +167,14 @@ pub fn buffer_unmap(ctx_handle: u32, buffer_handle: u32) -> u32 {
     with_context(ctx_handle, |ctx| {
         let buffer_id = match ctx.buffers.get(&buffer_handle) {
             Some(id) => *id,
-            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+            None => {
+                crate::error::set_error(
+                    crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                    super::WEBGPU_ERROR_INVALID_HANDLE,
+                    "Invalid buffer handle",
+                );
+                return super::WEBGPU_ERROR_INVALID_HANDLE;
+            }
         };
 
         match ctx.global.buffer_unmap(buffer_id) {

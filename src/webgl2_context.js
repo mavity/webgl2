@@ -141,10 +141,17 @@ export class WasmWebGL2RenderingContext {
   FRONT_AND_BACK = 0x0408;
 
   TEXTURE_2D = 0x0DE1;
+  TEXTURE_3D = 0x806F;
+  TEXTURE_2D_ARRAY = 0x8C1A;
   TEXTURE_WRAP_S = 0x2802;
   TEXTURE_WRAP_T = 0x2803;
   TEXTURE_MAG_FILTER = 0x2800;
   TEXTURE_MIN_FILTER = 0x2801;
+  RGBA = 0x1908;
+  RED = 0x1903;
+  RG = 0x8227;
+  UNSIGNED_BYTE = 0x1401;
+  FLOAT = 0x1406;
   NEAREST = 0x2600;
   LINEAR = 0x2601;
   NEAREST_MIPMAP_NEAREST = 0x2700;
@@ -296,7 +303,6 @@ export class WasmWebGL2RenderingContext {
     else if (!(data instanceof Uint8Array)) data = new Uint8Array(data);
 
     const len = data.length;
-    console.log('DEBUG JS: texImage2D called len=' + len);
     const ptr = ex.wasm_alloc(len);
     if (ptr === 0) throw new Error('Failed to allocate memory for pixel data');
 
@@ -324,6 +330,51 @@ export class WasmWebGL2RenderingContext {
       const handle = this._boundTexture || 0;
       const copy = new Uint8Array(mem.slice(ptr, ptr + len));
       this._textureData.set(handle, { width: width >>> 0, height: height >>> 0, data: copy });
+    } finally {
+      ex.wasm_free(ptr);
+    }
+  }
+
+  texImage3D(target, level, internalFormat, width, height, depth, border, format, type_, pixels) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_tex_image_3d !== 'function') {
+      throw new Error('wasm_ctx_tex_image_3d not found');
+    }
+
+    let data = pixels;
+    if (!data) data = new Uint8Array(width * height * depth * 4);
+    else if (!(data instanceof Uint8Array)) data = new Uint8Array(data);
+
+    const len = data.length;
+    const ptr = ex.wasm_alloc(len);
+    if (ptr === 0) throw new Error('Failed to allocate memory for pixel data');
+
+    try {
+      const mem = new Uint8Array(ex.memory.buffer);
+      mem.set(data, ptr);
+
+      const code = ex.wasm_ctx_tex_image_3d(
+        this._ctxHandle,
+        target >>> 0,
+        level >>> 0,
+        internalFormat >>> 0,
+        width >>> 0,
+        height >>> 0,
+        depth >>> 0,
+        border >>> 0,
+        format >>> 0,
+        type_ >>> 0,
+        ptr >>> 0,
+        len >>> 0
+      );
+      _checkErr(code, this._instance);
+
+      // Mirror texture data in JS for fast texel fetches by shader imports
+      this._textureData = this._textureData || new Map();
+      const handle = this._boundTexture || 0;
+      const copy = new Uint8Array(mem.slice(ptr, ptr + len));
+      this._textureData.set(handle, { width: width >>> 0, height: height >>> 0, depth: depth >>> 0, data: copy });
     } finally {
       ex.wasm_free(ptr);
     }
@@ -1108,6 +1159,7 @@ export class WasmWebGL2RenderingContext {
       stride >>> 0,
       offset >>> 0
     );
+    if (code === 5) return; // ERR_GL
     _checkErr(code, this._instance);
   }
 
@@ -1125,6 +1177,7 @@ export class WasmWebGL2RenderingContext {
       stride >>> 0,
       offset >>> 0
     );
+    if (code === 5) return; // ERR_GL
     _checkErr(code, this._instance);
   }
 
@@ -1303,6 +1356,12 @@ export class WasmWebGL2RenderingContext {
     }
 
     const len = bytes.length;
+    if (len === 0) {
+      const code = ex.wasm_ctx_buffer_data(this._ctxHandle, target >>> 0, 0, 0, usage >>> 0);
+      _checkErr(code, this._instance);
+      return;
+    }
+
     const ptr = ex.wasm_alloc(len);
     if (ptr === 0) throw new Error('Failed to allocate memory for bufferData');
 
@@ -1529,7 +1588,49 @@ export class WasmWebGL2RenderingContext {
     _checkErr(code, this._instance);
   }
   copyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  texImage3D(target, level, internalformat, width, height, depth, border, format, type, pixels) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  texSubImage2D(target, level, xoffset, yoffset, width, height, format, type_, pixels) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_tex_sub_image_2d !== 'function') {
+      throw new Error('wasm_ctx_tex_sub_image_2d not found');
+    }
+
+    let data = pixels;
+    if (!data) return; // No-op if no data provided
+    if (!(data instanceof Uint8Array)) {
+      if (ArrayBuffer.isView(data)) {
+        data = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      } else {
+        data = new Uint8Array(data);
+      }
+    }
+
+    const len = data.length;
+    const ptr = ex.wasm_alloc(len);
+    if (ptr === 0) throw new Error('Failed to allocate memory for sub-pixel data');
+
+    try {
+      const mem = new Uint8Array(ex.memory.buffer);
+      mem.set(data, ptr);
+
+      const code = ex.wasm_ctx_tex_sub_image_2d(
+        this._ctxHandle,
+        target >>> 0,
+        level >>> 0,
+        xoffset | 0,
+        yoffset | 0,
+        width >>> 0,
+        height >>> 0,
+        format >>> 0,
+        type_ >>> 0,
+        ptr >>> 0,
+        len >>> 0
+      );
+      _checkErr(code, this._instance);
+    } finally {
+      ex.wasm_free(ptr);
+    }
+  }
 
   checkFramebufferStatus(target) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   blitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter) { this._assertNotDestroyed(); throw new Error('not implemented'); }

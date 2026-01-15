@@ -196,9 +196,9 @@ mod tests {
 
         let entry_point = EntryPoint {
             name: "main".to_string(),
-            stage: ShaderStage::Vertex,
+            stage: ShaderStage::Fragment,
             early_depth_test: None,
-            workgroup_size: [1, 1, 1],
+            workgroup_size: [0, 0, 0],
             function,
             mesh_info: None,
             task_payload: None,
@@ -212,7 +212,7 @@ mod tests {
             naga::valid::Capabilities::all(),
         )
         .validate(&module)
-        .unwrap();
+        .expect("Validation failed");
 
         let registry = prep_module(&module, &module_info);
 

@@ -39,6 +39,19 @@ pub const GL_INT: u32 = 0x1404;
 pub const GL_UNSIGNED_INT: u32 = 0x1405;
 pub const GL_FLOAT: u32 = 0x1406;
 
+pub const GL_TEXTURE_2D: u32 = 0x0DE1;
+pub const GL_TEXTURE_3D: u32 = 0x806F;
+pub const GL_TEXTURE_2D_ARRAY: u32 = 0x8C1A;
+
+pub const GL_RGBA: u32 = 0x1908;
+pub const GL_RED: u32 = 0x1903;
+pub const GL_RG: u32 = 0x8227;
+
+pub const GL_RGBA8: u32 = 0x8058;
+pub const GL_R32F: u32 = 0x823E;
+pub const GL_RG32F: u32 = 0x8230;
+pub const GL_RGBA32F: u32 = 0x8814;
+
 pub const GL_VERTEX_ATTRIB_ARRAY_ENABLED: u32 = 0x8622;
 pub const GL_VERTEX_ATTRIB_ARRAY_SIZE: u32 = 0x8623;
 pub const GL_VERTEX_ATTRIB_ARRAY_STRIDE: u32 = 0x8624;
@@ -54,7 +67,6 @@ pub const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
 pub const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
 pub const GL_TEXTURE_WRAP_S: u32 = 0x2802;
 pub const GL_TEXTURE_WRAP_T: u32 = 0x2803;
-pub const GL_TEXTURE_2D: u32 = 0x0DE1;
 
 pub const GL_VIEWPORT: u32 = 0x0BA2;
 pub const GL_COLOR_CLEAR_VALUE: u32 = 0x0C22;
@@ -67,11 +79,7 @@ pub const GL_DEPTH_STENCIL: u32 = 0x84F9;
 pub const GL_RGBA4: u32 = 0x8056;
 pub const GL_RGB565: u32 = 0x8D62;
 pub const GL_RGB5_A1: u32 = 0x8057;
-pub const GL_RGBA8: u32 = 0x8058;
 pub const GL_STENCIL_INDEX8: u32 = 0x8D48;
-pub const GL_R32F: u32 = 0x822E;
-pub const GL_RG32F: u32 = 0x8230;
-pub const GL_RGBA32F: u32 = 0x8814;
 
 // Handle constants
 pub(crate) const INVALID_HANDLE: u32 = 0;
@@ -82,6 +90,7 @@ pub(crate) const FIRST_HANDLE: u32 = 1;
 pub(crate) struct MipLevel {
     pub(crate) width: u32,
     pub(crate) height: u32,
+    pub(crate) depth: u32,
     pub(crate) internal_format: u32,
     pub(crate) data: Vec<u8>,
 }
@@ -274,6 +283,12 @@ pub struct Context {
 }
 
 impl Context {
+    pub fn set_error(&mut self, error: u32) {
+        if self.gl_error == GL_NO_ERROR {
+            self.gl_error = error;
+        }
+    }
+
     pub fn new(width: u32, height: u32) -> Self {
         let mut vertex_arrays = HashMap::new();
         vertex_arrays.insert(0, VertexArray::default());

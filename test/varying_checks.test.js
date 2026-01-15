@@ -12,7 +12,7 @@ test('Varying & Attribute Sanity Suite', async (t) => {
   try {
     gl.viewport(0, 0, 64, 64);
 
-    await t.test('1 - Component ordering & layout (vec4)', { skip: true }, () => {
+    await t.test('1 - Component ordering & layout (vec4)', () => {
       const vs = `#version 300 es
       layout(location = 0) in ivec4 a0;
       flat out ivec4 v0;
@@ -65,12 +65,12 @@ test('Varying & Attribute Sanity Suite', async (t) => {
       assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255]);
     });
 
-    await t.test('2 - Integer load preservation (constant and buffer)', { skip: true }, () => {
+    await t.test('2 - Integer load preservation (constant and buffer)', () => {
       // Constant path
       const vs1 = `#version 300 es
       layout(location = 0) in ivec4 a0;
       flat out ivec4 v0;
-      void main() { v0 = a0; gl_Position = vec4(0.0); gl_PointSize = 1.0; }`;
+      void main() { v0 = a0; gl_Position = vec4(0.0, 0.0, 0.0, 1.0); gl_PointSize = 1.0; }`;
       const fs1 = `#version 300 es
       precision highp float;
       flat in ivec4 v0; out vec4 fragColor;
@@ -105,12 +105,12 @@ test('Varying & Attribute Sanity Suite', async (t) => {
       assert.deepStrictEqual(Array.from(pixels2), [0, 255, 0, 255]);
     });
 
-    await t.test('3 - Signedness checks (ivec vs uvec)', { skip: true }, () => {
+    await t.test('3 - Signedness checks (ivec vs uvec)', () => {
       const vs = `#version 300 es
       layout(location=0) in ivec4 a;
       layout(location=1) in uvec4 b;
       flat out ivec4 vi; flat out uvec4 vu;
-      void main(){ vi = a; vu = b; gl_Position = vec4(0.0); gl_PointSize = 1.0; }`;
+      void main(){ vi = a; vu = b; gl_Position = vec4(0.0, 0.0, 0.0, 1.0); gl_PointSize = 1.0; }`;
       const fs = `#version 300 es
       precision highp float; flat in ivec4 vi; flat in uvec4 vu; out vec4 fragColor;
       void main(){ if (vi != ivec4(-1,2,-3,4)) { fragColor = vec4(0,0,1,1); return;} if (vu != uvec4(1u,2u,3u,4u)) { fragColor = vec4(1,1,0,1); return;} fragColor = vec4(0,1,0,1); }`;
@@ -126,11 +126,11 @@ test('Varying & Attribute Sanity Suite', async (t) => {
       assert.deepStrictEqual(Array.from(pixels), [0, 255, 0, 255]);
     });
 
-    await t.test('4 - Component packing/order via buffer pattern', { skip: true }, () => {
+    await t.test('4 - Component packing/order via buffer pattern', () => {
       const vs = `#version 300 es
       layout(location=0) in vec4 a;
       out vec4 v;
-      void main(){ v = a; gl_Position = vec4(0.0); gl_PointSize = 1.0; }`;
+      void main(){ v = a; gl_Position = vec4(0.0, 0.0, 0.0, 1.0); gl_PointSize = 1.0; }`;
       const fs = `#version 300 es
       precision highp float; in vec4 v; out vec4 fragColor; void main(){ if (v == vec4(1.0,2.0,3.0,4.0)) fragColor = vec4(0,1,0,1); else fragColor = vec4(1,0,0,1); }`;
 
@@ -173,7 +173,7 @@ test('Varying & Attribute Sanity Suite', async (t) => {
       assert.ok(true);
     });
 
-    await t.test('8 - Endianness check (u32 byte order)', { skip: true }, () => {
+    await t.test('8 - Endianness check (u32 byte order)', () => {
       // Create buffer with bytes [1,0,0,0] and read as uint to ensure little-endian
       const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
       const bytes = new Uint8Array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
@@ -182,7 +182,7 @@ test('Varying & Attribute Sanity Suite', async (t) => {
       gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 4, gl.UNSIGNED_INT, 0, 0);
       // Shader to echo first component as color
       const vs = `#version 300 es
-      layout(location=0) in uvec4 a; flat out uint u0; void main(){ u0 = a.x; gl_Position = vec4(0.0); gl_PointSize = 1.0; }`;
+      layout(location=0) in uvec4 a; flat out uint u0; void main(){ u0 = a.x; gl_Position = vec4(0.0, 0.0, 0.0, 1.0); gl_PointSize = 1.0; }`;
       const fs = `#version 300 es
       precision highp float; flat in uint u0; out vec4 fragColor; void main(){ if (u0 == uint(1)) fragColor = vec4(0,1,0,1); else fragColor = vec4(1,0,0,1);} `;
       const s_vs = gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(s_vs, vs); gl.compileShader(s_vs); assert.ok(gl.getShaderParameter(s_vs, gl.COMPILE_STATUS));

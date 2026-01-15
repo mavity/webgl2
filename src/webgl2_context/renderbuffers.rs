@@ -151,17 +151,9 @@ pub fn ctx_renderbuffer_storage(
     rb.internal_format = internal_format;
 
     // Calculate size based on format
-    let bpp = match internal_format {
-        GL_RGBA4 => 2,
-        GL_RGB565 => 2,
-        GL_RGB5_A1 => 2,
-        GL_DEPTH_COMPONENT16 => 2,
-        GL_STENCIL_INDEX8 => 1,
-        GL_DEPTH_STENCIL => 4, // 24 depth + 8 stencil usually, let's say 4 bytes
-        _ => 4,                // Default to 4 bytes (RGBA8 etc)
-    };
+    let bpp = get_bytes_per_pixel(internal_format);
 
-    let size = (width as usize) * (height as usize) * bpp;
+    let size = (width as usize) * (height as usize) * bpp as usize;
     rb.data = vec![0; size];
 
     ERR_OK

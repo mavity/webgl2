@@ -27,7 +27,7 @@ const checkError = (gl, expectedError, msg) => {
   );
 };
 
-test('WebGL vertexAttribIPointer Conformance Tests', { skip: true }, async (t) => {
+test('WebGL vertexAttribIPointer Conformance Tests', async (t) => {
   const gl = await webGL2();
   assert.ok(gl, 'context does not exist');
 

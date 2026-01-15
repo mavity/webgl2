@@ -452,6 +452,56 @@ pub extern "C" fn wasm_ctx_tex_image_2d(
     )
 }
 
+#[no_mangle]
+pub extern "C" fn wasm_ctx_tex_image_3d(
+    ctx: u32,
+    target: u32,
+    level: i32,
+    internal_format: i32,
+    width: u32,
+    height: u32,
+    depth: u32,
+    border: i32,
+    format: i32,
+    type_: i32,
+    ptr: u32,
+    len: u32,
+) -> u32 {
+    webgl2_context::ctx_tex_image_3d(
+        ctx,
+        target,
+        level,
+        internal_format,
+        width,
+        height,
+        depth,
+        border,
+        format,
+        type_,
+        ptr,
+        len,
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_tex_sub_image_2d(
+    ctx: u32,
+    target: u32,
+    level: i32,
+    xoffset: i32,
+    yoffset: i32,
+    width: u32,
+    height: u32,
+    format: i32,
+    type_: i32,
+    ptr: u32,
+    len: u32,
+) -> u32 {
+    webgl2_context::ctx_tex_sub_image_2d(
+        ctx, target, level, xoffset, yoffset, width, height, format, type_, ptr, len,
+    )
+}
+
 /// Generate mipmaps.
 /// Returns errno.
 #[no_mangle]

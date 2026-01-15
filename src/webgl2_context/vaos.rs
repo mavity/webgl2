@@ -137,6 +137,15 @@ pub fn ctx_disable_vertex_attrib_array(ctx: u32, index: u32) -> u32 {
 }
 
 /// Vertex attribute pointer.
+fn get_type_size(type_: u32) -> u32 {
+    match type_ {
+        0x1400 | 0x1401 => 1,          // BYTE, UNSIGNED_BYTE
+        0x1402 | 0x1403 | 0x140B => 2, // SHORT, UNSIGNED_SHORT, HALF_FLOAT
+        0x1404 | 0x1405 | 0x1406 => 4, // INT, UNSIGNED_INT, FLOAT
+        _ => 1,
+    }
+}
+
 pub fn ctx_vertex_attrib_pointer(
     ctx: u32,
     index: u32,
@@ -154,6 +163,24 @@ pub fn ctx_vertex_attrib_pointer(
     };
 
     let bound_buffer = ctx_obj.bound_array_buffer;
+
+    if bound_buffer.is_none() && offset != 0 {
+        set_last_error("offset is non-zero but no buffer is bound to ARRAY_BUFFER");
+        ctx_obj.set_error(GL_INVALID_OPERATION);
+        return ERR_GL;
+    }
+
+    if stride < 0 || stride > 255 {
+        set_last_error("stride out of range");
+        ctx_obj.set_error(GL_INVALID_VALUE);
+        return ERR_GL;
+    }
+
+    if size < 1 || size > 4 {
+        set_last_error("size out of range");
+        ctx_obj.set_error(GL_INVALID_VALUE);
+        return ERR_GL;
+    }
 
     if let Some(vao) = ctx_obj.vertex_arrays.get_mut(&ctx_obj.bound_vertex_array) {
         if (index as usize) < vao.attributes.len() {
@@ -193,6 +220,46 @@ pub fn ctx_vertex_attrib_ipointer(
     };
 
     let bound_buffer = ctx_obj.bound_array_buffer;
+
+    if bound_buffer.is_none() && offset != 0 {
+        set_last_error("offset is non-zero but no buffer is bound to ARRAY_BUFFER");
+        ctx_obj.set_error(GL_INVALID_OPERATION);
+        return ERR_GL;
+    }
+
+    if stride < 0 || stride > 255 {
+        set_last_error("stride out of range");
+        ctx_obj.set_error(GL_INVALID_VALUE);
+        return ERR_GL;
+    }
+
+    if size < 1 || size > 4 {
+        set_last_error("size out of range");
+        ctx_obj.set_error(GL_INVALID_VALUE);
+        return ERR_GL;
+    }
+
+    // Check type and alignment (IPointer specific)
+    match type_ {
+        0x1400 | 0x1401 | 0x1402 | 0x1403 | 0x1404 | 0x1405 => {
+            let type_size = get_type_size(type_);
+            if offset % type_size != 0 {
+                set_last_error("offset must be a multiple of the type size");
+                ctx_obj.set_error(GL_INVALID_OPERATION);
+                return ERR_GL;
+            }
+            if stride > 0 && (stride as u32 % type_size != 0) {
+                set_last_error("stride must be a multiple of the type size");
+                ctx_obj.set_error(GL_INVALID_OPERATION);
+                return ERR_GL;
+            }
+        }
+        _ => {
+            set_last_error("invalid type for vertexAttribIPointer");
+            ctx_obj.set_error(GL_INVALID_ENUM);
+            return ERR_GL;
+        }
+    }
 
     if let Some(vao) = ctx_obj.vertex_arrays.get_mut(&ctx_obj.bound_vertex_array) {
         if (index as usize) < vao.attributes.len() {

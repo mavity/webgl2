@@ -91,14 +91,8 @@ function glEnumToString(gl, value) {
   return `0x${value.toString(16)}`;
 }
 
-test('vertexAttribIPointer offsets tests', { skip: true }, async (t) => {
-  const gl = await webGL2();
-
-  // Polyfill missing constants for the test
-  if (!gl.INT) gl.INT = 0x1404;
-  if (!gl.UNSIGNED_INT) gl.UNSIGNED_INT = 0x1405;
-  if (!gl.SHORT) gl.SHORT = 0x1402;
-  if (!gl.BYTE) gl.BYTE = 0x1400;
+test('vertexAttribIPointer offsets tests', async (t) => {
+  const gl = await webGL2({ size: { width: 50, height: 50 } });
 
   const program = createProgram(gl, vShaderSource, fShaderSource);
   const program_unsigned = createProgram(gl, vShaderUnsignedSource, fShaderSource);

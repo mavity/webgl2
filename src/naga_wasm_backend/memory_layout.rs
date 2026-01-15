@@ -383,6 +383,6 @@ mod tests {
         assert_eq!(off3, 32);
 
         assert_eq!(layout.locals_size, 20); // 32 + 4 - 16 = 20
-        assert_eq!(layout.total_size, 36); // 32 + 4 = 36
+        assert_eq!(layout.total_size, 48); // 32 + 4 = 36, then aligned to 16 -> 48
     }
 }

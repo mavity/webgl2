@@ -162,10 +162,10 @@ mod internal_tests {
         let function = Function::default();
 
         let entry_point = EntryPoint {
-            name: "vertex_main".to_string(),
-            stage: ShaderStage::Vertex,
+            name: "fragment_main".to_string(),
+            stage: ShaderStage::Fragment,
             early_depth_test: None,
-            workgroup_size: [1, 1, 1],
+            workgroup_size: [0, 0, 0],
             function,
             mesh_info: None,
             task_payload: None,
@@ -179,7 +179,7 @@ mod internal_tests {
 
         assert_eq!(registry.entry_point_count(), 1);
 
-        let manifest = registry.get_entry_point("vertex_main").unwrap();
+        let manifest = registry.get_entry_point("fragment_main").unwrap();
         assert_eq!(
             manifest.abi.params.len(),
             0,
@@ -213,7 +213,7 @@ mod internal_tests {
             task_payload: None,
             workgroup_size_overrides: None,
             early_depth_test: None,
-            workgroup_size: [1, 1, 1],
+            workgroup_size: [0, 0, 0],
             function,
         };
 

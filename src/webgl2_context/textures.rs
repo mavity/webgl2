@@ -235,10 +235,184 @@ pub fn ctx_tex_image_2d(
         let level_data = MipLevel {
             width,
             height,
+            depth: 1,
             internal_format: storage_internal_format,
             data: pixel_data,
         };
         tex.levels.insert(level as usize, level_data);
+        ERR_OK
+    } else {
+        set_last_error("texture not found");
+        ERR_INVALID_HANDLE
+    }
+}
+
+pub fn ctx_tex_image_3d(
+    ctx: u32,
+    target: u32,
+    level: i32,
+    internal_format: i32,
+    width: u32,
+    height: u32,
+    depth: u32,
+    _border: i32,
+    _format: i32,
+    _type_: i32,
+    ptr: u32,
+    len: u32,
+) -> u32 {
+    clear_last_error();
+
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+
+    if target != GL_TEXTURE_3D && target != GL_TEXTURE_2D_ARRAY {
+        set_last_error("invalid target for texImage3D");
+        ctx_obj.set_error(GL_INVALID_ENUM);
+        return ERR_GL;
+    }
+
+    let tex_handle = match ctx_obj.bound_texture {
+        Some(h) => h,
+        None => {
+            set_last_error("no texture bound");
+            ctx_obj.set_error(GL_INVALID_OPERATION);
+            return ERR_GL;
+        }
+    };
+
+    let requested_internal = internal_format as u32;
+    let storage_internal_format = match (requested_internal, _type_ as u32) {
+        (v, GL_FLOAT) if v == GL_RGBA => GL_RGBA32F,
+        (v, GL_FLOAT) if v == GL_RED => GL_R32F,
+        (GL_RG, GL_FLOAT) => GL_RG32F,
+        (v, GL_UNSIGNED_BYTE) if v == GL_RGBA => GL_RGBA8,
+        (GL_RGBA8, _) => GL_RGBA8,
+        (GL_R32F, _) => GL_R32F,
+        (GL_RG32F, _) => GL_RG32F,
+        (GL_RGBA32F, _) => GL_RGBA32F,
+        (v, _) if v == GL_RGBA => GL_RGBA8,
+        _ => GL_RGBA8,
+    };
+    let bytes_per_pixel = super::types::get_bytes_per_pixel(storage_internal_format);
+
+    let expected_size = (width as u64)
+        .saturating_mul(height as u64)
+        .saturating_mul(depth as u64)
+        .saturating_mul(bytes_per_pixel as u64);
+
+    if (len as u64) < expected_size {
+        set_last_error("provided pixels buffer too small");
+        ctx_obj.set_error(GL_INVALID_VALUE);
+        return ERR_GL;
+    }
+
+    let src_slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    let pixel_data = src_slice[..expected_size as usize].to_vec();
+
+    if let Some(tex) = ctx_obj.textures.get_mut(&tex_handle) {
+        if level == 0 {
+            tex.internal_format = storage_internal_format;
+        }
+
+        let level_data = MipLevel {
+            width,
+            height,
+            depth,
+            internal_format: storage_internal_format,
+            data: pixel_data,
+        };
+        tex.levels.insert(level as usize, level_data);
+        ERR_OK
+    } else {
+        set_last_error("texture not found");
+        return ERR_INVALID_HANDLE;
+    }
+}
+
+/// Upload pixel data to a sub-region of a texture.
+#[allow(clippy::too_many_arguments)]
+pub fn ctx_tex_sub_image_2d(
+    ctx: u32,
+    _target: u32,
+    level: i32,
+    xoffset: i32,
+    yoffset: i32,
+    width: u32,
+    height: u32,
+    _format: i32,
+    _type: i32,
+    ptr: u32,
+    len: u32,
+) -> u32 {
+    clear_last_error();
+
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+
+    let tex_handle = match ctx_obj.bound_texture {
+        Some(h) => h,
+        None => {
+            set_last_error("no texture bound");
+            return ERR_INVALID_ARGS;
+        }
+    };
+
+    if let Some(tex) = ctx_obj.textures.get_mut(&tex_handle) {
+        let level_idx = level as usize;
+        let level_data = match tex.levels.get_mut(&level_idx) {
+            Some(l) => l,
+            None => {
+                set_last_error("texture level not initialized");
+                return ERR_INVALID_ARGS;
+            }
+        };
+
+        // SAFETY: ptr/len validated by JS caller
+        let sub_data = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+
+        // Determine bytes per pixel of the destination level
+        let bpp = get_bytes_per_pixel(level_data.internal_format);
+        if bpp == 0 {
+            set_last_error("unsupported internal format for texSubImage2D");
+            return ERR_INVALID_ARGS;
+        }
+
+        // Copy row by row
+        let dst_stride = (level_data.width * bpp) as usize;
+        let src_stride = (width * bpp) as usize;
+
+        for y in 0..height {
+            let src_y = y as usize;
+            let dst_y = (yoffset as u32 + y) as usize;
+
+            if dst_y >= level_data.height as usize {
+                break;
+            }
+
+            let src_offset = src_y * src_stride;
+            let dst_offset = dst_y * dst_stride + (xoffset as u32 * bpp) as usize;
+
+            if src_offset + src_stride <= sub_data.len()
+                && dst_offset + src_stride <= level_data.data.len()
+            {
+                level_data.data[dst_offset..dst_offset + src_stride]
+                    .copy_from_slice(&sub_data[src_offset..src_offset + src_stride]);
+            }
+        }
+
         ERR_OK
     } else {
         set_last_error("texture not found");
@@ -338,6 +512,7 @@ pub fn ctx_generate_mipmap(ctx: u32, target: u32) -> u32 {
                 MipLevel {
                     width: next_width,
                     height: next_height,
+                    depth: 1,
                     internal_format,
                     data: next_data.clone(),
                 },
@@ -515,6 +690,7 @@ pub fn ctx_copy_tex_image_2d(
         let level_data = MipLevel {
             width: width as u32,
             height: height as u32,
+            depth: 1,
             internal_format,
             data: pixels,
         };

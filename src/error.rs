@@ -52,9 +52,23 @@ thread_local! {
 pub fn set_error(source: ErrorSource, code: u32, msg: impl ToString) {
     STATE.with(|s| {
         let mut state = s.borrow_mut();
+
+        let message = match source {
+            ErrorSource::WebGPU(WebGPUErrorFilter::Validation) => {
+                format!("Validation Error: {}", msg.to_string())
+            }
+            ErrorSource::WebGPU(WebGPUErrorFilter::OutOfMemory) => {
+                format!("Out of Memory Error: {}", msg.to_string())
+            }
+            ErrorSource::WebGPU(WebGPUErrorFilter::Internal) => {
+                format!("Internal Error: {}", msg.to_string())
+            }
+            _ => msg.to_string(),
+        };
+
         let error = WasmError {
             code,
-            message: msg.to_string(),
+            message,
             source,
         };
 
@@ -211,7 +225,7 @@ mod tests {
 
         let err = webgpu_pop_error_scope();
         assert!(err.is_some());
-        assert_eq!(err.unwrap().message, "Fail");
+        assert_eq!(err.unwrap().message, "Validation Error: Fail");
     }
 
     #[test]
@@ -234,7 +248,7 @@ mod tests {
 
         let err_b = webgpu_pop_error_scope();
         assert!(err_b.is_some());
-        assert_eq!(err_b.unwrap().message, "Fail");
+        assert_eq!(err_b.unwrap().message, "Validation Error: Fail");
 
         let err_a = webgpu_pop_error_scope();
         assert!(err_a.is_none());
@@ -256,6 +270,6 @@ mod tests {
 
         let err_oom = webgpu_pop_error_scope(); // OOM scope
         assert!(err_oom.is_some());
-        assert_eq!(err_oom.unwrap().message, "OOM");
+        assert_eq!(err_oom.unwrap().message, "Out of Memory Error: OOM");
     }
 }
