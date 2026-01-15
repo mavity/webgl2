@@ -912,6 +912,24 @@ pub fn translate_expression_component(
                     ctx.wasm_func.instruction(&Instruction::I32Const(0));
                 }
             }
+            RelationalFunction::IsNan => {
+                // NaN check: x != x (standard NaN test)
+                translate_expression_component(*argument, component_idx, ctx)?;
+                // Duplicate the value on stack
+                translate_expression_component(*argument, component_idx, ctx)?;
+                // Compare: x != x returns true only for NaN
+                ctx.wasm_func.instruction(&Instruction::F32Ne);
+            }
+            RelationalFunction::IsInf => {
+                // Infinity check: abs(x) == Infinity
+                translate_expression_component(*argument, component_idx, ctx)?;
+                // Get absolute value
+                ctx.wasm_func.instruction(&Instruction::F32Abs);
+                // Push infinity constant
+                ctx.wasm_func.instruction(&Instruction::F32Const(f32::INFINITY));
+                // Compare: abs(x) == Infinity
+                ctx.wasm_func.instruction(&Instruction::F32Eq);
+            }
             _ => {
                 ctx.wasm_func.instruction(&Instruction::I32Const(0));
             }
