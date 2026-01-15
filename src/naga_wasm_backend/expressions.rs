@@ -926,7 +926,8 @@ pub fn translate_expression_component(
                 // Get absolute value
                 ctx.wasm_func.instruction(&Instruction::F32Abs);
                 // Push infinity constant
-                ctx.wasm_func.instruction(&Instruction::F32Const(f32::INFINITY));
+                ctx.wasm_func
+                    .instruction(&Instruction::F32Const(f32::INFINITY));
                 // Compare: abs(x) == Infinity
                 ctx.wasm_func.instruction(&Instruction::F32Eq);
             }

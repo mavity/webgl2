@@ -773,6 +773,7 @@ impl<'a> Compiler<'a> {
             webgl_texture_sample_idx: self.webgl_texture_sample_idx,
             frame_temp_idx: Some(frame_temp_local),
             sample_f32_locals,
+            block_stack: Vec::new(),
         };
 
         for (stmt, span) in func.body.span_iter() {

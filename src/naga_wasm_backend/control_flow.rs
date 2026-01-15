@@ -151,9 +151,47 @@ pub fn translate_statement(
 
     match stmt {
         naga::Statement::Block(block) => {
+            // Push a block label onto the stack
+            ctx.block_stack.push(super::BlockLabel::Block);
+
+            // Emit WASM block instruction
+            ctx.wasm_func
+                .instruction(&Instruction::Block(wasm_encoder::BlockType::Empty));
+
+            // Translate all statements in the block
             for (s, s_span) in block.span_iter() {
                 translate_statement(s, s_span, ctx)?;
             }
+
+            // End the block
+            ctx.wasm_func.instruction(&Instruction::End);
+
+            // Pop the block label from the stack
+            ctx.block_stack.pop();
+        }
+        naga::Statement::Break => {
+            // Find the depth to the nearest breakable block/loop
+            let mut depth = 0;
+            for label in ctx.block_stack.iter().rev() {
+                match label {
+                    super::BlockLabel::Block => {
+                        // Found a block we can break from
+                        ctx.wasm_func.instruction(&Instruction::Br(depth));
+                        return Ok(());
+                    }
+                    super::BlockLabel::Loop { break_depth, .. } => {
+                        // Found a loop, use its break depth
+                        ctx.wasm_func
+                            .instruction(&Instruction::Br(*break_depth + depth));
+                        return Ok(());
+                    }
+                }
+                depth += 1;
+            }
+            // If we get here, there's no enclosing breakable block - this is an error
+            return Err(BackendError::UnsupportedFeature(
+                "Break statement outside of block or loop".to_string(),
+            ));
         }
         naga::Statement::Store { pointer, value } => {
             // Debug: Check if storing to global

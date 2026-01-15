@@ -234,4 +234,19 @@ pub struct TranslationContext<'a> {
     pub sample_f32_locals: Option<u32>,
     /// Index of a temp I32 local for frame pointer calculations (if allocated)
     pub frame_temp_idx: Option<u32>,
+    /// Stack of block labels for tracking break/continue targets.
+    /// Each entry represents a block/loop with its depth from the current position.
+    pub block_stack: Vec<BlockLabel>,
+}
+
+/// Label information for a block or loop
+#[derive(Clone, Debug)]
+pub enum BlockLabel {
+    /// A simple block that can be broken out of
+    Block,
+    /// A loop with separate break and continue targets  
+    Loop {
+        continue_depth: u32,
+        break_depth: u32,
+    },
 }
