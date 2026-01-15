@@ -15,9 +15,9 @@
 | src/lib.rs | 308 | 196 | 504 | 61.11% 🟡 |
 | src/naga_wasm_backend/backend.rs | 58 | 2 | 60 | 96.67% 🟢 |
 | src/naga_wasm_backend/call_lowering.rs | 18 | 0 | 18 | 100.00% 🟢 |
-| src/naga_wasm_backend/control_flow.rs | 32 | 36 | 68 | 47.06% 🟠 |
+| src/naga_wasm_backend/control_flow.rs | 52 | 16 | 68 | 76.47% 🟡 |
 | src/naga_wasm_backend/debug/stub.rs | 21 | 0 | 21 | 100.00% 🟢 |
-| src/naga_wasm_backend/expressions.rs | 56 | 20 | 76 | 73.68% 🟡 |
+| src/naga_wasm_backend/expressions.rs | 58 | 18 | 76 | 76.32% 🟡 |
 | src/naga_wasm_backend/function_abi.rs | 22 | 0 | 22 | 100.00% 🟢 |
 | src/naga_wasm_backend/functions/prep.rs | 4 | 0 | 4 | 100.00% 🟢 |
 | src/naga_wasm_backend/functions/registry.rs | 4 | 0 | 4 | 100.00% 🟢 |
@@ -31,20 +31,20 @@
 | src/webgl2_context/framebuffers.rs | 10 | 0 | 10 | 100.00% 🟢 |
 | src/webgl2_context/registry.rs | 5 | 1 | 6 | 83.33% 🟢 |
 | src/webgl2_context/renderbuffers.rs | 12 | 0 | 12 | 100.00% 🟢 |
-| src/webgl2_context/shaders.rs | 109 | 14 | 123 | 88.62% 🟢 |
+| src/webgl2_context/shaders.rs | 111 | 12 | 123 | 90.24% 🟢 |
 | src/webgl2_context/state.rs | 21 | 1 | 22 | 95.45% 🟢 |
 | src/webgl2_context/textures.rs | 23 | 9 | 32 | 71.88% 🟡 |
 | src/webgl2_context/types.rs | 10 | 1 | 11 | 90.91% 🟢 |
 | src/webgl2_context/vaos.rs | 36 | 0 | 36 | 100.00% 🟢 |
 | src/webgpu/adapter.rs | 2 | 0 | 2 | 100.00% 🟢 |
 | src/webgpu/backend.rs | 25 | 25 | 50 | 50.00% 🟡 |
-| **Total** | **1001** | **402** | **1403** | **71.35% 🟡** |
+| **Total** | **1025** | **378** | **1403** | **73.06% 🟡** |
 
 ## Top Missed Files
 
 | File | Lines Missed | Illustrative Line | Coverage |
 |---|---|---|---:|
 | src/lib.rs | 196/504 | [1040] `// ---- GLSL Decompiler Support (docs/11.b-decompile-theo...` | 61.11% 🟡 |
-| src/naga_wasm_backend/control_flow.rs | 36/68 | [211] `for (s, s_span) in body.span_iter() {` | 47.06% 🟠 |
 | src/webgpu/backend.rs | 25/50 | [943] `}` | 50.00% 🟡 |
 | src/decompiler/lifter.rs | 22/39 | [455] `fn unary_op(&mut self, op: UnaryOp) {` | 43.59% 🟠 |
+| src/decompiler/simplifier.rs | 18/73 | [115] `let get_const = |id: &Id| egraph[*id].data.constant;` | 75.34% 🟡 |

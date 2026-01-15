@@ -40,10 +40,16 @@ test('ABI: single internal function with scalar param (flattened)', async () => 
   (func (;0;) (type 0) (param f32)
     (local i32 f32 i32)
     global.get 3
+    i32.const 2048
+    i32.add
     local.get 0
     f32.store
     global.get 3
+    i32.const 2048
+    i32.add
     global.get 3
+    i32.const 2048
+    i32.add
     f32.load
     f32.const 0x1p+0 (;=1;)
     f32.add
@@ -159,14 +165,22 @@ test('ABI: internal function with vec2 param (flattened)', async () => {
   (func (;0;) (type 0) (param f32 f32) (result f32)
     (local i32 f32 i32)
     global.get 3
+    i32.const 2048
+    i32.add
     local.get 0
     f32.store
     global.get 3
+    i32.const 2048
+    i32.add
     local.get 1
     f32.store offset=4
     global.get 3
+    i32.const 2048
+    i32.add
     f32.load
     global.get 3
+    i32.const 2048
+    i32.add
     i32.const 4
     i32.add
     f32.load
@@ -180,10 +194,14 @@ test('ABI: internal function with vec2 param (flattened)', async () => {
     call 0
     local.set 0
     global.get 3
+    i32.const 2048
+    i32.add
     local.get 0
     f32.store
     global.get 3
     global.get 3
+    i32.const 2048
+    i32.add
     f32.load
     f32.store
     global.get 3
@@ -295,18 +313,26 @@ test('ABI: internal function with scalar return value', async () => {
     call 0
     local.set 0
     global.get 3
+    i32.const 2048
+    i32.add
     local.get 0
     f32.store
     global.get 3
     global.get 3
+    i32.const 2048
+    i32.add
     f32.load
     f32.store
     global.get 3
     global.get 3
+    i32.const 2048
+    i32.add
     f32.load
     f32.store offset=4
     global.get 3
     global.get 3
+    i32.const 2048
+    i32.add
     f32.load
     f32.store offset=8
     global.get 3
@@ -416,26 +442,38 @@ test('ABI: internal function with vec3 return (flattened)', async () => {
     local.set 1
     local.set 0
     global.get 3
+    i32.const 2048
+    i32.add
     local.get 0
     f32.store
     global.get 3
+    i32.const 2048
+    i32.add
     local.get 1
     f32.store offset=4
     global.get 3
+    i32.const 2048
+    i32.add
     local.get 2
     f32.store offset=8
     global.get 3
     global.get 3
+    i32.const 2048
+    i32.add
     f32.load
     f32.store
     global.get 3
     global.get 3
+    i32.const 2048
+    i32.add
     i32.const 4
     i32.add
     f32.load
     f32.store offset=4
     global.get 3
     global.get 3
+    i32.const 2048
+    i32.add
     i32.const 8
     i32.add
     f32.load

@@ -532,7 +532,9 @@ impl<'a> Compiler<'a> {
 
         // Calculate local variable offsets
         let mut local_offsets = HashMap::new();
-        let mut current_local_offset = 0;
+        // Start locals at an offset to avoid collisions with the color output region (0-1024 bytes)
+        // and FragDepth (at 4096 bytes). 2048 is a safe middle ground.
+        let mut current_local_offset = 2048;
         for (handle, var) in func.local_variables.iter() {
             let size = super::types::type_size(&self.module.types[var.ty].inner).unwrap_or(4);
             local_offsets.insert(handle, current_local_offset);
@@ -740,6 +742,86 @@ impl<'a> Compiler<'a> {
         let stage = self.stage;
         let is_entry_point = entry_point.is_some();
 
+        // Initialize local variables that have init expressions
+        // This must happen before any statement execution
+        for (handle, var) in func.local_variables.iter() {
+            if let Some(init_expr) = var.init {
+                // Get the local offset
+                if let Some(&offset) = local_offsets.get(&handle) {
+                    // Emit Store for the initialization
+                    let value_ty = &self.module.types[var.ty].inner;
+                    let num_components =
+                        super::types::component_count(value_ty, &self.module.types);
+                    let use_i32_store = super::expressions::is_integer_type(value_ty);
+
+                    for i in 0..num_components {
+                        // Compute address: private_ptr + offset + (i * 4)
+                        wasm_func.instruction(&Instruction::GlobalGet(
+                            output_layout::PRIVATE_PTR_GLOBAL,
+                        ));
+                        wasm_func.instruction(&Instruction::I32Const((offset + i * 4) as i32));
+                        wasm_func.instruction(&Instruction::I32Add);
+
+                        // Evaluate init expression component
+                        // We need a temporary context for this
+                        let mut init_ctx = super::TranslationContext {
+                            func,
+                            module: self.module,
+                            source: self._source,
+                            wasm_func: &mut wasm_func,
+                            global_offsets: &self.global_offsets,
+                            local_offsets: &local_offsets,
+                            call_result_locals: &call_result_locals,
+                            stage,
+                            debug_shaders: self._backend.config.debug_shaders,
+                            debug_step_idx: self.debug_step_idx,
+                            typifier: &typifier,
+                            naga_function_map: &self.naga_function_map,
+                            function_registry: self.function_registry,
+                            argument_local_offsets: &argument_local_offsets,
+                            attribute_locations: self.attribute_locations,
+                            uniform_locations: self.uniform_locations,
+                            varying_locations: self.varying_locations,
+                            varying_types: self.varying_types,
+                            uniform_types: self.uniform_types,
+                            attribute_types: self.attribute_types,
+                            local_origins: &local_origins,
+                            is_entry_point,
+                            swap_i32_local,
+                            swap_f32_local,
+                            swap_f32_local_2,
+                            local_types: &flattened_local_types,
+                            param_count: current_param_idx,
+                            webgl_texture_sample_idx: self.webgl_texture_sample_idx,
+                            frame_temp_idx: Some(frame_temp_local),
+                            sample_f32_locals,
+                            block_stack: Vec::new(),
+                        };
+                        super::expressions::translate_expression_component(
+                            init_expr,
+                            i,
+                            &mut init_ctx,
+                        )?;
+
+                        // Store the value
+                        if use_i32_store {
+                            wasm_func.instruction(&Instruction::I32Store(wasm_encoder::MemArg {
+                                offset: 0,
+                                align: 2,
+                                memory_index: 0,
+                            }));
+                        } else {
+                            wasm_func.instruction(&Instruction::F32Store(wasm_encoder::MemArg {
+                                offset: 0,
+                                align: 2,
+                                memory_index: 0,
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+
         // Translate statements
         let mut ctx = super::TranslationContext {
             func,
@@ -775,51 +857,6 @@ impl<'a> Compiler<'a> {
             sample_f32_locals,
             block_stack: Vec::new(),
         };
-
-        // Initialize local variables that have init expressions.
-        // This handles GLSL patterns like `int x = 1;` where the frontend
-        // encodes the initializer as LocalVariable.init rather than a separate Store statement.
-        for (handle, var) in func.local_variables.iter() {
-            if let Some(init_expr) = var.init {
-                let offset = local_offsets.get(&handle).copied().unwrap_or(0);
-                let var_ty = &self.module.types[var.ty].inner;
-                let num_components = super::types::component_count(var_ty, &self.module.types);
-                let is_int = super::expressions::is_integer_type(var_ty);
-
-                // Store each component of the initializer value
-                for i in 0..num_components {
-                    // Calculate destination address: private_ptr + offset + component_offset
-                    ctx.wasm_func
-                        .instruction(&Instruction::GlobalGet(output_layout::PRIVATE_PTR_GLOBAL));
-                    let total_offset = offset + i * 4;
-                    if total_offset > 0 {
-                        ctx.wasm_func
-                            .instruction(&Instruction::I32Const(total_offset as i32));
-                        ctx.wasm_func.instruction(&Instruction::I32Add);
-                    }
-
-                    // Evaluate the init expression component and push to stack
-                    super::expressions::translate_expression_component(init_expr, i, &mut ctx)?;
-
-                    // Store the value using the appropriate instruction
-                    if is_int {
-                        ctx.wasm_func
-                            .instruction(&Instruction::I32Store(wasm_encoder::MemArg {
-                                offset: 0,
-                                align: 2,
-                                memory_index: 0,
-                            }));
-                    } else {
-                        ctx.wasm_func
-                            .instruction(&Instruction::F32Store(wasm_encoder::MemArg {
-                                offset: 0,
-                                align: 2,
-                                memory_index: 0,
-                            }));
-                    }
-                }
-            }
-        }
 
         for (stmt, span) in func.body.span_iter() {
             super::control_flow::translate_statement(stmt, span, &mut ctx)?;
