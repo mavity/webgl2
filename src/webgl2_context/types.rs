@@ -48,7 +48,7 @@ pub const GL_RED: u32 = 0x1903;
 pub const GL_RG: u32 = 0x8227;
 
 pub const GL_RGBA8: u32 = 0x8058;
-pub const GL_R32F: u32 = 0x823E;
+pub const GL_R32F: u32 = 0x822E;
 pub const GL_RG32F: u32 = 0x8230;
 pub const GL_RGBA32F: u32 = 0x8814;
 
@@ -634,7 +634,9 @@ impl Context {
                             *base.offset(0) = level0.width as i32;
                             *base.offset(1) = level0.height as i32;
                             *base.offset(2) = level0.data.as_ptr() as i32;
-                            // Rest is padding for now
+                            *base.offset(3) = level0.depth as i32;
+                            *base.offset(4) = level0.internal_format as i32;
+                            *base.offset(5) = get_bytes_per_pixel(level0.internal_format) as i32;
                         }
                     }
                 }

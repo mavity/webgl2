@@ -30,6 +30,32 @@ TL;DR — The current renderer is hardcoded for 8-bit RGBA (4 bytes/pixel) at ev
 - **Fragment Output**:
   Modify the rasterizer loop that stores `fragColor` to be format-indexed, letting `f32` components flow through to `RGBA32F` targets without being squeezed into `u8` bytes.
 
+## Gap Analysis & Final Data Plumbing
+
+Before proceeding to the hierarchical rasterizer, we must ensure the "Data Plumbing" is verified and leak-proof across all formats.
+
+### 1. Sampler Specialization (Emit-time)
+Instead of a single generic `__webgl_texture_sample` with runtime branches, the WASM emitter should generate **specialized sampler helpers** based on the static image type in the Naga IR:
+* **`__webgl_sampler_2d_rgba8`**: Hardcoded `stride=4`, normalize `/ 255.0`.
+* **`__webgl_sampler_2d_rgba32f`**: Hardcoded `stride=16`, raw `f32` load.
+* **`__webgl_sampler_3d_...`**: Include Z-axis offsets in addressing logic.
+* **Benefit**: This eliminates branching in the hot fragment loop and allows for tighter SIMD-ready loads in the future.
+
+### 2. Universal `readPixels` Validation
+`ctx_read_pixels` must be validated for **all** supported formats (`R32F`, `RG32F`, `RGBA32F`, `RGBA8`).
+* Ensure that reading from a float-format framebuffer to a float-type user buffer is a direct bitwise copy with no intermediate `u8` conversion or precision loss.
+* Implement error checking for format/type combinations that would result in invalid type casts.
+
+### 3. Final Dequantization Cleanup
+* **Fix Constants**: Align `GL_R32F` (0x822E) and other constants across `types.rs`, `rasterizer.rs`, and `backend.js`.
+* **Float Blending**: Implement a basic float additive/alpha blend path in `rasterizer.rs` to support high-dynamic range effects.
+
+### Mandate for Quality & Tech Debt
+Proceeding to the new rasterizer design is gated on:
+* **Warning-Free build**: All Rust compiler warnings (e.g., unused `depth` fields) must be resolved.
+* **Exhaustive GPGPU Testing**: A dedicated test suite must verify the full "Upload -> Process -> Download" cycle for every format (R, RG, RGBA) at parity with native WebGL2 expectations.
+* **Plumbing Uniformity**: All remaining "magic 4" hardcodings in the software rasterizer and JS bridge must be replaced with the `get_bytes_per_pixel` abstraction.
+
 ## SwiftShader-style uplift
 
 For this part we should **complete the generalization refactoring first**. Attempting to integrate SwiftShader-style optimizations (like tiling and quad-rasterization) into a pipeline that still has hardcoded "magic numbers" for RGBA8 would be an architectural nightmare.
