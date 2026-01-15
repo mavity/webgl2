@@ -640,6 +640,41 @@ impl<'a> Compiler<'a> {
         locals_types.push((1, ValType::F32)); // swap_f32_local
         next_local_idx += 1;
 
+        // Detect need for Float Modulo swap local
+        let mut uses_float_modulo = false;
+        for (handle, expr) in func.expressions.iter() {
+            if let naga::Expression::Binary {
+                op: naga::BinaryOperator::Modulo,
+                left,
+                ..
+            } = expr
+            {
+                let resolution = typifier.get(*left, &self.module.types);
+                match resolution {
+                    naga::TypeInner::Scalar(scalar) if scalar.kind == naga::ScalarKind::Float => {
+                        uses_float_modulo = true;
+                        break;
+                    }
+                    naga::TypeInner::Vector { scalar, .. }
+                        if scalar.kind == naga::ScalarKind::Float =>
+                    {
+                        uses_float_modulo = true;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let swap_f32_local_2 = if uses_float_modulo {
+            let idx = next_local_idx;
+            locals_types.push((1, ValType::F32)); // swap_f32_local_2 for float modulo
+            next_local_idx += 1;
+            Some(idx)
+        } else {
+            None
+        };
+
         // Add frame temp local (conservative allocation for Phase 4)
         let frame_temp_local = next_local_idx;
         locals_types.push((1, ValType::I32)); // frame_temp
@@ -731,6 +766,7 @@ impl<'a> Compiler<'a> {
             is_entry_point,
             swap_i32_local,
             swap_f32_local,
+            swap_f32_local_2,
             // Local types and parameter count for type-aware lowering
             local_types: &flattened_local_types,
             param_count: current_param_idx,

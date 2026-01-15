@@ -221,6 +221,8 @@ pub struct TranslationContext<'a> {
     pub swap_i32_local: u32,
     /// Explicit swap local for f32 store operations (runtime index after grouping)
     pub swap_f32_local: u32,
+    /// Second explicit swap local for f32 operations (for float modulo)
+    pub swap_f32_local_2: Option<u32>,
     /// Flattened list of local types (corresponding to WASM local indices starting
     /// at `param_count`). Use this to determine a local's declared type.
     pub local_types: &'a [wasm_encoder::ValType],

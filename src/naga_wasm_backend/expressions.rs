@@ -337,6 +337,77 @@ pub fn translate_expression_component(
                 BinaryOperator::LogicalOr => {
                     ctx.wasm_func.instruction(&Instruction::I32Or);
                 }
+                // Remainder (modulo) operation
+                BinaryOperator::Modulo => match left_scalar_kind {
+                    naga::ScalarKind::Float => {
+                        // Float modulo: a - b * trunc(a/b)
+                        // Stack at start: [a, b]
+                        // We need: a - b * trunc(a/b)
+
+                        // Use both swap locals for this operation
+                        let temp_a = ctx.swap_f32_local;
+                        let temp_b = ctx
+                            .swap_f32_local_2
+                            .expect("Float modulo swap local missing");
+
+                        // Save b to temp_b
+                        ctx.wasm_func.instruction(&Instruction::LocalSet(temp_b));
+                        // Duplicate a using LocalTee
+                        ctx.wasm_func.instruction(&Instruction::LocalTee(temp_a));
+                        // Load b for division
+                        ctx.wasm_func.instruction(&Instruction::LocalGet(temp_b));
+                        // a / b
+                        ctx.wasm_func.instruction(&Instruction::F32Div);
+                        // trunc(a/b)
+                        ctx.wasm_func.instruction(&Instruction::F32Trunc);
+                        // Load b again
+                        ctx.wasm_func.instruction(&Instruction::LocalGet(temp_b));
+                        // trunc(a/b) * b
+                        ctx.wasm_func.instruction(&Instruction::F32Mul);
+                        // Now we need a - (trunc(a/b) * b)
+                        // Stack: [trunc(a/b) * b]
+                        // We need to negate and add: a + (-(trunc(a/b) * b))
+                        ctx.wasm_func.instruction(&Instruction::F32Neg);
+                        // Load a
+                        ctx.wasm_func.instruction(&Instruction::LocalGet(temp_a));
+                        // a + (-trunc(a/b) * b) = a - trunc(a/b) * b
+                        ctx.wasm_func.instruction(&Instruction::F32Add);
+                    }
+                    naga::ScalarKind::Sint => {
+                        ctx.wasm_func.instruction(&Instruction::I32RemS);
+                    }
+                    naga::ScalarKind::Uint => {
+                        ctx.wasm_func.instruction(&Instruction::I32RemU);
+                    }
+                    _ => {}
+                },
+                // Bitwise operations (integer only)
+                BinaryOperator::And => {
+                    // For integers, this is bitwise AND
+                    ctx.wasm_func.instruction(&Instruction::I32And);
+                }
+                BinaryOperator::ExclusiveOr => {
+                    ctx.wasm_func.instruction(&Instruction::I32Xor);
+                }
+                BinaryOperator::InclusiveOr => {
+                    ctx.wasm_func.instruction(&Instruction::I32Or);
+                }
+                // Shift operations
+                BinaryOperator::ShiftLeft => {
+                    ctx.wasm_func.instruction(&Instruction::I32Shl);
+                }
+                BinaryOperator::ShiftRight => match left_scalar_kind {
+                    naga::ScalarKind::Sint => {
+                        ctx.wasm_func.instruction(&Instruction::I32ShrS);
+                    }
+                    naga::ScalarKind::Uint => {
+                        ctx.wasm_func.instruction(&Instruction::I32ShrU);
+                    }
+                    _ => {
+                        // Default to unsigned for other cases
+                        ctx.wasm_func.instruction(&Instruction::I32ShrU);
+                    }
+                },
                 _ => {
                     return Err(BackendError::UnsupportedFeature(format!(
                         "Unsupported binary operator: {:?}",
