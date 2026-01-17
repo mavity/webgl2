@@ -616,8 +616,8 @@ async function runTerminalAnimation(width, height, duration = 20000) {
             firstFrame = false;
         } else {
             // Move cursor up to overwrite previous frame
-            process.stdout.write(`\x1b[${numLines}A`);
-            process.stdout.write(output);
+            process.stdout.write(
+                `\x1b[${numLines}A` + output);
         }
 
         lastFrameTime = now;
