@@ -1645,6 +1645,17 @@ pub unsafe extern "C" fn wasm_webgpu_create_render_pipeline(
     layout_ptr: *const u32,
     layout_len: usize,
     pipeline_layout_handle: u32,
+    primitive_topology: u32,
+    depth_format: u32,
+    depth_write_enabled: u32,
+    depth_compare: u32,
+    blend_enabled: u32,
+    color_blend_src: u32,
+    color_blend_dst: u32,
+    color_blend_op: u32,
+    alpha_blend_src: u32,
+    alpha_blend_dst: u32,
+    alpha_blend_op: u32,
 ) -> u32 {
     let v_entry = {
         let slice = std::slice::from_raw_parts(vertex_entry_ptr, vertex_entry_len);
@@ -1663,6 +1674,17 @@ pub unsafe extern "C" fn wasm_webgpu_create_render_pipeline(
         fragment_entry: f_entry,
         layout_data,
         pipeline_layout_handle,
+        primitive_topology,
+        depth_format,
+        depth_write_enabled: depth_write_enabled != 0,
+        depth_compare,
+        blend_enabled: blend_enabled != 0,
+        color_blend_src,
+        color_blend_dst,
+        color_blend_op,
+        alpha_blend_src,
+        alpha_blend_dst,
+        alpha_blend_op,
     };
 
     webgpu::pipeline::create_render_pipeline(ctx_handle, device_handle, config)
@@ -1778,6 +1800,46 @@ pub unsafe extern "C" fn wasm_webgpu_queue_submit(
 ) -> u32 {
     let cb_handles = std::slice::from_raw_parts(cb_handles_ptr, cb_handles_len);
     webgpu::command::queue_submit(ctx_handle, device_handle, cb_handles)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn wasm_webgpu_queue_write_buffer(
+    ctx_handle: u32,
+    device_handle: u32,
+    buffer_handle: u32,
+    offset: u64,
+    data_ptr: *const u8,
+    data_len: usize,
+) -> u32 {
+    let data = std::slice::from_raw_parts(data_ptr, data_len);
+    webgpu::command::queue_write_buffer(ctx_handle, device_handle, buffer_handle, offset, data)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn wasm_webgpu_queue_write_texture(
+    ctx_handle: u32,
+    device_handle: u32,
+    texture_handle: u32,
+    data_ptr: *const u8,
+    data_len: usize,
+    bytes_per_row: u32,
+    rows_per_image: u32,
+    width: u32,
+    height: u32,
+    depth: u32,
+) -> u32 {
+    let data = std::slice::from_raw_parts(data_ptr, data_len);
+    webgpu::command::queue_write_texture(
+        ctx_handle,
+        device_handle,
+        texture_handle,
+        data,
+        bytes_per_row,
+        rows_per_image,
+        width,
+        height,
+        depth,
+    )
 }
 
 #[no_mangle]

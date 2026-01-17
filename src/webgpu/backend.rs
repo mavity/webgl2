@@ -1,7 +1,10 @@
 use crate::wasm_gl_emu;
 use std::any::Any;
 use std::num::NonZero;
+use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
+
+use crate::webgl2_context::types::*;
 use std::time::Duration;
 use wgpu_hal as hal;
 use wgpu_types as wgt;
@@ -298,6 +301,8 @@ impl hal::Device for SoftDevice {
         Ok(SoftRenderPipeline {
             vertex_layouts,
             primitive: desc.primitive,
+            depth_stencil: desc.depth_stencil.clone(),
+            color_targets: desc.color_targets.to_vec(),
         })
     }
 
@@ -545,6 +550,20 @@ pub enum SoftRenderCommand {
         base_vertex: i32,
         first_instance: u32,
     },
+    SetViewport {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        min_depth: f32,
+        max_depth: f32,
+    },
+    SetScissorRect {
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    },
 }
 
 #[derive(Debug)]
@@ -679,8 +698,24 @@ impl hal::Queue for SoftQueue {
                         let mut vertex_buffers: Vec<VertexBufferEntry> = vec![None; 16];
                         let mut index_buffer: IndexBufferEntry = None;
 
+                        let mut viewport = (0i32, 0i32, 0u32, 0u32);
+                        let mut scissor = (0i32, 0i32, 0u32, 0u32);
+                        let mut scissor_enabled = false;
+
+                        if let Some(Some(att)) = desc.color_attachments.first() {
+                            viewport = (0, 0, att.view.texture_desc.size.width, att.view.texture_desc.size.height);
+                            scissor = (0, 0, att.view.texture_desc.size.width, att.view.texture_desc.size.height);
+                        }
+
                         for command in commands {
                             match command {
+                                SoftRenderCommand::SetViewport { x, y, width, height, .. } => {
+                                    viewport = (*x as i32, *y as i32, *width as u32, *height as u32);
+                                }
+                                SoftRenderCommand::SetScissorRect { x, y, width, height } => {
+                                    scissor = (*x as i32, *y as i32, *width, *height);
+                                    scissor_enabled = true;
+                                }
                                 SoftRenderCommand::SetPipeline(pipeline) => {
                                     current_pipeline = Some(pipeline);
                                 }
@@ -719,15 +754,14 @@ impl hal::Queue for SoftQueue {
                                             let width = att.view.texture_desc.size.width;
                                             let height = att.view.texture_desc.size.height;
 
-                                            // Dummy depth buffer if not present
                                             // TODO: Handle actual depth attachment
                                             let internal_format = match att.view.texture_desc.format
                                             {
-                                                wgt::TextureFormat::R32Float => 0x822E,
-                                                wgt::TextureFormat::Rg32Float => 0x8230,
-                                                wgt::TextureFormat::Rgba32Float => 0x8814,
+                                                wgt::TextureFormat::R32Float => 0x822E, // GL_R32F
+                                                wgt::TextureFormat::Rg32Float => 0x8230, // GL_RG32F
+                                                wgt::TextureFormat::Rgba32Float => 0x8814, // GL_RGBA32F
                                                 wgt::TextureFormat::Rgba8Unorm
-                                                | wgt::TextureFormat::Bgra8Unorm => 0x8058,
+                                                | wgt::TextureFormat::Bgra8Unorm => 0x8058, // GL_RGBA8
                                                 _ => 0x8058,
                                             };
 
@@ -736,16 +770,6 @@ impl hal::Queue for SoftQueue {
                                             let mut dummy_stencil =
                                                 vec![0u8; (width * height) as usize];
 
-                                            let _fb = wasm_gl_emu::Framebuffer::new(
-                                                width,
-                                                height,
-                                                internal_format,
-                                                &mut data,
-                                                &mut dummy_depth,
-                                                &mut dummy_stencil,
-                                                wasm_gl_emu::StorageLayout::Linear,
-                                            );
-
                                             let rasterizer = wasm_gl_emu::Rasterizer::default();
 
                                             let fetcher = SoftVertexFetcher {
@@ -753,27 +777,72 @@ impl hal::Queue for SoftQueue {
                                                 vertex_layouts: &pipeline.vertex_layouts,
                                             };
 
-                                            let state = wasm_gl_emu::RenderState {
-                                                ctx_handle: 0, // TODO: Pass context handle
+                                            let mut state = wasm_gl_emu::RenderState {
+                                                ctx_handle: 0,
                                                 memory: wasm_gl_emu::ShaderMemoryLayout::default(),
-                                                viewport: (0, 0, width, height), // TODO: SetViewport command
-                                                scissor: (0, 0, width, height),
-                                                scissor_enabled: false,
-                                                uniform_data: &[], // TODO: BindGroups
+                                                viewport,
+                                                scissor,
+                                                scissor_enabled,
+                                                uniform_data: &[],
                                                 prepare_textures: None,
-                                                blend: wasm_gl_emu::rasterizer::BlendState::default(
-                                                ),
-                                                color_mask:
-                                                    wasm_gl_emu::rasterizer::ColorMaskState::default(
-                                                    ),
-                                                depth: wasm_gl_emu::rasterizer::DepthState::default(
-                                                ),
-                                                stencil:
-                                                    wasm_gl_emu::rasterizer::StencilState::default(),
+                                                blend: wasm_gl_emu::rasterizer::BlendState::default(),
+                                                color_mask: wasm_gl_emu::rasterizer::ColorMaskState::default(),
+                                                depth: wasm_gl_emu::rasterizer::DepthState::default(),
+                                                stencil: wasm_gl_emu::rasterizer::StencilState::default(),
                                             };
 
-                                            let raster_pipeline =
-                                                wasm_gl_emu::RasterPipeline::default(); // TODO: Map from SoftRenderPipeline
+                                            // Map depth state from pipeline
+                                            if let Some(ds) = &pipeline.depth_stencil {
+                                                state.depth.enabled = true;
+                                                state.depth.mask = ds.depth_write_enabled;
+                                                state.depth.func = match ds.depth_compare {
+                                                    wgt::CompareFunction::Never => GL_NEVER,
+                                                    wgt::CompareFunction::Less => GL_LESS,
+                                                    wgt::CompareFunction::Equal => GL_EQUAL,
+                                                    wgt::CompareFunction::LessEqual => GL_LEQUAL,
+                                                    wgt::CompareFunction::Greater => GL_GREATER,
+                                                    wgt::CompareFunction::NotEqual => GL_NOTEQUAL,
+                                                    wgt::CompareFunction::GreaterEqual => GL_GEQUAL,
+                                                    wgt::CompareFunction::Always => GL_ALWAYS,
+                                                };
+                                            }
+
+                                            // Map blend state from pipeline
+                                            if let dialect_color_target = pipeline.color_targets.first() {
+                                                if let Some(Some(target)) = dialect_color_target {
+                                                    if let Some(blend) = &target.blend {
+                                                        state.blend.enabled = true;
+                                                        let map_factor = |f| match f {
+                                                            wgt::BlendFactor::Zero => GL_ZERO,
+                                                            wgt::BlendFactor::One => GL_ONE,
+                                                            wgt::BlendFactor::Src => GL_SRC_COLOR,
+                                                            wgt::BlendFactor::OneMinusSrc => GL_ONE_MINUS_SRC_COLOR,
+                                                            wgt::BlendFactor::SrcAlpha => GL_SRC_ALPHA,
+                                                            wgt::BlendFactor::OneMinusSrcAlpha => GL_ONE_MINUS_SRC_ALPHA,
+                                                            wgt::BlendFactor::Dst => GL_DST_COLOR,
+                                                            wgt::BlendFactor::OneMinusDst => GL_ONE_MINUS_DST_COLOR,
+                                                            wgt::BlendFactor::DstAlpha => GL_DST_ALPHA,
+                                                            wgt::BlendFactor::OneMinusDstAlpha => GL_ONE_MINUS_DST_ALPHA,
+                                                            _ => GL_ONE,
+                                                        };
+                                                        let map_op = |o| match o {
+                                                            wgt::BlendOperation::Add => GL_FUNC_ADD,
+                                                            wgt::BlendOperation::Subtract => GL_FUNC_SUBTRACT,
+                                                            wgt::BlendOperation::ReverseSubtract => GL_FUNC_REVERSE_SUBTRACT,
+                                                            wgt::BlendOperation::Min => GL_MIN,
+                                                            wgt::BlendOperation::Max => GL_MAX,
+                                                        };
+                                                        state.blend.src_rgb = map_factor(blend.color.src_factor);
+                                                        state.blend.dst_rgb = map_factor(blend.color.dst_factor);
+                                                        state.blend.eq_rgb = map_op(blend.color.operation);
+                                                        state.blend.src_alpha = map_factor(blend.alpha.src_factor);
+                                                        state.blend.dst_alpha = map_factor(blend.alpha.dst_factor);
+                                                        state.blend.eq_alpha = map_op(blend.alpha.operation);
+                                                    }
+                                                }
+                                            }
+
+                                            let raster_pipeline = wasm_gl_emu::RasterPipeline::default();
 
                                             let mut dummy_kernel = wasm_gl_emu::GpuKernel::new();
                                             rasterizer.draw(&mut dummy_kernel, wasm_gl_emu::rasterizer::DrawConfig {
@@ -791,7 +860,14 @@ impl hal::Queue for SoftQueue {
                                                 first_vertex: *first_vertex as usize,
                                                 first_instance: *first_instance as usize,
                                                 indices: None,
-                                                mode: 0x0004, // TRIANGLES
+                                                mode: match pipeline.primitive.topology {
+                                                    wgt::PrimitiveTopology::PointList => GL_POINTS,
+                                                    wgt::PrimitiveTopology::LineList => GL_LINES,
+                                                    wgt::PrimitiveTopology::LineStrip => GL_LINE_STRIP,
+                                                    wgt::PrimitiveTopology::TriangleList => GL_TRIANGLES,
+                                                    wgt::PrimitiveTopology::TriangleStrip => GL_TRIANGLE_STRIP,
+                                                    _ => GL_TRIANGLES,
+                                                },
                                             });
                                         }
                                     }
@@ -799,7 +875,7 @@ impl hal::Queue for SoftQueue {
                                 SoftRenderCommand::DrawIndexed {
                                     index_count,
                                     instance_count,
-                                    first_index: _,
+                                    first_index,
                                     base_vertex,
                                     first_instance,
                                 } => {
@@ -824,16 +900,6 @@ impl hal::Queue for SoftQueue {
                                             let mut dummy_stencil =
                                                 vec![0u8; (width * height) as usize];
 
-                                            let _fb = wasm_gl_emu::Framebuffer::new(
-                                                width,
-                                                height,
-                                                internal_format,
-                                                &mut data,
-                                                &mut dummy_depth,
-                                                &mut dummy_stencil,
-                                                wasm_gl_emu::StorageLayout::Linear,
-                                            );
-
                                             let rasterizer = wasm_gl_emu::Rasterizer::default();
 
                                             let fetcher = SoftVertexFetcher {
@@ -841,27 +907,72 @@ impl hal::Queue for SoftQueue {
                                                 vertex_layouts: &pipeline.vertex_layouts,
                                             };
 
-                                            let state = wasm_gl_emu::RenderState {
+                                            let mut state = wasm_gl_emu::RenderState {
                                                 ctx_handle: 0,
                                                 memory: wasm_gl_emu::ShaderMemoryLayout::default(),
-                                                viewport: (0, 0, width, height),
-                                                scissor: (0, 0, width, height),
-                                                scissor_enabled: false,
+                                                viewport,
+                                                scissor,
+                                                scissor_enabled,
                                                 uniform_data: &[],
                                                 prepare_textures: None,
-                                                blend: wasm_gl_emu::rasterizer::BlendState::default(
-                                                ),
-                                                color_mask:
-                                                    wasm_gl_emu::rasterizer::ColorMaskState::default(
-                                                    ),
-                                                depth: wasm_gl_emu::rasterizer::DepthState::default(
-                                                ),
-                                                stencil:
-                                                    wasm_gl_emu::rasterizer::StencilState::default(),
+                                                blend: wasm_gl_emu::rasterizer::BlendState::default(),
+                                                color_mask: wasm_gl_emu::rasterizer::ColorMaskState::default(),
+                                                depth: wasm_gl_emu::rasterizer::DepthState::default(),
+                                                stencil: wasm_gl_emu::rasterizer::StencilState::default(),
                                             };
 
-                                            let raster_pipeline =
-                                                wasm_gl_emu::RasterPipeline::default();
+                                            // Map depth/blend state (same as Draw)
+                                            if let Some(ds) = &pipeline.depth_stencil {
+                                                state.depth.enabled = true;
+                                                state.depth.mask = ds.depth_write_enabled;
+                                                state.depth.func = match ds.depth_compare {
+                                                    wgt::CompareFunction::Never => GL_NEVER,
+                                                    wgt::CompareFunction::Less => GL_LESS,
+                                                    wgt::CompareFunction::Equal => GL_EQUAL,
+                                                    wgt::CompareFunction::LessEqual => GL_LEQUAL,
+                                                    wgt::CompareFunction::Greater => GL_GREATER,
+                                                    wgt::CompareFunction::NotEqual => GL_NOTEQUAL,
+                                                    wgt::CompareFunction::GreaterEqual => GL_GEQUAL,
+                                                    wgt::CompareFunction::Always => GL_ALWAYS,
+                                                };
+                                            }
+
+                                            // Map blend state from pipeline
+                                            if let dialect_color_target = pipeline.color_targets.first() {
+                                                if let Some(Some(target)) = dialect_color_target {
+                                                    if let Some(blend) = &target.blend {
+                                                        state.blend.enabled = true;
+                                                        let map_factor = |f| match f {
+                                                            wgt::BlendFactor::Zero => GL_ZERO,
+                                                            wgt::BlendFactor::One => GL_ONE,
+                                                            wgt::BlendFactor::Src => GL_SRC_COLOR,
+                                                            wgt::BlendFactor::OneMinusSrc => GL_ONE_MINUS_SRC_COLOR,
+                                                            wgt::BlendFactor::SrcAlpha => GL_SRC_ALPHA,
+                                                            wgt::BlendFactor::OneMinusSrcAlpha => GL_ONE_MINUS_SRC_ALPHA,
+                                                            wgt::BlendFactor::Dst => GL_DST_COLOR,
+                                                            wgt::BlendFactor::OneMinusDst => GL_ONE_MINUS_DST_COLOR,
+                                                            wgt::BlendFactor::DstAlpha => GL_DST_ALPHA,
+                                                            wgt::BlendFactor::OneMinusDstAlpha => GL_ONE_MINUS_DST_ALPHA,
+                                                            _ => GL_ONE,
+                                                        };
+                                                        let map_op = |o| match o {
+                                                            wgt::BlendOperation::Add => GL_FUNC_ADD,
+                                                            wgt::BlendOperation::Subtract => GL_FUNC_SUBTRACT,
+                                                            wgt::BlendOperation::ReverseSubtract => GL_FUNC_REVERSE_SUBTRACT,
+                                                            wgt::BlendOperation::Min => GL_MIN,
+                                                            wgt::BlendOperation::Max => GL_MAX,
+                                                        };
+                                                        state.blend.src_rgb = map_factor(blend.color.src_factor);
+                                                        state.blend.dst_rgb = map_factor(blend.color.dst_factor);
+                                                        state.blend.eq_rgb = map_op(blend.color.operation);
+                                                        state.blend.src_alpha = map_factor(blend.alpha.src_factor);
+                                                        state.blend.dst_alpha = map_factor(blend.alpha.dst_factor);
+                                                        state.blend.eq_alpha = map_op(blend.alpha.operation);
+                                                    }
+                                                }
+                                            }
+
+                                            let raster_pipeline = wasm_gl_emu::RasterPipeline::default();
 
                                             // Fetch indices
                                             let indices = if let Some((buffer, offset, format)) =
@@ -872,22 +983,28 @@ impl hal::Queue for SoftQueue {
                                                 let count = *index_count as usize;
                                                 let mut idxs = Vec::with_capacity(count);
 
+                                                let (index_size, start_offset) = match format {
+                                                    wgt::IndexFormat::Uint16 => (2, *first_index as usize * 2),
+                                                    wgt::IndexFormat::Uint32 => (4, *first_index as usize * 4),
+                                                };
+                                                let final_start = start + start_offset;
+
                                                 match format {
                                                     wgt::IndexFormat::Uint16 => {
                                                         for i in 0..count {
-                                                            let pos = start + i * 2;
+                                                            let pos = final_start + i * 2;
                                                             if pos + 2 <= data.len() {
                                                                 let val = u16::from_le_bytes([
                                                                     data[pos],
                                                                     data[pos + 1],
                                                                 ]);
-                                                                idxs.push(val as u32);
+                                                                idxs.push((val as i32 + *base_vertex) as u32);
                                                             }
                                                         }
                                                     }
                                                     wgt::IndexFormat::Uint32 => {
                                                         for i in 0..count {
-                                                            let pos = start + i * 4;
+                                                            let pos = final_start + i * 4;
                                                             if pos + 4 <= data.len() {
                                                                 let val = u32::from_le_bytes([
                                                                     data[pos],
@@ -895,7 +1012,7 @@ impl hal::Queue for SoftQueue {
                                                                     data[pos + 2],
                                                                     data[pos + 3],
                                                                 ]);
-                                                                idxs.push(val);
+                                                                idxs.push((val as i32 + *base_vertex) as u32);
                                                             }
                                                         }
                                                     }
@@ -905,29 +1022,31 @@ impl hal::Queue for SoftQueue {
                                                 None
                                             };
 
-                                            if let Some(idxs) = indices {
-                                                let mut dummy_kernel = wasm_gl_emu::GpuKernel::new();
-                                                rasterizer.draw(
-                                                    &mut dummy_kernel,
-                                                    wasm_gl_emu::rasterizer::DrawConfig {
-                                                        color_target: wasm_gl_emu::rasterizer::ColorTarget::Raw(&mut data),
-                                                        width,
-                                                        height,
-                                                        internal_format,
-                                                        depth: &mut dummy_depth,
-                                                        stencil: &mut dummy_stencil,
-                                                        pipeline: &raster_pipeline,
-                                                        state: &state,
-                                                        vertex_fetcher: &fetcher,
-                                                        vertex_count: *index_count as usize,
-                                                        instance_count: *instance_count as usize,
-                                                        first_vertex: *base_vertex as usize,
-                                                        first_instance: *first_instance as usize,
-                                                        indices: Some(&idxs),
-                                                        mode: 0x0004, // TRIANGLES
-                                                    },
-                                                );
-                                            }
+                                            let mut dummy_kernel = wasm_gl_emu::GpuKernel::new();
+                                            rasterizer.draw(&mut dummy_kernel, wasm_gl_emu::rasterizer::DrawConfig {
+                                                color_target: wasm_gl_emu::rasterizer::ColorTarget::Raw(&mut data),
+                                                width,
+                                                height,
+                                                internal_format,
+                                                depth: &mut dummy_depth,
+                                                stencil: &mut dummy_stencil,
+                                                pipeline: &raster_pipeline,
+                                                state: &state,
+                                                vertex_fetcher: &fetcher,
+                                                vertex_count: *index_count as usize,
+                                                instance_count: *instance_count as usize,
+                                                first_vertex: 0,
+                                                first_instance: *first_instance as usize,
+                                                indices: indices.as_ref().map(|v| v as &dyn wasm_gl_emu::rasterizer::IndexBuffer),
+                                                mode: match pipeline.primitive.topology {
+                                                    wgt::PrimitiveTopology::PointList => GL_POINTS,
+                                                    wgt::PrimitiveTopology::LineList => GL_LINES,
+                                                    wgt::PrimitiveTopology::LineStrip => GL_LINE_STRIP,
+                                                    wgt::PrimitiveTopology::TriangleList => GL_TRIANGLES,
+                                                    wgt::PrimitiveTopology::TriangleStrip => GL_TRIANGLE_STRIP,
+                                                    _ => GL_TRIANGLES,
+                                                },
+                                            });
                                         }
                                     }
                                 }
@@ -1227,8 +1346,28 @@ impl hal::CommandEncoder for SoftCommandEncoder {
         }
     }
 
-    unsafe fn set_viewport(&mut self, _rect: &hal::Rect<f32>, _depth_range: std::ops::Range<f32>) {}
-    unsafe fn set_scissor_rect(&mut self, _rect: &hal::Rect<u32>) {}
+    unsafe fn set_viewport(&mut self, rect: &hal::Rect<f32>, depth_range: std::ops::Range<f32>) {
+        if let Some((_, commands)) = &mut self.current_render_pass {
+            commands.push(SoftRenderCommand::SetViewport {
+                x: rect.x,
+                y: rect.y,
+                width: rect.w,
+                height: rect.h,
+                min_depth: depth_range.start,
+                max_depth: depth_range.end,
+            });
+        }
+    }
+    unsafe fn set_scissor_rect(&mut self, rect: &hal::Rect<u32>) {
+        if let Some((_, commands)) = &mut self.current_render_pass {
+            commands.push(SoftRenderCommand::SetScissorRect {
+                x: rect.x,
+                y: rect.y,
+                width: rect.w,
+                height: rect.h,
+            });
+        }
+    }
     unsafe fn set_stencil_reference(&mut self, _reference: u32) {}
     unsafe fn set_blend_constants(&mut self, _color: &[f32; 4]) {}
 
@@ -1492,6 +1631,8 @@ pub struct SoftVertexBufferLayout {
 pub struct SoftRenderPipeline {
     pub vertex_layouts: Vec<SoftVertexBufferLayout>,
     pub primitive: wgt::PrimitiveState,
+    pub depth_stencil: Option<wgt::DepthStencilState>,
+    pub color_targets: Vec<Option<wgt::ColorTargetState>>,
 }
 
 #[derive(Debug, Clone)]

@@ -440,6 +440,92 @@ pub fn command_encoder_run_render_pass(
                         }
                     }
                 }
+                5 => {
+                    // SetIndexBuffer
+                    if cursor + 3 >= commands.len() {
+                        break;
+                    }
+                    let buffer_handle = commands[cursor];
+                    let format_id = commands[cursor + 1];
+                    let offset = commands[cursor + 2] as u64;
+                    let size = commands[cursor + 3] as u64;
+                    cursor += 4;
+
+                    let format = match format_id {
+                        1 => wgt::IndexFormat::Uint16,
+                        2 => wgt::IndexFormat::Uint32,
+                        _ => wgt::IndexFormat::Uint16,
+                    };
+
+                    if let Some(id) = ctx.buffers.get(&buffer_handle) {
+                        let _ = ctx.global.render_pass_set_index_buffer(
+                            &mut pass,
+                            *id,
+                            format,
+                            offset,
+                            NonZero::new(size),
+                        );
+                    }
+                }
+                6 => {
+                    // DrawIndexed
+                    if cursor + 4 >= commands.len() {
+                        break;
+                    }
+                    let index_count = commands[cursor];
+                    let instance_count = commands[cursor + 1];
+                    let first_index = commands[cursor + 2];
+                    let base_vertex = commands[cursor + 3] as i32;
+                    let first_instance = commands[cursor + 4];
+                    cursor += 5;
+
+                    if let Err(e) = ctx.global.render_pass_draw_indexed(
+                        &mut pass,
+                        index_count,
+                        instance_count,
+                        first_index,
+                        base_vertex,
+                        first_instance,
+                    ) {
+                        crate::error::set_error(
+                            crate::error::ErrorSource::WebGPU(
+                                crate::error::WebGPUErrorFilter::Validation,
+                            ),
+                            super::WEBGPU_ERROR_OPERATION_FAILED,
+                            e,
+                        );
+                    }
+                }
+                7 => {
+                    // SetViewport
+                    if cursor + 5 >= commands.len() {
+                        break;
+                    }
+                    let x = f32::from_bits(commands[cursor]);
+                    let y = f32::from_bits(commands[cursor + 1]);
+                    let w = f32::from_bits(commands[cursor + 2]);
+                    let h = f32::from_bits(commands[cursor + 3]);
+                    let min_depth = f32::from_bits(commands[cursor + 4]);
+                    let max_depth = f32::from_bits(commands[cursor + 5]);
+                    cursor += 6;
+
+                    let _ = ctx.global.render_pass_set_viewport(
+                        &mut pass, x, y, w, h, min_depth, max_depth,
+                    );
+                }
+                8 => {
+                    // SetScissorRect
+                    if cursor + 3 >= commands.len() {
+                        break;
+                    }
+                    let x = commands[cursor];
+                    let y = commands[cursor + 1];
+                    let w = commands[cursor + 2];
+                    let h = commands[cursor + 3];
+                    cursor += 4;
+
+                    let _ = ctx.global.render_pass_set_scissor_rect(&mut pass, x, y, w, h);
+                }
                 _ => {
                     // TODO: handle properly, propagate error
                     break;
@@ -457,5 +543,94 @@ pub fn command_encoder_run_render_pass(
         }
 
         super::WEBGPU_SUCCESS
+    })
+}
+
+/// Write data to a buffer via the queue
+pub fn queue_write_buffer(
+    ctx_handle: u32,
+    device_handle: u32,
+    buffer_handle: u32,
+    offset: u64,
+    data: &[u8],
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let buffer_id = match ctx.buffers.get(&buffer_handle) {
+            Some(id) => *id,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        let queue_id = match ctx.queues.get(&device_handle) {
+            Some(id) => *id,
+            None => return super::WEBGPU_ERROR_OPERATION_FAILED,
+        };
+
+        match ctx.global.queue_write_buffer(queue_id, buffer_id, offset, data) {
+            Ok(_) => super::WEBGPU_SUCCESS,
+            Err(e) => {
+                crate::error::set_error(
+                    crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                    super::WEBGPU_ERROR_OPERATION_FAILED,
+                    e.to_string(),
+                );
+                super::WEBGPU_ERROR_OPERATION_FAILED
+            }
+        }
+    })
+}
+
+/// Write data to a texture via the queue
+pub fn queue_write_texture(
+    ctx_handle: u32,
+    device_handle: u32,
+    texture_handle: u32,
+    data: &[u8],
+    bytes_per_row: u32,
+    rows_per_image: u32,
+    width: u32,
+    height: u32,
+    depth: u32,
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let texture_id = match ctx.textures.get(&texture_handle) {
+            Some(id) => *id,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        let queue_id = match ctx.queues.get(&device_handle) {
+            Some(id) => *id,
+            None => return super::WEBGPU_ERROR_OPERATION_FAILED,
+        };
+
+        let destination = wgt::TexelCopyTextureInfo {
+            texture: texture_id,
+            mip_level: 0,
+            origin: wgt::Origin3d::ZERO,
+            aspect: wgt::TextureAspect::All,
+        };
+
+        let data_layout = wgt::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: if bytes_per_row > 0 { Some(bytes_per_row) } else { None },
+            rows_per_image: if rows_per_image > 0 { Some(rows_per_image) } else { None },
+        };
+
+        let size = wgt::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: depth,
+        };
+
+        match ctx.global.queue_write_texture(queue_id, &destination, data, &data_layout, &size) {
+            Ok(_) => super::WEBGPU_SUCCESS,
+            Err(e) => {
+                crate::error::set_error(
+                    crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                    super::WEBGPU_ERROR_OPERATION_FAILED,
+                    e.to_string(),
+                );
+                super::WEBGPU_ERROR_OPERATION_FAILED
+            }
+        }
     })
 }

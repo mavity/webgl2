@@ -91,17 +91,17 @@ export class GPU {
         // In Node.js, Event might not be available globally or might behave differently.
         // But we are using 'node:test' which implies Node environment.
         // If Event is not defined, we might need a polyfill or just call the handler directly.
-        
+
         const error = new GPUError(msg);
-        
+
         for (const device of activeDevices) {
             if (typeof device.onuncapturederror === 'function') {
                 device.onuncapturederror({ error });
             }
             // Also dispatch as event if supported
             if (typeof Event !== 'undefined') {
-                 const event = new GPUUncapturedErrorEvent('uncapturederror', { error });
-                 device.dispatchEvent(event);
+                const event = new GPUUncapturedErrorEvent('uncapturederror', { error });
+                device.dispatchEvent(event);
             }
         }
     }
@@ -200,7 +200,7 @@ export class GPUDevice extends (typeof EventTarget !== 'undefined' ? EventTarget
         if (filter === 'validation') filterCode = 0;
         else if (filter === 'out-of-memory') filterCode = 1;
         else if (filter === 'internal') filterCode = 2;
-        
+
         this.wasm.wasm_webgpu_push_error_scope(filterCode);
     }
 
@@ -379,6 +379,45 @@ export class GPUDevice extends (typeof EventTarget !== 'undefined' ? EventTarget
             layoutHandle = descriptor.layout.layoutHandle;
         }
 
+        const primitiveTopology = {
+            'point-list': 1,
+            'line-list': 2,
+            'line-strip': 3,
+            'triangle-list': 4,
+            'triangle-strip': 5,
+        }[descriptor.primitive?.topology || 'triangle-list'] || 4;
+
+        const depthStencil = descriptor.depthStencil;
+        const depthFormat = {
+            'depth32float': 1,
+            'depth24plus': 2,
+            'depth24plus-stencil8': 3,
+        }[depthStencil?.format] || 0;
+
+        const depthCompare = {
+            'never': 1,
+            'less': 2,
+            'equal': 3,
+            'less-equal': 4,
+            'greater': 5,
+            'not-equal': 6,
+            'greater-equal': 7,
+            'always': 8,
+        }[depthStencil?.depthCompare || 'less'] || 2;
+
+        const blendFactorMap = {
+            'zero': 0, 'one': 1, 'src': 2, 'one-minus-src': 3,
+            'src-alpha': 4, 'one-minus-src-alpha': 5,
+            'dst': 6, 'one-minus-dst': 7, 'dst-alpha': 8, 'one-minus-dst-alpha': 9,
+        };
+
+        const blendOpMap = {
+            'add': 0, 'subtract': 1, 'reverse-subtract': 2, 'min': 3, 'max': 4,
+        };
+
+        const fragmentTarget = descriptor.fragment.targets?.[0];
+        const blend = fragmentTarget?.blend;
+
         const pipelineHandle = this.wasm.wasm_webgpu_create_render_pipeline(
             this.ctxHandle,
             this.deviceHandle,
@@ -390,7 +429,18 @@ export class GPUDevice extends (typeof EventTarget !== 'undefined' ? EventTarget
             fBytes.length,
             lPtr,
             layoutData.length,
-            layoutHandle
+            layoutHandle,
+            primitiveTopology,
+            depthFormat,
+            depthStencil?.depthWriteEnabled ? 1 : 0,
+            depthCompare,
+            blend ? 1 : 0,
+            blendFactorMap[blend?.color?.srcFactor] || 0,
+            blendFactorMap[blend?.color?.dstFactor] || 0,
+            blendOpMap[blend?.color?.operation] || 0,
+            blendFactorMap[blend?.alpha?.srcFactor] || 0,
+            blendFactorMap[blend?.alpha?.dstFactor] || 0,
+            blendOpMap[blend?.alpha?.operation] || 0
         );
 
         this.wasm.wasm_free(vPtr, vBytes.length);
@@ -576,7 +626,66 @@ export class GPUQueue {
      * @param {number} size
      */
     writeBuffer(buffer, bufferOffset, data, dataOffset = 0, size) {
-        // TODO: Call wasm function to write buffer
+        const srcData = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+        const actualSize = size !== undefined ? size : srcData.byteLength - dataOffset;
+        const subData = srcData.subarray(dataOffset, dataOffset + actualSize);
+
+        const ptr = this.wasm.wasm_alloc(subData.byteLength);
+        const heap = new Uint8Array(this.memory.buffer, ptr, subData.byteLength);
+        heap.set(subData);
+
+        this.wasm.wasm_webgpu_queue_write_buffer(
+            this.ctxHandle,
+            this.queueHandle,
+            buffer.bufferHandle,
+            BigInt(bufferOffset),
+            ptr,
+            subData.byteLength
+        );
+
+        this.wasm.wasm_free(ptr, subData.byteLength);
+    }
+
+    /**
+     * Write data to a texture
+     * @param {Object} destination
+     * @param {ArrayBuffer|TypedArray} data
+     * @param {Object} dataLayout
+     * @param {Object} size
+     */
+    writeTexture(destination, data, dataLayout, size) {
+        const srcData = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+        const subData = dataLayout.offset ? srcData.subarray(dataLayout.offset) : srcData;
+
+        const ptr = this.wasm.wasm_alloc(subData.byteLength);
+        const heap = new Uint8Array(this.memory.buffer, ptr, subData.byteLength);
+        heap.set(subData);
+
+        let width, height, depthOrArrayLayers;
+        if (Array.isArray(size)) {
+            width = size[0];
+            height = size[1] || 1;
+            depthOrArrayLayers = size[2] || 1;
+        } else {
+            width = size.width;
+            height = size.height || 1;
+            depthOrArrayLayers = size.depthOrArrayLayers || 1;
+        }
+
+        this.wasm.wasm_webgpu_queue_write_texture(
+            this.ctxHandle,
+            this.queueHandle,
+            destination.texture.textureHandle,
+            ptr,
+            subData.byteLength,
+            dataLayout.bytesPerRow || 0,
+            dataLayout.rowsPerImage || 0,
+            width,
+            height,
+            depthOrArrayLayers
+        );
+
+        this.wasm.wasm_free(ptr, subData.byteLength);
     }
 }
 
@@ -819,6 +928,18 @@ export class GPURenderPassEncoder {
     }
 
     /**
+     * Set index buffer
+     * @param {GPUBuffer} buffer
+     * @param {string} indexFormat
+     * @param {number} offset
+     * @param {number} size
+     */
+    setIndexBuffer(buffer, indexFormat, offset = 0, size) {
+        const formatId = indexFormat === 'uint32' ? 2 : 1;
+        this.commands.push(5, buffer.bufferHandle, formatId, offset, size || (buffer.size - offset));
+    }
+
+    /**
      * Draw vertices
      * @param {number} vertexCount
      * @param {number} instanceCount
@@ -827,6 +948,51 @@ export class GPURenderPassEncoder {
      */
     draw(vertexCount, instanceCount = 1, firstVertex = 0, firstInstance = 0) {
         this.commands.push(3, vertexCount, instanceCount, firstVertex, firstInstance);
+    }
+
+    /**
+     * Draw indexed vertices
+     * @param {number} indexCount
+     * @param {number} instanceCount
+     * @param {number} firstIndex
+     * @param {number} baseVertex
+     * @param {number} firstInstance
+     */
+    drawIndexed(indexCount, instanceCount = 1, firstIndex = 0, baseVertex = 0, firstInstance = 0) {
+        this.commands.push(6, indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
+    }
+
+    /**
+     * Set viewport
+     * @param {number} x
+     * @param {number} y
+     * @param {number} width
+     * @param {number} height
+     * @param {number} minDepth
+     * @param {number} maxDepth
+     */
+    setViewport(x, y, width, height, minDepth, maxDepth) {
+        // Use Float32Array to get bit representation of floats
+        const f32 = new Float32Array(6);
+        f32[0] = x;
+        f32[1] = y;
+        f32[2] = width;
+        f32[3] = height;
+        f32[4] = minDepth;
+        f32[5] = maxDepth;
+        const u32 = new Uint32Array(f32.buffer);
+        this.commands.push(7, u32[0], u32[1], u32[2], u32[3], u32[4], u32[5]);
+    }
+
+    /**
+     * Set scissor rectangle
+     * @param {number} x
+     * @param {number} y
+     * @param {number} width
+     * @param {number} height
+     */
+    setScissorRect(x, y, width, height) {
+        this.commands.push(8, x, y, width, height);
     }
 
     /**
@@ -971,6 +1137,105 @@ export class GPUSampler {
  */
 export function createWebGPU(wasmModule, wasmMemory) {
     return new GPU(wasmModule, wasmMemory);
+}
+
+export class GPUCanvasContext {
+    /**
+     * @param {*} wasmModule
+     * @param {WebAssembly.Memory} wasmMemory
+     * @param {HTMLCanvasElement} canvas
+     */
+    constructor(wasmModule, wasmMemory, canvas) {
+        this.wasm = wasmModule;
+        this.memory = wasmMemory;
+        this.canvas = canvas;
+        this.device = null;
+        this.format = 'rgba8unorm';
+        this.usage = GPUTextureUsage.RENDER_ATTACHMENT;
+        this.width = canvas.width;
+        this.height = canvas.height;
+    }
+
+    /**
+     * Configure the context
+     * @param {Object} descriptor
+     */
+    configure(descriptor) {
+        this.device = descriptor.device;
+        this.format = descriptor.format || 'rgba8unorm';
+        this.usage = descriptor.usage || GPUTextureUsage.RENDER_ATTACHMENT;
+        this.alphaMode = descriptor.alphaMode || 'opaque';
+
+        // Resize canvas internal buffer if needed
+        if (this.canvas.width !== this.width || this.canvas.height !== this.height) {
+            this.width = this.canvas.width;
+            this.height = this.canvas.height;
+        }
+    }
+
+    unconfigure() {
+        this.device = null;
+    }
+
+    /**
+     * Get the current texture to render into
+     * @returns {GPUTexture}
+     */
+    getCurrentTexture() {
+        if (!this.device) {
+            throw new Error("Context not configured");
+        }
+
+        // Create a temporary texture that represents the canvas surface
+        // In a real implementation, this would be a managed swapchain texture.
+        // For SoftApi, we just create a regular texture that we will present later.
+        return this.device.createTexture({
+            size: { width: this.width, height: this.height, depthOrArrayLayers: 1 },
+            format: this.format,
+            usage: this.usage | GPUTextureUsage.COPY_SRC
+        });
+    }
+
+    /**
+     * Present the current texture to the canvas
+     * This is a non-standard method for our Soft-GPU to bridge to the browser display.
+     * @param {GPUTexture} texture
+     */
+    present(texture) {
+        const ctx2d = this.canvas.getContext('2d');
+        if (!ctx2d) return;
+
+        const width = texture.width;
+        const height = texture.height;
+
+        // Use readPixels-like logic to get data from WASM
+        const len = width * height * 4;
+
+        // We need a buffer to copy the texture to
+        const buffer = this.device.createBuffer({
+            size: len,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        });
+
+        const encoder = this.device.createCommandEncoder();
+        encoder.copyTextureToBuffer(
+            { texture: texture },
+            { buffer: buffer, bytesPerRow: width * 4 },
+            { width, height, depthOrArrayLayers: 1 }
+        );
+        this.device.queue.submit([encoder.finish()]);
+
+        // Map and copy to canvas
+        buffer.mapAsync(GPUMapMode.READ).then(() => {
+            const data = buffer.getMappedRange();
+            const clamped = new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength);
+            const imageData = new ImageData(clamped, width, height);
+            ctx2d.putImageData(imageData, 0, 0);
+            buffer.unmap();
+            buffer.destroy();
+            texture.destroy();
+        });
+    }
 }
 
 export class GPUPipelineLayout {

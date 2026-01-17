@@ -12,9 +12,20 @@ pub struct RenderPipelineConfig<'a> {
     pub fragment_entry: &'a str,
     pub layout_data: &'a [u32],
     pub pipeline_layout_handle: u32,
+    pub primitive_topology: u32,
+    pub depth_format: u32,
+    pub depth_write_enabled: bool,
+    pub depth_compare: u32,
+    pub blend_enabled: bool,
+    pub color_blend_src: u32,
+    pub color_blend_dst: u32,
+    pub color_blend_op: u32,
+    pub alpha_blend_src: u32,
+    pub alpha_blend_dst: u32,
+    pub alpha_blend_op: u32,
 }
 
-/// Create a new render pipeline (simplified for Phase 1)
+/// Create a new render pipeline
 pub fn create_render_pipeline(
     ctx_handle: u32,
     device_handle: u32,
@@ -99,6 +110,88 @@ pub fn create_render_pipeline(
             }
         }
 
+        let primitive = wgt::PrimitiveState {
+            topology: match config.primitive_topology {
+                1 => wgt::PrimitiveTopology::PointList,
+                2 => wgt::PrimitiveTopology::LineList,
+                3 => wgt::PrimitiveTopology::LineStrip,
+                4 => wgt::PrimitiveTopology::TriangleList,
+                5 => wgt::PrimitiveTopology::TriangleStrip,
+                _ => wgt::PrimitiveTopology::TriangleList,
+            },
+            ..Default::default()
+        };
+
+        let depth_stencil = if config.depth_format != 0 {
+            let format = match config.depth_format {
+                1 => wgt::TextureFormat::Depth32Float,
+                2 => wgt::TextureFormat::Depth24Plus,
+                3 => wgt::TextureFormat::Depth24PlusStencil8,
+                _ => wgt::TextureFormat::Depth32Float,
+            };
+
+            let compare = match config.depth_compare {
+                1 => wgt::CompareFunction::Never,
+                2 => wgt::CompareFunction::Less,
+                3 => wgt::CompareFunction::Equal,
+                4 => wgt::CompareFunction::LessEqual,
+                5 => wgt::CompareFunction::Greater,
+                6 => wgt::CompareFunction::NotEqual,
+                7 => wgt::CompareFunction::GreaterEqual,
+                8 => wgt::CompareFunction::Always,
+                _ => wgt::CompareFunction::Less,
+            };
+
+            Some(wgt::DepthStencilState {
+                format,
+                depth_write_enabled: config.depth_write_enabled,
+                depth_compare: compare,
+                stencil: wgt::StencilState::default(),
+                bias: wgt::DepthBiasState::default(),
+            })
+        } else {
+            None
+        };
+
+        let blend = if config.blend_enabled {
+            let map_factor = |f| match f {
+                0 => wgt::BlendFactor::Zero,
+                1 => wgt::BlendFactor::One,
+                2 => wgt::BlendFactor::Src,
+                3 => wgt::BlendFactor::OneMinusSrc,
+                4 => wgt::BlendFactor::SrcAlpha,
+                5 => wgt::BlendFactor::OneMinusSrcAlpha,
+                6 => wgt::BlendFactor::Dst,
+                7 => wgt::BlendFactor::OneMinusDst,
+                8 => wgt::BlendFactor::DstAlpha,
+                9 => wgt::BlendFactor::OneMinusDstAlpha,
+                _ => wgt::BlendFactor::One,
+            };
+            let map_op = |o| match o {
+                0 => wgt::BlendOperation::Add,
+                1 => wgt::BlendOperation::Subtract,
+                2 => wgt::BlendOperation::ReverseSubtract,
+                3 => wgt::BlendOperation::Min,
+                4 => wgt::BlendOperation::Max,
+                _ => wgt::BlendOperation::Add,
+            };
+
+            Some(wgt::BlendState {
+                color: wgt::BlendComponent {
+                    src_factor: map_factor(config.color_blend_src),
+                    dst_factor: map_factor(config.color_blend_dst),
+                    operation: map_op(config.color_blend_op),
+                },
+                alpha: wgt::BlendComponent {
+                    src_factor: map_factor(config.alpha_blend_src),
+                    dst_factor: map_factor(config.alpha_blend_dst),
+                    operation: map_op(config.alpha_blend_op),
+                },
+            })
+        } else {
+            None
+        };
+
         let desc = pipeline::RenderPipelineDescriptor {
             label: None,
             layout: layout_id,
@@ -111,8 +204,8 @@ pub fn create_render_pipeline(
                 },
                 buffers: Cow::Owned(vertex_buffers),
             },
-            primitive: wgt::PrimitiveState::default(),
-            depth_stencil: None,
+            primitive,
+            depth_stencil,
             multisample: wgt::MultisampleState::default(),
             fragment: Some(pipeline::FragmentState {
                 stage: pipeline::ProgrammableStageDescriptor {
@@ -123,7 +216,7 @@ pub fn create_render_pipeline(
                 },
                 targets: Cow::Borrowed(&[Some(wgt::ColorTargetState {
                     format: wgt::TextureFormat::Rgba8Unorm,
-                    blend: None,
+                    blend,
                     write_mask: wgt::ColorWrites::ALL,
                 })]),
             }),
