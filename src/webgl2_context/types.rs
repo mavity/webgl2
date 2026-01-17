@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
+pub(crate) use crate::wasm_gl_emu::device::GpuHandle;
+pub(crate) use crate::wasm_gl_emu::device::GpuKernel;
 
 // Errno constants (must match JS constants if exposed)
 pub const ERR_OK: u32 = 0;
@@ -164,7 +166,7 @@ pub(crate) struct MipLevel {
     pub(crate) height: u32,
     pub(crate) depth: u32,
     pub(crate) internal_format: u32,
-    pub(crate) data: Vec<u8>,
+    pub(crate) gpu_handle: GpuHandle,
 }
 
 /// A WebGL2 texture resource
@@ -185,7 +187,7 @@ pub(crate) struct Renderbuffer {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) internal_format: u32,
-    pub(crate) data: Vec<u8>,
+    pub(crate) gpu_handle: GpuHandle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -337,6 +339,7 @@ pub struct Context {
     pub(crate) uniform_data: Vec<u8>,
 
     // Software rendering state
+    pub kernel: GpuKernel,
     pub default_framebuffer: crate::wasm_gl_emu::OwnedFramebuffer,
     pub rasterizer: crate::wasm_gl_emu::Rasterizer,
 
@@ -366,6 +369,9 @@ impl Context {
         let mut vertex_arrays = HashMap::new();
         vertex_arrays.insert(0, VertexArray::default());
 
+        let mut kernel = GpuKernel::default();
+        let default_framebuffer = crate::wasm_gl_emu::OwnedFramebuffer::new(&mut kernel, width, height);
+
         Context {
             textures: HashMap::new(),
             framebuffers: HashMap::new(),
@@ -392,7 +398,8 @@ impl Context {
 
             uniform_data: vec![0; 4096], // 4KB for uniforms
 
-            default_framebuffer: crate::wasm_gl_emu::OwnedFramebuffer::new(width, height),
+            kernel,
+            default_framebuffer,
             rasterizer: crate::wasm_gl_emu::Rasterizer::default(),
 
             clear_color: [0.0, 0.0, 0.0, 0.0],
@@ -702,21 +709,53 @@ impl Context {
             if let Some(h) = tex_handle {
                 if let Some(tex) = self.textures.get(h) {
                     if let Some(level0) = tex.levels.get(&0) {
-                        unsafe {
-                            let base = (dest_ptr + offset as u32) as *mut i32;
-                            *base.offset(0) = level0.width as i32;
-                            *base.offset(1) = level0.height as i32;
-                            *base.offset(2) = level0.data.as_ptr() as i32;
-                            *base.offset(3) = level0.depth as i32;
-                            *base.offset(4) = level0.internal_format as i32;
-                            *base.offset(5) = get_bytes_per_pixel(level0.internal_format) as i32;
-                            *base.offset(6) =
-                                ((tex.wrap_s & 0xFFFF) | ((tex.wrap_t & 0xFFFF) << 16)) as i32;
-                            *base.offset(7) = tex.wrap_r as i32;
+                        if let Some(buf) = self.kernel.get_buffer(level0.gpu_handle) {
+                            unsafe {
+                                let base = (dest_ptr + offset as u32) as *mut i32;
+                                *base.offset(0) = level0.width as i32;
+                                *base.offset(1) = level0.height as i32;
+                                *base.offset(2) = buf.data.as_ptr() as i32;
+                                *base.offset(3) = level0.depth as i32;
+                                *base.offset(4) = level0.internal_format as i32;
+                                *base.offset(5) = get_bytes_per_pixel(level0.internal_format) as i32;
+                                *base.offset(6) =
+                                    ((tex.wrap_s & 0xFFFF) | ((tex.wrap_t & 0xFFFF) << 16)) as i32;
+                                *base.offset(7) = tex.wrap_r as i32;
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+
+    pub(crate) fn get_current_color_attachment_info(&self) -> (GpuHandle, u32, u32, u32) {
+        if let Some(fb_handle) = self.bound_framebuffer {
+            if let Some(fb) = self.framebuffers.get(&fb_handle) {
+                match fb.color_attachment {
+                    Some(Attachment::Texture(tex_handle)) => {
+                        if let Some(tex) = self.textures.get(&tex_handle) {
+                            if let Some(level0) = tex.levels.get(&0) {
+                                return (level0.gpu_handle, level0.width, level0.height, level0.internal_format);
+                            }
+                        }
+                    }
+                    Some(Attachment::Renderbuffer(rb_handle)) => {
+                        if let Some(rb) = self.renderbuffers.get(&rb_handle) {
+                            return (rb.gpu_handle, rb.width, rb.height, rb.internal_format);
+                        }
+                    }
+                    None => {}
+                }
+            }
+            (GpuHandle::invalid(), 0, 0, 0)
+        } else {
+            (
+                self.default_framebuffer.gpu_handle,
+                self.default_framebuffer.width,
+                self.default_framebuffer.height,
+                self.default_framebuffer.internal_format,
+            )
         }
     }
 }
@@ -737,7 +776,22 @@ pub(crate) fn get_bytes_per_pixel(internal_format: u32) -> u32 {
     }
 }
 
-/// Check if format is a float format
-pub(crate) fn is_float_format(internal_format: u32) -> bool {
-    matches!(internal_format, GL_R32F | GL_RG32F | GL_RGBA32F)
+/// Map GL internal format to wgt::TextureFormat
+pub(crate) fn gl_to_wgt_format(internal_format: u32) -> wgpu_types::TextureFormat {
+    match internal_format {
+        GL_R32F => wgpu_types::TextureFormat::R32Float,
+        GL_RG32F => wgpu_types::TextureFormat::Rg32Float,
+        GL_RGBA32F => wgpu_types::TextureFormat::Rgba32Float,
+        GL_RGBA8 => wgpu_types::TextureFormat::Rgba8Unorm,
+        // Packed 16-bit formats.
+        // WebGL2 requires these. We store them in distinct formats to tell them apart in the HAL.
+        // Since Bgr565, Rgba4 and Rgb5a1 are missing in this wgpu version, 
+        // we use R16Uint, Rg8Uint and R16Sint as "unique placeholders".
+        // They all have 2 bytes per pixel.
+        GL_RGBA4 => wgpu_types::TextureFormat::Rg8Uint,
+        GL_RGB565 => wgpu_types::TextureFormat::R16Uint,
+        GL_RGB5_A1 => wgpu_types::TextureFormat::R16Sint,
+        GL_DEPTH_COMPONENT16 => wgpu_types::TextureFormat::Depth16Unorm,
+        _ => wgpu_types::TextureFormat::Rgba8Unorm,
+    }
 }

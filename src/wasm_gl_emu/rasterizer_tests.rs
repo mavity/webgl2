@@ -101,8 +101,9 @@ fn test_barycentric_degenerate() {
 #[test]
 fn test_rasterizer_draw_point() {
     let rasterizer = Rasterizer::default();
-    let mut owned_fb = OwnedFramebuffer::new(100, 100);
-    let mut fb = owned_fb.as_framebuffer();
+    let mut kernel = GpuKernel::new();
+    let mut owned_fb = OwnedFramebuffer::new(&mut kernel, 100, 100);
+    let mut fb = owned_fb.as_framebuffer(&mut kernel);
     let state = RenderState {
         ctx_handle: 0,
         memory: ShaderMemoryLayout::default(),
@@ -129,8 +130,9 @@ fn test_rasterizer_draw_point() {
 #[test]
 fn test_rasterizer_draw_point_out_of_bounds() {
     let rasterizer = Rasterizer::default();
-    let mut owned_fb = OwnedFramebuffer::new(100, 100);
-    let mut fb = owned_fb.as_framebuffer();
+    let mut kernel = GpuKernel::new();
+    let mut owned_fb = OwnedFramebuffer::new(&mut kernel, 100, 100);
+    let mut fb = owned_fb.as_framebuffer(&mut kernel);
     let state = RenderState {
         ctx_handle: 0,
         memory: ShaderMemoryLayout::default(),
@@ -155,8 +157,9 @@ fn test_rasterizer_draw_point_out_of_bounds() {
 #[test]
 fn test_rasterizer_draw_simple_triangle() {
     let rasterizer = Rasterizer::default();
-    let mut owned_fb = OwnedFramebuffer::new(100, 100);
-    let mut fb = owned_fb.as_framebuffer();
+    let mut kernel = GpuKernel::new();
+    let mut owned_fb = OwnedFramebuffer::new(&mut kernel, 100, 100);
+    let mut fb = owned_fb.as_framebuffer(&mut kernel);
 
     // Draw a small triangle
     let p0 = (10.0, 10.0);

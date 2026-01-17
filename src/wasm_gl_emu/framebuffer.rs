@@ -1,43 +1,49 @@
 //! Framebuffer management for render targets
+use crate::wasm_gl_emu::device::{GpuHandle, GpuKernel, StorageLayout};
+use wgpu_types as wgt;
 
 /// Framebuffer that owns its data
 pub struct OwnedFramebuffer {
     pub width: u32,
     pub height: u32,
     pub internal_format: u32,
-    pub color: Vec<u8>,
+    pub gpu_handle: GpuHandle,
     pub depth: Vec<f32>,
     pub stencil: Vec<u8>,
 }
 
 impl OwnedFramebuffer {
-    pub fn new(width: u32, height: u32) -> Self {
-        Self::new_with_format(width, height, 0x8058) // GL_RGBA8
+    pub fn new(kernel: &mut GpuKernel, width: u32, height: u32) -> Self {
+        Self::new_with_format(kernel, width, height, 0x8058) // GL_RGBA8
     }
 
-    pub fn new_with_format(width: u32, height: u32, internal_format: u32) -> Self {
-        let bytes_per_pixel = match internal_format {
-            0x822E => 4,  // GL_R32F
-            0x8230 => 8,  // GL_RG32F
-            0x8814 => 16, // GL_RGBA32F
-            _ => 4,       // GL_RGBA8 default
+    pub fn new_with_format(kernel: &mut GpuKernel, width: u32, height: u32, internal_format: u32) -> Self {
+        let format = match internal_format {
+            0x822E => wgt::TextureFormat::R32Float,  // GL_R32F
+            0x8230 => wgt::TextureFormat::Rg32Float, // GL_RG32F
+            0x8814 => wgt::TextureFormat::Rgba32Float, // GL_RGBA32F
+            _ => wgt::TextureFormat::Rgba8Unorm,     // GL_RGBA8
         };
+        
+        let gpu_handle = kernel.create_buffer(width, height, 1, format, StorageLayout::Linear);
+        
         Self {
             width,
             height,
             internal_format,
-            color: vec![0; (width * height * bytes_per_pixel) as usize],
+            gpu_handle,
             depth: vec![1.0; (width * height) as usize],
             stencil: vec![0; (width * height) as usize],
         }
     }
 
-    pub fn as_framebuffer(&mut self) -> Framebuffer<'_> {
+    pub fn as_framebuffer<'a>(&'a mut self, kernel: &'a mut GpuKernel) -> Framebuffer<'a> {
+        let buffer = kernel.get_buffer_mut(self.gpu_handle).expect("buffer lost");
         Framebuffer {
             width: self.width,
             height: self.height,
             internal_format: self.internal_format,
-            color: &mut self.color,
+            color: &mut buffer.data,
             depth: &mut self.depth,
             stencil: &mut self.stencil,
         }

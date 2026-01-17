@@ -37,7 +37,7 @@ pub fn ctx_create_renderbuffer(ctx: u32) -> u32 {
             width: 0,
             height: 0,
             internal_format: GL_RGBA4, // Default
-            data: Vec::new(),
+            gpu_handle: GpuHandle::invalid(),
         },
     );
     rb_id
@@ -89,13 +89,11 @@ pub fn ctx_delete_renderbuffer(ctx: u32, renderbuffer: u32) -> u32 {
         return ERR_OK;
     }
 
-    if ctx_obj.renderbuffers.remove(&renderbuffer).is_some() {
+    if let Some(rb) = ctx_obj.renderbuffers.remove(&renderbuffer) {
+        ctx_obj.kernel.destroy_buffer(rb.gpu_handle);
         if ctx_obj.bound_renderbuffer == Some(renderbuffer) {
             ctx_obj.bound_renderbuffer = None;
         }
-        // Also detach from any framebuffers?
-        // In a real implementation we should check all FBs, but for now we skip that O(N) check.
-        // The spec says it should be detached.
         ERR_OK
     } else {
         set_last_error("renderbuffer not found");
@@ -150,11 +148,19 @@ pub fn ctx_renderbuffer_storage(
     rb.height = height as u32;
     rb.internal_format = internal_format;
 
-    // Calculate size based on format
-    let bpp = get_bytes_per_pixel(internal_format);
+    // Destroy old buffer if valid
+    if rb.gpu_handle.is_valid() {
+        ctx_obj.kernel.destroy_buffer(rb.gpu_handle);
+    }
 
-    let size = (width as usize) * (height as usize) * bpp as usize;
-    rb.data = vec![0; size];
+    // Create new buffer in kernel
+    rb.gpu_handle = ctx_obj.kernel.create_buffer(
+        rb.width,
+        rb.height,
+        1,
+        gl_to_wgt_format(internal_format),
+        crate::wasm_gl_emu::device::StorageLayout::Linear,
+    );
 
     ERR_OK
 }

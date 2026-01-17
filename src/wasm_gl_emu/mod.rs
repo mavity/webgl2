@@ -7,6 +7,8 @@
 // Runtime selection: wasmi (for wasm32 and native)
 mod runtime_wasmi;
 
+pub mod device;
+pub mod imaging;
 mod framebuffer;
 mod pipeline;
 pub mod rasterizer;
@@ -16,6 +18,8 @@ mod texture;
 pub use runtime_wasmi::RuntimeError;
 pub use runtime_wasmi::ShaderRuntime;
 
+pub use device::{GpuBuffer, GpuHandle, GpuKernel, StorageLayout};
+pub use imaging::TransferEngine;
 pub use framebuffer::{Framebuffer, OwnedFramebuffer};
 pub use pipeline::{Pipeline, VertexOutput};
 pub use rasterizer::{

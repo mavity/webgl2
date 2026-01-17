@@ -208,7 +208,19 @@ pub fn ctx_draw_arrays_instanced(
     // It passes i as vertex_id.
     // If we want start from 'first', we should probably pass indices.
 
-    let mut fb = ctx_obj.default_framebuffer.as_framebuffer();
+    let (target_handle, target_w, target_h, target_fmt) = ctx_obj.get_current_color_attachment_info();
+    let kernel = &mut ctx_obj.kernel;
+    let target_buffer = kernel.get_buffer_mut(target_handle).expect("target buffer lost");
+
+    let mut fb = crate::wasm_gl_emu::Framebuffer {
+        width: target_w,
+        height: target_h,
+        internal_format: target_fmt,
+        color: &mut target_buffer.data,
+        depth: &mut ctx_obj.default_framebuffer.depth,
+        stencil: &mut ctx_obj.default_framebuffer.stencil,
+    };
+
     ctx_obj
         .rasterizer
         .draw(crate::wasm_gl_emu::rasterizer::DrawConfig {
@@ -352,7 +364,19 @@ pub fn ctx_draw_elements_instanced(
         buffers: &ctx_obj.buffers,
     };
 
-    let mut fb = ctx_obj.default_framebuffer.as_framebuffer();
+    let (target_handle, target_w, target_h, target_fmt) = ctx_obj.get_current_color_attachment_info();
+    let kernel = &mut ctx_obj.kernel;
+    let target_buffer = kernel.get_buffer_mut(target_handle).expect("target buffer lost");
+
+    let mut fb = crate::wasm_gl_emu::Framebuffer {
+        width: target_w,
+        height: target_h,
+        internal_format: target_fmt,
+        color: &mut target_buffer.data,
+        depth: &mut ctx_obj.default_framebuffer.depth,
+        stencil: &mut ctx_obj.default_framebuffer.stencil,
+    };
+
     ctx_obj
         .rasterizer
         .draw(crate::wasm_gl_emu::rasterizer::DrawConfig {
@@ -401,8 +425,8 @@ pub fn ctx_read_pixels(
         }
     };
 
-    // Get the source data and dimensions
-    let (src_data, src_width, src_height, src_format) =
+    // Get the source handle and dimensions
+    let (src_handle, src_width, src_height, _src_format) =
         if let Some(fb_handle) = ctx_obj.bound_framebuffer {
             let fb = match ctx_obj.framebuffers.get(&fb_handle) {
                 Some(f) => f,
@@ -423,13 +447,12 @@ pub fn ctx_read_pixels(
                     };
                     if let Some(level) = tex.levels.get(&0) {
                         (
-                            &level.data,
+                            level.gpu_handle,
                             level.width,
                             level.height,
                             level.internal_format,
                         )
                     } else {
-                        // TODO: Handle missing level 0 gracefully (e.g. valid empty texture?)
                         set_last_error("texture incomplete");
                         return ERR_INVALID_OPERATION;
                     }
@@ -442,7 +465,7 @@ pub fn ctx_read_pixels(
                             return ERR_INVALID_HANDLE;
                         }
                     };
-                    (&rb.data, rb.width, rb.height, rb.internal_format)
+                    (rb.gpu_handle, rb.width, rb.height, rb.internal_format)
                 }
                 None => {
                     set_last_error("framebuffer has no color attachment");
@@ -451,7 +474,7 @@ pub fn ctx_read_pixels(
             }
         } else {
             (
-                &ctx_obj.default_framebuffer.color,
+                ctx_obj.default_framebuffer.gpu_handle,
                 ctx_obj.default_framebuffer.width,
                 ctx_obj.default_framebuffer.height,
                 ctx_obj.default_framebuffer.internal_format,
@@ -482,8 +505,8 @@ pub fn ctx_read_pixels(
     let expected_size = (width as u64)
         .saturating_mul(height as u64)
         .saturating_mul(bytes_per_pixel as u64);
-    if dest_len as u64 != expected_size {
-        set_last_error("output buffer size mismatch");
+    if (dest_len as u64) < expected_size {
+        set_last_error("output buffer size too small");
         return ERR_INVALID_ARGS;
     }
 
@@ -491,142 +514,37 @@ pub fn ctx_read_pixels(
     let dest_slice =
         unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut u8, dest_len as usize) };
 
-    let src_bytes_per_pixel = get_bytes_per_pixel(src_format);
-    let mut dst_off = 0;
-    for row in 0..height {
-        for col in 0..width {
-            let sx = x + col as i32;
-            let sy = y + row as i32;
-
-            if sx >= 0 && sx < src_width as i32 && sy >= 0 && sy < src_height as i32 {
-                let src_idx = ((sy as u32 * src_width + sx as u32) * src_bytes_per_pixel) as usize;
-
-                // For float formats, copy bytes directly
-                if is_float_format(src_format) && type_ == GL_FLOAT {
-                    // GL_FLOAT
-                    let bytes_to_copy = bytes_per_pixel.min(src_bytes_per_pixel) as usize;
-                    if src_idx + bytes_to_copy <= src_data.len()
-                        && dst_off + bytes_to_copy <= dest_slice.len()
-                    {
-                        dest_slice[dst_off..dst_off + bytes_to_copy]
-                            .copy_from_slice(&src_data[src_idx..src_idx + bytes_to_copy]);
-                    }
-                    dst_off += bytes_per_pixel as usize;
-                    continue;
-                }
-
-                // If source and destination formats are both 4-byte RGBA (but might have different codes),
-                // copy them directly to avoid complex logic.
-                if (src_format == GL_RGBA8 || src_format == GL_RGBA)
-                    && (format == GL_RGBA8 || format == GL_RGBA)
-                    && src_bytes_per_pixel == 4
-                    && bytes_per_pixel == 4
-                {
-                    if src_idx + 3 < src_data.len() && dst_off + 3 < dest_slice.len() {
-                        dest_slice[dst_off] = src_data[src_idx];
-                        dest_slice[dst_off + 1] = src_data[src_idx + 1];
-                        dest_slice[dst_off + 2] = src_data[src_idx + 2];
-                        dest_slice[dst_off + 3] = src_data[src_idx + 3];
-                    }
-                    dst_off += 4;
-                    continue;
-                }
-
-                match src_format {
-                    GL_RGBA8 | GL_RGBA => {
-                        if src_idx + 3 < src_data.len() {
-                            dest_slice[dst_off] = src_data[src_idx];
-                            dest_slice[dst_off + 1] = src_data[src_idx + 1];
-                            dest_slice[dst_off + 2] = src_data[src_idx + 2];
-                            dest_slice[dst_off + 3] = src_data[src_idx + 3];
-                        } else {
-                            dest_slice[dst_off] = 0;
-                            dest_slice[dst_off + 1] = 0;
-                            dest_slice[dst_off + 2] = 0;
-                            dest_slice[dst_off + 3] = 0;
-                        }
-                    }
-                    GL_RGBA4 => {
-                        if src_idx + 1 < src_data.len() {
-                            let val =
-                                u16::from_le_bytes([src_data[src_idx], src_data[src_idx + 1]]);
-                            // R4 G4 B4 A4
-                            let r = ((val >> 12) & 0xF) as u8;
-                            let g = ((val >> 8) & 0xF) as u8;
-                            let b = ((val >> 4) & 0xF) as u8;
-                            let a = (val & 0xF) as u8;
-                            // Expand to 8-bit: (c * 255) / 15  => c * 17
-                            dest_slice[dst_off] = r * 17;
-                            dest_slice[dst_off + 1] = g * 17;
-                            dest_slice[dst_off + 2] = b * 17;
-                            dest_slice[dst_off + 3] = a * 17;
-                        } else {
-                            dest_slice[dst_off] = 0;
-                            dest_slice[dst_off + 1] = 0;
-                            dest_slice[dst_off + 2] = 0;
-                            dest_slice[dst_off + 3] = 0;
-                        }
-                    }
-                    GL_RGB565 => {
-                        if src_idx + 1 < src_data.len() {
-                            let val =
-                                u16::from_le_bytes([src_data[src_idx], src_data[src_idx + 1]]);
-                            // R5 G6 B5
-                            let r = ((val >> 11) & 0x1F) as u8;
-                            let g = ((val >> 5) & 0x3F) as u8;
-                            let b = (val & 0x1F) as u8;
-                            // Expand
-                            // 5-bit: c * 255 / 31 => c * 8.22... approx (c << 3) | (c >> 2)
-                            // 6-bit: c * 255 / 63 => c * 4.04... approx (c << 2) | (c >> 4)
-                            dest_slice[dst_off] = (r << 3) | (r >> 2);
-                            dest_slice[dst_off + 1] = (g << 2) | (g >> 4);
-                            dest_slice[dst_off + 2] = (b << 3) | (b >> 2);
-                            dest_slice[dst_off + 3] = 255;
-                        } else {
-                            dest_slice[dst_off] = 0;
-                            dest_slice[dst_off + 1] = 0;
-                            dest_slice[dst_off + 2] = 0;
-                            dest_slice[dst_off + 3] = 255;
-                        }
-                    }
-                    GL_RGB5_A1 => {
-                        if src_idx + 1 < src_data.len() {
-                            let val =
-                                u16::from_le_bytes([src_data[src_idx], src_data[src_idx + 1]]);
-                            // R5 G5 B5 A1
-                            let r = ((val >> 11) & 0x1F) as u8;
-                            let g = ((val >> 6) & 0x1F) as u8;
-                            let b = ((val >> 1) & 0x1F) as u8;
-                            let a = (val & 0x1) as u8;
-                            dest_slice[dst_off] = (r << 3) | (r >> 2);
-                            dest_slice[dst_off + 1] = (g << 3) | (g >> 2);
-                            dest_slice[dst_off + 2] = (b << 3) | (b >> 2);
-                            dest_slice[dst_off + 3] = if a == 1 { 255 } else { 0 };
-                        } else {
-                            dest_slice[dst_off] = 0;
-                            dest_slice[dst_off + 1] = 0;
-                            dest_slice[dst_off + 2] = 0;
-                            dest_slice[dst_off + 3] = 0;
-                        }
-                    }
-                    _ => {
-                        // Unsupported format or depth/stencil, return 0
-                        dest_slice[dst_off] = 0;
-                        dest_slice[dst_off + 1] = 0;
-                        dest_slice[dst_off + 2] = 0;
-                        dest_slice[dst_off + 3] = 0;
-                    }
-                }
-            } else {
-                // Out of bounds: write transparent black
-                dest_slice[dst_off] = 0;
-                dest_slice[dst_off + 1] = 0;
-                dest_slice[dst_off + 2] = 0;
-                dest_slice[dst_off + 3] = 0;
-            }
-            dst_off += 4;
+    let src_buffer = match ctx_obj.kernel.get_buffer(src_handle) {
+        Some(b) => b,
+        None => {
+            set_last_error("source buffer not found in kernel");
+            return ERR_INVALID_OPERATION;
         }
-    }
+    };
+
+    let dst_format = if type_ == GL_FLOAT {
+        match format {
+            GL_RED => wgpu_types::TextureFormat::R32Float,
+            GL_RG => wgpu_types::TextureFormat::Rg32Float,
+            GL_RGBA => wgpu_types::TextureFormat::Rgba32Float,
+            _ => wgpu_types::TextureFormat::Rgba32Float,
+        }
+    } else {
+        wgpu_types::TextureFormat::Rgba8Unorm
+    };
+
+    crate::wasm_gl_emu::imaging::TransferEngine::read_pixels(
+        &crate::wasm_gl_emu::imaging::TransferRequest {
+            src_buffer,
+            dst_format,
+            dst_layout: crate::wasm_gl_emu::device::StorageLayout::Linear,
+            x,
+            y,
+            width,
+            height,
+        },
+        dest_slice,
+    );
 
     ERR_OK
 }

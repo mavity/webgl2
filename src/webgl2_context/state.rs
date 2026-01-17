@@ -41,140 +41,9 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
     };
 
     if (mask & GL_COLOR_BUFFER_BIT) != 0 {
-        let r = (ctx_obj.clear_color[0] * 255.0).round() as u8;
-        let g = (ctx_obj.clear_color[1] * 255.0).round() as u8;
-        let b = (ctx_obj.clear_color[2] * 255.0).round() as u8;
-        let a = (ctx_obj.clear_color[3] * 255.0).round() as u8;
-
-        if let Some(fb_handle) = ctx_obj.bound_framebuffer {
-            // We need to clone the attachment info to avoid borrowing issues
-            let attachment = if let Some(fb) = ctx_obj.framebuffers.get(&fb_handle) {
-                fb.color_attachment
-            } else {
-                None
-            };
-
-            if let Some(att) = attachment {
-                match att {
-                    Attachment::Texture(tex_handle) => {
-                        if let Some(tex) = ctx_obj.textures.get_mut(&tex_handle) {
-                            if let Some(level0) = tex.levels.get_mut(&0) {
-                                // Ensure backing storage is large enough for the level
-                                let expected = (level0.width
-                                    * level0.height
-                                    * super::types::get_bytes_per_pixel(level0.internal_format))
-                                    as usize;
-                                if level0.data.len() < expected {
-                                    level0.data.resize(expected, 0);
-                                }
-                                let bpp = super::types::get_bytes_per_pixel(level0.internal_format);
-                                if is_float_format(level0.internal_format) {
-                                    let clr = [
-                                        ctx_obj.clear_color[0],
-                                        ctx_obj.clear_color[1],
-                                        ctx_obj.clear_color[2],
-                                        ctx_obj.clear_color[3],
-                                    ];
-                                    let clr_u8 = unsafe {
-                                        std::slice::from_raw_parts(clr.as_ptr() as *const u8, 16)
-                                    };
-                                    for i in (0..level0.data.len()).step_by(bpp as usize) {
-                                        if i + bpp as usize <= level0.data.len() {
-                                            level0.data[i..i + bpp as usize]
-                                                .copy_from_slice(&clr_u8[..bpp as usize]);
-                                        }
-                                    }
-                                } else {
-                                    for i in (0..level0.data.len()).step_by(bpp as usize) {
-                                        if i + bpp as usize <= level0.data.len() {
-                                            level0.data[i] = r;
-                                            if bpp > 1 {
-                                                level0.data[i + 1] = g;
-                                            }
-                                            if bpp > 2 {
-                                                level0.data[i + 2] = b;
-                                            }
-                                            if bpp > 3 {
-                                                level0.data[i + 3] = a;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Attachment::Renderbuffer(rb_handle) => {
-                        if let Some(rb) = ctx_obj.renderbuffers.get_mut(&rb_handle) {
-                            match rb.internal_format {
-                                GL_RGBA4 => {
-                                    let r4 = ((ctx_obj.clear_color[0] * 15.0).round() as u16) & 0xF;
-                                    let g4 = ((ctx_obj.clear_color[1] * 15.0).round() as u16) & 0xF;
-                                    let b4 = ((ctx_obj.clear_color[2] * 15.0).round() as u16) & 0xF;
-                                    let a4 = ((ctx_obj.clear_color[3] * 15.0).round() as u16) & 0xF;
-                                    let val = (r4 << 12) | (g4 << 8) | (b4 << 4) | a4;
-                                    let bytes = val.to_le_bytes();
-                                    for i in (0..rb.data.len()).step_by(2) {
-                                        if i + 1 < rb.data.len() {
-                                            rb.data[i] = bytes[0];
-                                            rb.data[i + 1] = bytes[1];
-                                        }
-                                    }
-                                }
-                                GL_RGB565 => {
-                                    let r5 =
-                                        ((ctx_obj.clear_color[0] * 31.0).round() as u16) & 0x1F;
-                                    let g6 =
-                                        ((ctx_obj.clear_color[1] * 63.0).round() as u16) & 0x3F;
-                                    let b5 =
-                                        ((ctx_obj.clear_color[2] * 31.0).round() as u16) & 0x1F;
-                                    let val = (r5 << 11) | (g6 << 5) | b5;
-                                    let bytes = val.to_le_bytes();
-                                    for i in (0..rb.data.len()).step_by(2) {
-                                        if i + 1 < rb.data.len() {
-                                            rb.data[i] = bytes[0];
-                                            rb.data[i + 1] = bytes[1];
-                                        }
-                                    }
-                                }
-                                GL_RGB5_A1 => {
-                                    let r5 =
-                                        ((ctx_obj.clear_color[0] * 31.0).round() as u16) & 0x1F;
-                                    let g5 =
-                                        ((ctx_obj.clear_color[1] * 31.0).round() as u16) & 0x1F;
-                                    let b5 =
-                                        ((ctx_obj.clear_color[2] * 31.0).round() as u16) & 0x1F;
-                                    let a1 = if ctx_obj.clear_color[3] >= 0.5 { 1 } else { 0 };
-                                    let val = (r5 << 11) | (g5 << 6) | (b5 << 1) | a1;
-                                    let bytes = val.to_le_bytes();
-                                    for i in (0..rb.data.len()).step_by(2) {
-                                        if i + 1 < rb.data.len() {
-                                            rb.data[i] = bytes[0];
-                                            rb.data[i + 1] = bytes[1];
-                                        }
-                                    }
-                                }
-                                _ => {
-                                    rb.data.fill(0);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            // Clear default framebuffer
-            for i in (0..ctx_obj.default_framebuffer.color.len()).step_by(4) {
-                if i + 3 < ctx_obj.default_framebuffer.color.len() {
-                    ctx_obj.default_framebuffer.color[i] = r;
-                    ctx_obj.default_framebuffer.color[i + 1] = g;
-                    ctx_obj.default_framebuffer.color[i + 2] = b;
-                    ctx_obj.default_framebuffer.color[i + 3] = a;
-                }
-            }
-            // Verify
-            if !ctx_obj.default_framebuffer.color.is_empty() {
-                let _first_alpha = ctx_obj.default_framebuffer.color[3];
-            }
+        let (handle, _, _, _) = ctx_obj.get_current_color_attachment_info();
+        if handle.is_valid() {
+            ctx_obj.kernel.clear(handle, ctx_obj.clear_color);
         }
     }
 
@@ -239,7 +108,7 @@ pub fn ctx_resize(ctx: u32, width: u32, height: u32) -> u32 {
             return ERR_INVALID_HANDLE;
         }
     };
-    ctx_obj.default_framebuffer = crate::wasm_gl_emu::OwnedFramebuffer::new(width, height);
+    ctx_obj.default_framebuffer = crate::wasm_gl_emu::OwnedFramebuffer::new(&mut ctx_obj.kernel, width, height);
     ERR_OK
 }
 
