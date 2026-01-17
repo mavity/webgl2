@@ -772,8 +772,14 @@ impl hal::Queue for SoftQueue {
                                             let raster_pipeline =
                                                 wasm_gl_emu::RasterPipeline::default(); // TODO: Map from SoftRenderPipeline
 
-                                            rasterizer.draw(wasm_gl_emu::rasterizer::DrawConfig {
-                                                fb: &mut fb,
+                                            let mut dummy_kernel = wasm_gl_emu::GpuKernel::new();
+                                            rasterizer.draw(&mut dummy_kernel, wasm_gl_emu::rasterizer::DrawConfig {
+                                                color_target: wasm_gl_emu::rasterizer::ColorTarget::Raw(&mut data),
+                                                width,
+                                                height,
+                                                internal_format,
+                                                depth: &mut dummy_depth,
+                                                stencil: &mut dummy_stencil,
                                                 pipeline: &raster_pipeline,
                                                 state: &state,
                                                 vertex_fetcher: &fetcher,
@@ -894,9 +900,16 @@ impl hal::Queue for SoftQueue {
                                             };
 
                                             if let Some(idxs) = indices {
+                                                let mut dummy_kernel = wasm_gl_emu::GpuKernel::new();
                                                 rasterizer.draw(
+                                                    &mut dummy_kernel,
                                                     wasm_gl_emu::rasterizer::DrawConfig {
-                                                        fb: &mut fb,
+                                                        color_target: wasm_gl_emu::rasterizer::ColorTarget::Raw(&mut data),
+                                                        width,
+                                                        height,
+                                                        internal_format,
+                                                        depth: &mut dummy_depth,
+                                                        stencil: &mut dummy_stencil,
                                                         pipeline: &raster_pipeline,
                                                         state: &state,
                                                         vertex_fetcher: &fetcher,
@@ -1342,7 +1355,7 @@ struct SoftVertexFetcher<'a> {
 }
 
 impl<'a> wasm_gl_emu::VertexFetcher for SoftVertexFetcher<'a> {
-    fn fetch(&self, vertex_index: u32, instance_index: u32, dest: &mut [u8]) {
+    fn fetch(&self, _kernel: &wasm_gl_emu::GpuKernel, vertex_index: u32, instance_index: u32, dest: &mut [u8]) {
         for (i, layout) in self.vertex_layouts.iter().enumerate() {
             if i >= self.vertex_buffers.len() {
                 continue;

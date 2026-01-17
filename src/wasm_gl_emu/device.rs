@@ -129,6 +129,21 @@ impl GpuKernel {
         handle
     }
 
+    /// Shortcut for creating a 1D blob buffer (e.g., EBO, VBO)
+    pub fn create_buffer_blob(&mut self, size: usize) -> GpuHandle {
+        let handle = GpuHandle::next();
+        let buffer = GpuBuffer {
+            data: vec![0; size],
+            width: size as u32,
+            height: 1,
+            depth: 1,
+            format: wgt::TextureFormat::R8Uint,
+            layout: StorageLayout::Linear,
+        };
+        self.resources.insert(handle, buffer);
+        handle
+    }
+
     pub fn get_buffer(&self, handle: GpuHandle) -> Option<&GpuBuffer> {
         self.resources.get(&handle)
     }

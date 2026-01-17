@@ -11,75 +11,66 @@ fn get_flat_varyings_mask(ctx: &Context) -> u64 {
     if let Some(program_id) = ctx.current_program {
         if let Some(program) = ctx.programs.get(&program_id) {
             if let Some(ref fs_module) = program.fs_module {
-                // Check entry point arguments
-                for ep in fs_module.entry_points.iter() {
+                for ep in &fs_module.entry_points {
                     if ep.stage == naga::ShaderStage::Fragment {
                         for arg in &ep.function.arguments {
-                            // If the shader explicitly marked this varying as Flat, preserve that.
                             let mut make_flat = false;
+                            let mut location = None;
+
                             if let Some(naga::Binding::Location {
-                                location: _,
-                                interpolation: Some(interp),
+                                location: loc,
+                                interpolation,
                                 ..
                             }) = &arg.binding
                             {
-                                if *interp == naga::Interpolation::Flat {
-                                    make_flat = true;
+                                location = Some(*loc);
+                                if let Some(interp) = interpolation {
+                                    if *interp == naga::Interpolation::Flat {
+                                        make_flat = true;
+                                    }
                                 }
                             }
 
-                            // Additionally, integer/unsigned integer varyings must be flat by the spec.
-                            // Detect integer scalar/vector types and mark them flat as well.
-                            let ty = &fs_module.types[arg.ty];
-                            match ty.inner {
-                                naga::TypeInner::Scalar(scalar) => {
-                                    if scalar.kind == naga::ScalarKind::Sint
-                                        || scalar.kind == naga::ScalarKind::Uint
-                                    {
-                                        make_flat = true;
+                            if !make_flat {
+                                let ty = &fs_module.types[arg.ty];
+                                match &ty.inner {
+                                    naga::TypeInner::Scalar(scalar) => {
+                                        if scalar.kind == naga::ScalarKind::Sint
+                                            || scalar.kind == naga::ScalarKind::Uint
+                                        {
+                                            make_flat = true;
+                                        }
                                     }
-                                }
-                                naga::TypeInner::Vector {
-                                    size: _, scalar, ..
-                                } => {
-                                    if scalar.kind == naga::ScalarKind::Sint
-                                        || scalar.kind == naga::ScalarKind::Uint
-                                    {
-                                        make_flat = true;
+                                    naga::TypeInner::Vector { scalar, .. } => {
+                                        if scalar.kind == naga::ScalarKind::Sint
+                                            || scalar.kind == naga::ScalarKind::Uint
+                                        {
+                                            make_flat = true;
+                                        }
                                     }
+                                    _ => {}
                                 }
-                                _ => {}
                             }
 
                             if make_flat {
-                                let start_bit = if let Some(name) = &arg.name {
-                                    if let Some(&loc) = program.varying_locations.get(name) {
-                                        (loc + 1) * 4
-                                    } else if let Some(naga::Binding::Location {
-                                        location, ..
-                                    }) = &arg.binding
-                                    {
-                                        (location + 1) * 4
-                                    } else {
-                                        4
-                                    }
-                                } else if let Some(naga::Binding::Location { location, .. }) =
-                                    &arg.binding
-                                {
-                                    (location + 1) * 4
-                                } else {
-                                    4
-                                };
-                                let count = match ty.inner {
-                                    naga::TypeInner::Vector { size, .. } => size as u32,
-                                    naga::TypeInner::Matrix { columns, rows, .. } => {
-                                        columns as u32 * rows as u32
-                                    }
-                                    _ => 1,
-                                };
-                                for i in 0..count {
-                                    if start_bit + i < 64 {
-                                        mask |= 1 << (start_bit + i);
+                                if let Some(loc) = location {
+                                    let ty = &fs_module.types[arg.ty];
+                                    let components = match &ty.inner {
+                                        naga::TypeInner::Scalar(_) => 1,
+                                        naga::TypeInner::Vector { size, .. } => match size {
+                                            naga::VectorSize::Bi => 2,
+                                            naga::VectorSize::Tri => 3,
+                                            naga::VectorSize::Quad => 4,
+                                        },
+                                        _ => 1,
+                                    };
+
+                                    let start_bit = (loc + 1) * 4;
+                                    for i in 0..components {
+                                        let bit = start_bit + i;
+                                        if bit < 64 {
+                                            mask |= 1u64 << bit;
+                                        }
                                     }
                                 }
                             }
@@ -99,7 +90,7 @@ struct WebGLVertexFetcher<'a> {
 }
 
 impl<'a> VertexFetcher for WebGLVertexFetcher<'a> {
-    fn fetch(&self, vertex_index: u32, instance_index: u32, dest: &mut [u8]) {
+    fn fetch(&self, kernel: &crate::wasm_gl_emu::GpuKernel, vertex_index: u32, instance_index: u32, dest: &mut [u8]) {
         let mut attr_data = vec![0u32; 16 * 4];
         Context::fetch_vertex_attributes_static(
             self.vertex_arrays,
@@ -108,6 +99,7 @@ impl<'a> VertexFetcher for WebGLVertexFetcher<'a> {
             vertex_index,
             instance_index,
             &mut attr_data,
+            kernel,
         );
 
         // Clear dest
@@ -209,22 +201,16 @@ pub fn ctx_draw_arrays_instanced(
     // If we want start from 'first', we should probably pass indices.
 
     let (target_handle, target_w, target_h, target_fmt) = ctx_obj.get_current_color_attachment_info();
-    let kernel = &mut ctx_obj.kernel;
-    let target_buffer = kernel.get_buffer_mut(target_handle).expect("target buffer lost");
-
-    let mut fb = crate::wasm_gl_emu::Framebuffer {
-        width: target_w,
-        height: target_h,
-        internal_format: target_fmt,
-        color: &mut target_buffer.data,
-        depth: &mut ctx_obj.default_framebuffer.depth,
-        stencil: &mut ctx_obj.default_framebuffer.stencil,
-    };
 
     ctx_obj
         .rasterizer
-        .draw(crate::wasm_gl_emu::rasterizer::DrawConfig {
-            fb: &mut fb,
+        .draw(&mut ctx_obj.kernel, crate::wasm_gl_emu::rasterizer::DrawConfig {
+            color_target: crate::wasm_gl_emu::rasterizer::ColorTarget::Handle(target_handle),
+            width: target_w,
+            height: target_h,
+            internal_format: target_fmt,
+            depth: &mut ctx_obj.default_framebuffer.depth,
+            stencil: &mut ctx_obj.default_framebuffer.stencil,
             pipeline: &pipeline,
             state: &state,
             vertex_fetcher: &fetcher,
@@ -285,47 +271,22 @@ pub fn ctx_draw_elements_instanced(
 
     let indices: Vec<u32> = if let Some(h) = ebo_handle {
         if let Some(buf) = ctx_obj.buffers.get(&h) {
-            let data = &buf.data;
-            let mut idxs = Vec::with_capacity(count as usize);
-            for i in 0..count {
-                let idx = match type_ {
-                    GL_UNSIGNED_BYTE => {
-                        // GL_UNSIGNED_BYTE
-                        let off = (offset as usize) + i as usize;
-                        if off < data.len() {
-                            data[off] as u32
-                        } else {
-                            0
-                        }
-                    }
-                    GL_UNSIGNED_SHORT => {
-                        // GL_UNSIGNED_SHORT
-                        let off = (offset as usize) + (i as usize) * 2;
-                        if off + 2 <= data.len() {
-                            u16::from_ne_bytes([data[off], data[off + 1]]) as u32
-                        } else {
-                            0
-                        }
-                    }
-                    GL_UNSIGNED_INT => {
-                        // GL_UNSIGNED_INT
-                        let off = (offset as usize) + (i as usize) * 4;
-                        if off + 4 <= data.len() {
-                            u32::from_ne_bytes([
-                                data[off],
-                                data[off + 1],
-                                data[off + 2],
-                                data[off + 3],
-                            ])
-                        } else {
-                            0
-                        }
-                    }
+            if let Some(gpu_buf) = ctx_obj.kernel.get_buffer(buf.gpu_handle) {
+                let itype = match type_ {
+                    GL_UNSIGNED_BYTE => crate::wasm_gl_emu::IndexType::U8,
+                    GL_UNSIGNED_SHORT => crate::wasm_gl_emu::IndexType::U16,
+                    GL_UNSIGNED_INT => crate::wasm_gl_emu::IndexType::U32,
                     _ => return ERR_INVALID_ENUM,
                 };
-                idxs.push(idx);
+                crate::wasm_gl_emu::TransferEngine::fetch_indices(
+                    gpu_buf,
+                    itype,
+                    offset,
+                    count as u32,
+                )
+            } else {
+                return ERR_INVALID_OPERATION;
             }
-            idxs
         } else {
             return ERR_INVALID_OPERATION;
         }
@@ -365,22 +326,16 @@ pub fn ctx_draw_elements_instanced(
     };
 
     let (target_handle, target_w, target_h, target_fmt) = ctx_obj.get_current_color_attachment_info();
-    let kernel = &mut ctx_obj.kernel;
-    let target_buffer = kernel.get_buffer_mut(target_handle).expect("target buffer lost");
-
-    let mut fb = crate::wasm_gl_emu::Framebuffer {
-        width: target_w,
-        height: target_h,
-        internal_format: target_fmt,
-        color: &mut target_buffer.data,
-        depth: &mut ctx_obj.default_framebuffer.depth,
-        stencil: &mut ctx_obj.default_framebuffer.stencil,
-    };
 
     ctx_obj
         .rasterizer
-        .draw(crate::wasm_gl_emu::rasterizer::DrawConfig {
-            fb: &mut fb,
+        .draw(&mut ctx_obj.kernel, crate::wasm_gl_emu::rasterizer::DrawConfig {
+            color_target: crate::wasm_gl_emu::rasterizer::ColorTarget::Handle(target_handle),
+            width: target_w,
+            height: target_h,
+            internal_format: target_fmt,
+            depth: &mut ctx_obj.default_framebuffer.depth,
+            stencil: &mut ctx_obj.default_framebuffer.stencil,
             pipeline: &pipeline,
             state: &state,
             vertex_fetcher: &fetcher,
@@ -533,11 +488,11 @@ pub fn ctx_read_pixels(
         wgpu_types::TextureFormat::Rgba8Unorm
     };
 
-    crate::wasm_gl_emu::imaging::TransferEngine::read_pixels(
-        &crate::wasm_gl_emu::imaging::TransferRequest {
+    crate::wasm_gl_emu::TransferEngine::read_pixels(
+        &crate::wasm_gl_emu::TransferRequest {
             src_buffer,
             dst_format,
-            dst_layout: crate::wasm_gl_emu::device::StorageLayout::Linear,
+            dst_layout: crate::wasm_gl_emu::StorageLayout::Linear,
             x,
             y,
             width,

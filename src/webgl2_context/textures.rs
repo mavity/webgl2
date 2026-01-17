@@ -415,7 +415,7 @@ pub fn ctx_tex_sub_image_2d(
         // SAFETY: ptr/len validated by JS caller
         let sub_data = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
 
-        crate::wasm_gl_emu::imaging::TransferEngine::write_pixels(
+        crate::wasm_gl_emu::TransferEngine::write_pixels(
             &mut ctx_obj.kernel,
             level_data.gpu_handle,
             xoffset,
@@ -591,8 +591,8 @@ pub fn ctx_copy_tex_image_2d(
 
     // 2. Read from source to temporary buffer (using wgpu-types for universal comparison)
     let mut pixels = vec![0u8; (width * height * 4) as usize];
-    crate::wasm_gl_emu::imaging::TransferEngine::read_pixels(
-        &crate::wasm_gl_emu::imaging::TransferRequest {
+    crate::wasm_gl_emu::TransferEngine::read_pixels(
+        &crate::wasm_gl_emu::TransferRequest {
             src_buffer: ctx_obj.kernel.get_buffer(src_handle).unwrap(),
             dst_format: wgpu_types::TextureFormat::Rgba8Unorm,
             dst_layout: crate::wasm_gl_emu::device::StorageLayout::Linear,

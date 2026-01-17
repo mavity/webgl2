@@ -72,7 +72,15 @@ pub struct RenderState<'a> {
 pub trait VertexFetcher {
     /// Fetch attributes for a specific vertex and instance
     /// Writes data directly to the destination buffer (which maps to attr_ptr)
-    fn fetch(&self, vertex_index: u32, instance_index: u32, dest: &mut [u8]);
+    fn fetch(&self, kernel: &GpuKernel, vertex_index: u32, instance_index: u32, dest: &mut [u8]);
+}
+
+/// Color target for rasterization
+pub enum ColorTarget<'a> {
+    /// Target is a buffer managed by the kernel
+    Handle(GpuHandle),
+    /// Target is a raw byte slice (used by WebGPU backend)
+    Raw(&'a mut [u8]),
 }
 
 /// Pipeline configuration for rasterization
@@ -362,7 +370,12 @@ fn blend_pixel_f32(src: [f32; 4], dst: [f32; 4], state: &BlendState) -> [f32; 4]
 pub struct Rasterizer {}
 
 pub struct DrawConfig<'a> {
-    pub fb: &'a mut super::Framebuffer<'a>,
+    pub color_target: ColorTarget<'a>,
+    pub width: u32,
+    pub height: u32,
+    pub internal_format: u32,
+    pub depth: &'a mut [f32],
+    pub stencil: &'a mut [u8],
     pub pipeline: &'a RasterPipeline,
     pub state: &'a RenderState<'a>,
     pub vertex_fetcher: &'a dyn VertexFetcher,
@@ -607,7 +620,7 @@ impl Rasterizer {
                     let w_interp = 1.0 / w_interp_inv;
 
                     for (k, varying) in interp_varyings.iter_mut().enumerate() {
-                        if (pipeline.flat_varyings_mask & (1 << k)) != 0 {
+                        if (pipeline.flat_varyings_mask & (1u64 << k)) != 0 {
                             // Flat shading: copy raw bits from provoking vertex (v2)
                             *varying = v2.varyings[k];
                         } else {
@@ -898,8 +911,8 @@ impl Rasterizer {
     }
 
     /// Draw primitives
-    pub fn draw(&self, config: DrawConfig) {
-        let (vx, vy, vw, vh) = config.state.viewport;
+    pub fn draw(&self, kernel: &mut GpuKernel, mut config: DrawConfig) {
+        let (_vx, _vy, _vw, _vh) = config.state.viewport;
 
         // Allocate attribute buffer (enough for 16 locations * 16 floats = 1024 bytes)
         // This should match the size expected by the shader
@@ -926,7 +939,7 @@ impl Rasterizer {
                 // Fetch attributes
                 config
                     .vertex_fetcher
-                    .fetch(vertex_id, actual_instance_id as u32, &mut attr_buffer);
+                    .fetch(kernel, vertex_id, actual_instance_id as u32, &mut attr_buffer);
 
                 // Copy attributes to shader memory
                 unsafe {
@@ -988,46 +1001,92 @@ impl Rasterizer {
                 });
             }
 
-            // 2. Rasterize
-            if config.mode == GL_POINTS {
-                // GL_POINTS
-                for v in &vertices {
-                    let screen_x =
-                        vx as f32 + (v.position[0] / v.position[3] + 1.0) * 0.5 * vw as f32;
-                    let screen_y =
-                        vy as f32 + (v.position[1] / v.position[3] + 1.0) * 0.5 * vh as f32;
-
-                    // Run FS
-                    let color = self.execute_fragment_shader(
-                        &v.varyings,
+            // 2. Primitives Assembly and Rasterization
+            match config.color_target {
+                ColorTarget::Handle(handle) => {
+                    let color_buffer = kernel.get_buffer_mut(handle).expect("color buffer lost");
+                    let mut fb = crate::wasm_gl_emu::Framebuffer {
+                        width: config.width,
+                        height: config.height,
+                        internal_format: config.internal_format,
+                        color: &mut color_buffer.data,
+                        depth: config.depth,
+                        stencil: config.stencil,
+                    };
+                    self.rasterize_all(
+                        &mut fb,
+                        &vertices,
+                        config.mode,
                         config.pipeline,
                         config.state,
-                        config.fb.internal_format,
                     );
-                    self.draw_point(config.fb, screen_x, screen_y, &color, config.state);
                 }
-            } else if config.mode == GL_TRIANGLES {
-                // GL_TRIANGLES
-                for i in (0..vertices.len()).step_by(3) {
-                    if i + 2 >= vertices.len() {
-                        break;
-                    }
-                    let v0 = &vertices[i];
-                    let v1 = &vertices[i + 1];
-                    let v2 = &vertices[i + 2];
-
-                    self.rasterize_triangle(config.fb, v0, v1, v2, config.pipeline, config.state);
-                }
-            } else if config.mode == GL_TRIANGLE_STRIP {
-                // GL_TRIANGLE_STRIP
-                for i in 0..vertices.len().saturating_sub(2) {
-                    let (v0, v1, v2) = if i % 2 == 0 {
-                        (&vertices[i], &vertices[i + 1], &vertices[i + 2])
-                    } else {
-                        (&vertices[i + 1], &vertices[i], &vertices[i + 2])
+                ColorTarget::Raw(ref mut data) => {
+                    let mut fb = crate::wasm_gl_emu::Framebuffer {
+                        width: config.width,
+                        height: config.height,
+                        internal_format: config.internal_format,
+                        color: data,
+                        depth: config.depth,
+                        stencil: config.stencil,
                     };
-                    self.rasterize_triangle(config.fb, v0, v1, v2, config.pipeline, config.state);
+                    self.rasterize_all(
+                        &mut fb,
+                        &vertices,
+                        config.mode,
+                        config.pipeline,
+                        config.state,
+                    );
                 }
+            }
+        }
+    }
+
+    fn rasterize_all(
+        &self,
+        fb: &mut crate::wasm_gl_emu::Framebuffer,
+        vertices: &[ProcessedVertex],
+        mode: u32,
+        pipeline: &RasterPipeline,
+        state: &RenderState,
+    ) {
+        if mode == GL_POINTS {
+            // GL_POINTS
+            for v in vertices {
+                let (_vx, _vy, _vw, _vh) = state.viewport;
+                let screen_x = _vx as f32 + (v.position[0] / v.position[3] + 1.0) * 0.5 * _vw as f32;
+                let screen_y = _vy as f32 + (v.position[1] / v.position[3] + 1.0) * 0.5 * _vh as f32;
+
+                // Run FS
+                let color = self.execute_fragment_shader(
+                    &v.varyings,
+                    pipeline,
+                    state,
+                    fb.internal_format,
+                );
+                self.draw_point(fb, screen_x, screen_y, &color, state);
+            }
+        } else if mode == GL_TRIANGLES {
+            // GL_TRIANGLES
+            for i in (0..vertices.len()).step_by(3) {
+                if i + 2 >= vertices.len() {
+                    break;
+                }
+                let v0 = &vertices[i];
+                let v1 = &vertices[i + 1];
+                let v2 = &vertices[i + 2];
+
+                self.rasterize_triangle(fb, v0, v1, v2, pipeline, state);
+            }
+        } else if mode == GL_TRIANGLE_STRIP {
+            // GL_TRIANGLE_STRIP
+            for i in 0..vertices.len().saturating_sub(2) {
+                let (v0, v1, v2) = if i % 2 == 0 {
+                    (&vertices[i], &vertices[i + 1], &vertices[i + 2])
+                } else {
+                    (&vertices[i + 1], &vertices[i], &vertices[i + 2])
+                };
+                self.rasterize_triangle(fb, v0, v1, v2, pipeline, state);
             }
         }
     }

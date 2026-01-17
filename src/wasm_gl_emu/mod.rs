@@ -8,7 +8,7 @@
 mod runtime_wasmi;
 
 pub mod device;
-pub mod imaging;
+pub mod transfer;
 mod framebuffer;
 mod pipeline;
 pub mod rasterizer;
@@ -19,7 +19,7 @@ pub use runtime_wasmi::RuntimeError;
 pub use runtime_wasmi::ShaderRuntime;
 
 pub use device::{GpuBuffer, GpuHandle, GpuKernel, StorageLayout};
-pub use imaging::TransferEngine;
+pub use transfer::{IndexType, TransferEngine, TransferRequest};
 pub use framebuffer::{Framebuffer, OwnedFramebuffer};
 pub use pipeline::{Pipeline, VertexOutput};
 pub use rasterizer::{

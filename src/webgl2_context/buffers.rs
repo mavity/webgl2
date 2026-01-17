@@ -59,7 +59,13 @@ pub fn ctx_get_buffer_parameter(ctx: u32, target: u32, pname: u32) -> i32 {
     };
 
     match pname {
-        GL_BUFFER_SIZE => buffer.data.len() as i32,
+        GL_BUFFER_SIZE => {
+            if let Some(gb) = ctx_obj.kernel.get_buffer(buffer.gpu_handle) {
+                gb.data.len() as i32
+            } else {
+                0
+            }
+        }
         _ => {
             set_last_error("invalid parameter name");
             -1
@@ -83,10 +89,11 @@ pub fn ctx_create_buffer(ctx: u32) -> u32 {
         }
     };
     let buf_id = ctx_obj.allocate_buffer_handle();
+    let gpu_handle = ctx_obj.kernel.create_buffer_blob(0);
     ctx_obj.buffers.insert(
         buf_id,
         Buffer {
-            data: Vec::new(),
+            gpu_handle,
             usage: 0,
         },
     );
@@ -107,7 +114,9 @@ pub fn ctx_delete_buffer(ctx: u32, buf: u32) -> u32 {
             return ERR_INVALID_HANDLE;
         }
     };
-    ctx_obj.buffers.remove(&buf);
+    if let Some(b) = ctx_obj.buffers.remove(&buf) {
+        ctx_obj.kernel.destroy_buffer(b.gpu_handle);
+    }
     if ctx_obj.bound_array_buffer == Some(buf) {
         ctx_obj.bound_array_buffer = None;
     }
@@ -200,7 +209,11 @@ pub fn ctx_buffer_data(ctx: u32, target: u32, ptr: u32, len: u32, usage: u32) ->
     let src_slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
 
     if let Some(buf) = ctx_obj.buffers.get_mut(&buf_handle) {
-        buf.data = src_slice.to_vec();
+        ctx_obj.kernel.destroy_buffer(buf.gpu_handle);
+        buf.gpu_handle = ctx_obj.kernel.create_buffer_blob(len as usize);
+        if let Some(gpu_buf) = ctx_obj.kernel.get_buffer_mut(buf.gpu_handle) {
+            gpu_buf.data.copy_from_slice(src_slice);
+        }
         buf.usage = usage;
         ERR_OK
     } else {
@@ -247,12 +260,18 @@ pub fn ctx_buffer_sub_data(ctx: u32, target: u32, offset: u32, ptr: u32, len: u3
     let src_slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
 
     if let Some(buf) = ctx_obj.buffers.get_mut(&buf_handle) {
-        if (offset as usize + len as usize) > buf.data.len() {
-            set_last_error("buffer overflow");
-            return ERR_INVALID_ARGS;
+        let gpu_handle = buf.gpu_handle;
+        if let Some(gpu_buf) = ctx_obj.kernel.get_buffer_mut(gpu_handle) {
+            if (offset as usize + len as usize) > gpu_buf.data.len() {
+                set_last_error("buffer overflow");
+                return ERR_INVALID_ARGS;
+            }
+            gpu_buf.data[offset as usize..offset as usize + len as usize].copy_from_slice(src_slice);
+            ERR_OK
+        } else {
+            set_last_error("internal resource lost");
+            ERR_INTERNAL
         }
-        buf.data[offset as usize..offset as usize + len as usize].copy_from_slice(src_slice);
-        ERR_OK
     } else {
         set_last_error("buffer not found");
         ERR_INVALID_HANDLE

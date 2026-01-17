@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
+use wgpu_types as wgt;
 pub(crate) use crate::wasm_gl_emu::device::GpuHandle;
 pub(crate) use crate::wasm_gl_emu::device::GpuKernel;
 
@@ -207,7 +208,7 @@ pub(crate) struct FramebufferObj {
 /// A WebGL2 buffer resource
 #[derive(Clone)]
 pub(crate) struct Buffer {
-    pub(crate) data: Vec<u8>,
+    pub(crate) gpu_handle: crate::wasm_gl_emu::GpuHandle,
     pub(crate) usage: u32,
 }
 
@@ -506,6 +507,7 @@ impl Context {
             vertex_id,
             instance_id,
             dest,
+            &self.kernel,
         );
     }
 
@@ -516,6 +518,7 @@ impl Context {
         vertex_id: u32,
         instance_id: u32,
         dest: &mut [u32],
+        kernel: &crate::wasm_gl_emu::GpuKernel,
     ) {
         let vao = match vertex_arrays.get(&bound_vertex_array) {
             Some(v) => v,
@@ -538,168 +541,82 @@ impl Context {
 
             if let Some(buffer_id) = attr.buffer {
                 if let Some(buffer) = buffers.get(&buffer_id) {
-                    let type_size = match attr.type_ {
-                        0x1400 => 1, // GL_BYTE
-                        0x1401 => 1, // GL_UNSIGNED_BYTE
-                        0x1402 => 2, // GL_SHORT
-                        0x1403 => 2, // GL_UNSIGNED_SHORT
-                        0x1404 => 4, // GL_INT
-                        0x1405 => 4, // GL_UNSIGNED_INT
-                        0x1406 => 4, // GL_FLOAT
-                        _ => 4,
-                    };
+                    if let Some(gpu_buf) = kernel.get_buffer(buffer.gpu_handle) {
+                        let itype = match (attr.type_, attr.size) {
+                            (0x1406, 1) => wgt::VertexFormat::Float32,
+                            (0x1406, 2) => wgt::VertexFormat::Float32x2,
+                            (0x1406, 3) => wgt::VertexFormat::Float32x3,
+                            (0x1406, 4) => wgt::VertexFormat::Float32x4,
+                            (0x1401, 1) => if attr.normalized { wgt::VertexFormat::Unorm8 } else { wgt::VertexFormat::Uint8 },
+                            (0x1401, 2) => if attr.normalized { wgt::VertexFormat::Unorm8x2 } else { wgt::VertexFormat::Uint8x2 },
+                            (0x1401, 3..=4) => if attr.normalized { wgt::VertexFormat::Unorm8x4 } else { wgt::VertexFormat::Uint8x4 },
+                            (0x1400, 1) => if attr.normalized { wgt::VertexFormat::Snorm8 } else { wgt::VertexFormat::Sint8 },
+                            (0x1400, 2) => if attr.normalized { wgt::VertexFormat::Snorm8x2 } else { wgt::VertexFormat::Sint8x2 },
+                            (0x1400, 3..=4) => if attr.normalized { wgt::VertexFormat::Snorm8x4 } else { wgt::VertexFormat::Sint8x4 },
+                            (0x1403, 1) => if attr.normalized { wgt::VertexFormat::Unorm16 } else { wgt::VertexFormat::Uint16 },
+                            (0x1403, 2) => if attr.normalized { wgt::VertexFormat::Unorm16x2 } else { wgt::VertexFormat::Uint16x2 },
+                            (0x1403, 3..=4) => if attr.normalized { wgt::VertexFormat::Unorm16x4 } else { wgt::VertexFormat::Uint16x4 },
+                            (0x1402, 1) => if attr.normalized { wgt::VertexFormat::Snorm16 } else { wgt::VertexFormat::Sint16 },
+                            (0x1402, 2) => if attr.normalized { wgt::VertexFormat::Snorm16x2 } else { wgt::VertexFormat::Sint16x2 },
+                            (0x1402, 3..=4) => if attr.normalized { wgt::VertexFormat::Snorm16x4 } else { wgt::VertexFormat::Sint16x4 },
+                            (0x1405, 1) => wgt::VertexFormat::Uint32,
+                            (0x1405, 2) => wgt::VertexFormat::Uint32x2,
+                            (0x1405, 3) => wgt::VertexFormat::Uint32x3,
+                            (0x1405, 4) => wgt::VertexFormat::Uint32x4,
+                            (0x1404, 1) => wgt::VertexFormat::Sint32,
+                            (0x1404, 2) => wgt::VertexFormat::Sint32x2,
+                            (0x1404, 3) => wgt::VertexFormat::Sint32x3,
+                            (0x1404, 4) => wgt::VertexFormat::Sint32x4,
+                            _ => wgt::VertexFormat::Float32x4, // Fallback
+                        };
 
-                    let effective_stride = if attr.stride == 0 {
-                        attr.size * type_size
-                    } else {
-                        attr.stride
-                    };
-
-                    let offset = attr.offset as usize
-                        + (effective_index as usize * effective_stride as usize);
-
-                    for component in 0..4 {
-                        if component < attr.size as usize {
-                            let src_off = offset + component * type_size as usize;
-                            if src_off + type_size as usize <= buffer.data.len() {
-                                let bits = if attr.is_integer {
-                                    // Pure integer attribute
-                                    match attr.type_ {
-                                        0x1400 => (buffer.data[src_off] as i8) as i32 as u32,
-                                        0x1401 => buffer.data[src_off] as u32,
-                                        0x1402 => i16::from_le_bytes(
-                                            buffer.data[src_off..src_off + 2].try_into().unwrap(),
-                                        ) as i32
-                                            as u32,
-                                        0x1403 => u16::from_le_bytes(
-                                            buffer.data[src_off..src_off + 2].try_into().unwrap(),
-                                        ) as u32,
-                                        0x1404 => u32::from_le_bytes(
-                                            buffer.data[src_off..src_off + 4].try_into().unwrap(),
-                                        ),
-                                        0x1405 => u32::from_le_bytes(
-                                            buffer.data[src_off..src_off + 4].try_into().unwrap(),
-                                        ),
-                                        _ => 0,
-                                    }
-                                } else {
-                                    // Float or normalized attribute
-                                    let val: f32 = match attr.type_ {
-                                        0x1406 => f32::from_le_bytes(
-                                            buffer.data[src_off..src_off + 4]
-                                                .try_into()
-                                                .unwrap_or([0; 4]),
-                                        ),
-                                        0x1400 => {
-                                            // GL_BYTE
-                                            let v = (buffer.data[src_off] as i8) as f32;
-                                            if attr.normalized {
-                                                // Signed byte normalization: max(c / 127.0, -1.0)
-                                                v / 127.0
-                                            } else {
-                                                v
-                                            }
-                                        }
-                                        0x1401 => {
-                                            // GL_UNSIGNED_BYTE
-                                            let v = buffer.data[src_off] as f32;
-                                            if attr.normalized {
-                                                v / 255.0
-                                            } else {
-                                                v
-                                            }
-                                        }
-                                        0x1402 => {
-                                            // GL_SHORT
-                                            let v = i16::from_le_bytes(
-                                                buffer.data[src_off..src_off + 2]
-                                                    .try_into()
-                                                    .unwrap(),
-                                            )
-                                                as f32;
-                                            if attr.normalized {
-                                                v / 32767.0
-                                            } else {
-                                                v
-                                            }
-                                        }
-                                        0x1403 => {
-                                            // GL_UNSIGNED_SHORT
-                                            let v = u16::from_le_bytes(
-                                                buffer.data[src_off..src_off + 2]
-                                                    .try_into()
-                                                    .unwrap(),
-                                            )
-                                                as f32;
-                                            if attr.normalized {
-                                                v / 65535.0
-                                            } else {
-                                                v
-                                            }
-                                        }
-                                        0x1404 => {
-                                            // GL_INT
-                                            let v = i32::from_le_bytes(
-                                                buffer.data[src_off..src_off + 4]
-                                                    .try_into()
-                                                    .unwrap(),
-                                            )
-                                                as f32;
-                                            if attr.normalized {
-                                                v / 2147483647.0
-                                            } else {
-                                                v
-                                            }
-                                        }
-                                        0x1405 => {
-                                            // GL_UNSIGNED_INT
-                                            let v = u32::from_le_bytes(
-                                                buffer.data[src_off..src_off + 4]
-                                                    .try_into()
-                                                    .unwrap(),
-                                            )
-                                                as f32;
-                                            if attr.normalized {
-                                                v / 4294967295.0
-                                            } else {
-                                                v
-                                            }
-                                        }
-                                        _ => 0.0,
-                                    };
-                                    val.to_bits()
-                                };
-                                dest[base_idx + component] = bits;
-                            } else {
-                                dest[base_idx + component] = 0;
-                            }
+                        let effective_stride = if attr.stride == 0 {
+                            let type_size = match attr.type_ {
+                                0x1400 => 1, // GL_BYTE
+                                0x1401 => 1, // GL_UNSIGNED_BYTE
+                                0x1402 => 2, // GL_SHORT
+                                0x1403 => 2, // GL_UNSIGNED_SHORT
+                                0x1404 => 4, // GL_INT
+                                0x1405 => 4, // GL_UNSIGNED_INT
+                                0x1406 => 4, // GL_FLOAT
+                                _ => 4,
+                            };
+                            attr.size as u32 * type_size
                         } else {
-                            // Fill remaining components with default (0,0,0,1)
-                            // For integer attributes, default is (0, 0, 0, 1)
-                            // For float attributes, default is (0.0, 0.0, 0.0, 1.0)
-                            // We store defaults in attr.default_value which are already bits
-                            // But wait, default_value is [u32; 4].
-                            // If we are filling from buffer, we should use 0/1 appropriate for the type?
-                            // Actually, if size < 4, we should use defaults.
-                            // But usually defaults are (0,0,0,1).
-                            // Let's use the default_value from the attribute if we want to be correct,
-                            // but standard says (0,0,0,1).
-                            // The attr.default_value is used when !enabled.
-                            // When enabled but component missing, it's (0,0,0,1).
-                            if component == 3 {
-                                dest[base_idx + component] =
-                                    if attr.is_integer { 1 } else { 1.0f32.to_bits() };
+                            attr.stride as u32
+                        };
+
+                        let mut comp_dest = [0u32; 4];
+                        crate::wasm_gl_emu::TransferEngine::fetch_vertex_attribute(
+                            gpu_buf,
+                            itype,
+                            attr.offset,
+                            effective_index,
+                            effective_stride,
+                            &mut comp_dest,
+                        );
+
+                        // Fix up defaults if not 4 components
+                        if attr.size < 4 {
+                            if !attr.is_integer {
+                                if attr.size == 1 { comp_dest[1] = 0; comp_dest[2] = 0; comp_dest[3] = 1.0f32.to_bits(); }
+                                else if attr.size == 2 { comp_dest[2] = 0; comp_dest[3] = 1.0f32.to_bits(); }
+                                else if attr.size == 3 { comp_dest[3] = 1.0f32.to_bits(); }
                             } else {
-                                dest[base_idx + component] = 0;
+                                if attr.size == 1 { comp_dest[1] = 0; comp_dest[2] = 0; comp_dest[3] = 1; }
+                                else if attr.size == 2 { comp_dest[2] = 0; comp_dest[3] = 1; }
+                                else if attr.size == 3 { comp_dest[3] = 1; }
                             }
                         }
+
+                        dest[base_idx..base_idx + 4].copy_from_slice(&comp_dest);
+                        continue;
                     }
-                } else {
-                    dest[base_idx..base_idx + 4].copy_from_slice(&attr.default_value);
                 }
-            } else {
-                dest[base_idx..base_idx + 4].copy_from_slice(&attr.default_value);
             }
+
+            // Fallback for enabled but missing/invalid fetch
+            dest[base_idx..base_idx + 4].copy_from_slice(&attr.default_value);
         }
     }
 
