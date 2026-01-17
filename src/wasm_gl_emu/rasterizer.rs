@@ -4,6 +4,7 @@
 //! by both WebGL2 and WebGPU implementations. It handles vertex fetching,
 //! barycentric interpolation, and fragment shading.
 
+use crate::wasm_gl_emu::device::{GpuBuffer, GpuKernel, StorageLayout};
 use crate::webgl2_context::types::*;
 
 /// Vertex data after vertex shader execution
@@ -502,8 +503,16 @@ impl Rasterizer {
         let ix = x as i32;
         let iy = y as i32;
         if ix >= 0 && ix < fb.width as i32 && iy >= 0 && iy < fb.height as i32 {
-            let bytes_per_pixel = get_bytes_per_pixel(fb.internal_format);
-            let idx = ((iy as u32 * fb.width + ix as u32) * bytes_per_pixel) as usize;
+            let idx = GpuBuffer::offset_for_layout(
+                ix as u32,
+                iy as u32,
+                0,
+                fb.width,
+                fb.height,
+                1,
+                gl_to_wgt_format(fb.internal_format),
+                fb.layout,
+            );
             if idx + color.len() <= fb.color.len() {
                 if fb.internal_format == GL_RGBA8 {
                     // GL_RGBA8: Use quantized blending
@@ -558,9 +567,19 @@ impl Rasterizer {
 
                 if is_inside(px, py, p0, p1, p2) {
                     let bytes_per_pixel = get_bytes_per_pixel(fb.internal_format);
-                    let idx = ((y as u32 * fb.width + x as u32) * bytes_per_pixel) as usize;
-                    if idx + color.len() <= fb.color.len() {
-                        fb.color[idx..idx + color.len()].copy_from_slice(&color);
+                    let idx = GpuBuffer::offset_for_layout(
+                        x as u32,
+                        y as u32,
+                        0,
+                        fb.width,
+                        fb.height,
+                        1,
+                        gl_to_wgt_format(fb.internal_format),
+                        fb.layout,
+                    );
+                    if idx + bytes_per_pixel as usize <= fb.color.len() {
+                        fb.color[idx..idx + bytes_per_pixel as usize]
+                            .copy_from_slice(&color[0..bytes_per_pixel as usize]);
                     }
                 }
             }
@@ -757,8 +776,16 @@ impl Rasterizer {
                     );
 
                     // Write color to framebuffer (format-aware)
-                    let bytes_per_pixel = get_bytes_per_pixel(fb.internal_format);
-                    let color_idx = fb_idx * bytes_per_pixel as usize;
+                    let color_idx = GpuBuffer::offset_for_layout(
+                        x as u32,
+                        y as u32,
+                        0,
+                        fb.width,
+                        fb.height,
+                        1,
+                        gl_to_wgt_format(fb.internal_format),
+                        fb.layout,
+                    );
 
                     if color_idx + color.len() <= fb.color.len() {
                         // For float formats, write directly with optional blending
@@ -1125,6 +1152,7 @@ impl Rasterizer {
                         color: &mut color_buffer.data,
                         depth: config.depth,
                         stencil: config.stencil,
+                        layout: color_buffer.layout,
                     };
                     self.rasterize_all(
                         &mut fb,
@@ -1142,6 +1170,7 @@ impl Rasterizer {
                         color: data,
                         depth: config.depth,
                         stencil: config.stencil,
+                        layout: StorageLayout::Linear,
                     };
                     self.rasterize_all(
                         &mut fb,

@@ -743,6 +743,7 @@ impl hal::Queue for SoftQueue {
                                                 &mut data,
                                                 &mut dummy_depth,
                                                 &mut dummy_stencil,
+                                                wasm_gl_emu::StorageLayout::Linear,
                                             );
 
                                             let rasterizer = wasm_gl_emu::Rasterizer::default();
@@ -830,6 +831,7 @@ impl hal::Queue for SoftQueue {
                                                 &mut data,
                                                 &mut dummy_depth,
                                                 &mut dummy_stencil,
+                                                wasm_gl_emu::StorageLayout::Linear,
                                             );
 
                                             let rasterizer = wasm_gl_emu::Rasterizer::default();

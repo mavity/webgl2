@@ -161,8 +161,16 @@ impl<'a> Compiler<'a> {
         self.webgl_image_load_idx = Some(func_idx);
 
         let mut func = Function::new(vec![
-            (4, ValType::I32), // locals 4..7: desc_addr, width, height, data_ptr
+            (7, ValType::I32), // locals 4..10: desc_addr, width, height, data_ptr, bpp, layout, address
         ]);
+
+        let l_desc_addr = 4;
+        let l_width = 5;
+        let l_height = 6;
+        let l_data_ptr = 7;
+        let l_bpp = 8;
+        let l_layout = 9;
+        let l_addr = 10;
 
         // 1. Compute descriptor address: ptr + unit * 32
         func.instruction(&Instruction::LocalGet(0));
@@ -170,93 +178,89 @@ impl<'a> Compiler<'a> {
         func.instruction(&Instruction::I32Const(32));
         func.instruction(&Instruction::I32Mul);
         func.instruction(&Instruction::I32Add);
-        func.instruction(&Instruction::LocalSet(4));
+        func.instruction(&Instruction::LocalSet(l_desc_addr));
 
         // 2. Load descriptor fields
-        func.instruction(&Instruction::LocalGet(4));
-        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-            offset: 0,
-            align: 2,
-            memory_index: 0,
-        }));
-        func.instruction(&Instruction::LocalSet(5)); // width
+        func.instruction(&Instruction::LocalGet(l_desc_addr));
+        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg { offset: 0, align: 2, memory_index: 0 }));
+        func.instruction(&Instruction::LocalSet(l_width));
 
-        func.instruction(&Instruction::LocalGet(4));
-        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-            offset: 4,
-            align: 2,
-            memory_index: 0,
-        }));
-        func.instruction(&Instruction::LocalSet(6)); // height
+        func.instruction(&Instruction::LocalGet(l_desc_addr));
+        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg { offset: 4, align: 2, memory_index: 0 }));
+        func.instruction(&Instruction::LocalSet(l_height));
 
-        func.instruction(&Instruction::LocalGet(4));
-        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-            offset: 8,
-            align: 2,
-            memory_index: 0,
-        }));
-        func.instruction(&Instruction::LocalSet(7)); // data_ptr
+        func.instruction(&Instruction::LocalGet(l_desc_addr));
+        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg { offset: 8, align: 2, memory_index: 0 }));
+        func.instruction(&Instruction::LocalSet(l_data_ptr));
 
-        // 3. Compute byte offset: (clamp(y, 0, h-1) * width + clamp(x, 0, w-1)) * 4
-        // Clamp Y
-        func.instruction(&Instruction::LocalGet(3));
-        func.instruction(&Instruction::I32Const(0));
-        func.instruction(&Instruction::LocalGet(6));
-        func.instruction(&Instruction::I32Const(1));
-        func.instruction(&Instruction::I32Sub);
-        // local.get 3 (y)
-        func.instruction(&Instruction::LocalGet(3));
-        func.instruction(&Instruction::I32Const(0));
-        func.instruction(&Instruction::I32LtS);
-        func.instruction(&Instruction::Select); // clamp min 0
-                                                // stack: [clamp_min_0]
-        func.instruction(&Instruction::LocalGet(6));
-        func.instruction(&Instruction::I32Const(1));
-        func.instruction(&Instruction::I32Sub);
-        // stack: [clamp_min_0, max_y]
-        func.instruction(&Instruction::LocalGet(3));
-        func.instruction(&Instruction::LocalGet(6));
-        func.instruction(&Instruction::I32Const(1));
-        func.instruction(&Instruction::I32Sub);
-        func.instruction(&Instruction::I32LtS);
-        func.instruction(&Instruction::Select); // clamp max max_y
+        func.instruction(&Instruction::LocalGet(l_desc_addr));
+        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg { offset: 20, align: 2, memory_index: 0 }));
+        func.instruction(&Instruction::LocalSet(l_bpp));
 
-        func.instruction(&Instruction::LocalGet(5)); // width
+        func.instruction(&Instruction::LocalGet(l_desc_addr));
+        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg { offset: 28, align: 2, memory_index: 0 }));
+        func.instruction(&Instruction::I32Const(16));
+        func.instruction(&Instruction::I32ShrU);
+        func.instruction(&Instruction::LocalSet(l_layout));
+
+        // 3. Compute byte offset
+        func.instruction(&Instruction::LocalGet(l_layout));
+        func.instruction(&Instruction::I32Const(1)); // Tiled8x8
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+            // Tiled8x8
+            func.instruction(&Instruction::LocalGet(l_width));
+            func.instruction(&Instruction::I32Const(7));
+            func.instruction(&Instruction::I32Add);
+            func.instruction(&Instruction::I32Const(3));
+            func.instruction(&Instruction::I32ShrU); // tiles_w
+            
+            func.instruction(&Instruction::LocalGet(3)); // y
+            func.instruction(&Instruction::I32Const(3));
+            func.instruction(&Instruction::I32ShrU); // tile_y
+            func.instruction(&Instruction::I32Mul); // tile_y * tiles_w
+            
+            func.instruction(&Instruction::LocalGet(2)); // x
+            func.instruction(&Instruction::I32Const(3));
+            func.instruction(&Instruction::I32ShrU); // tile_x
+            func.instruction(&Instruction::I32Add); // tile_idx
+            
+            func.instruction(&Instruction::I32Const(6));
+            func.instruction(&Instruction::I32Shl); // tile_idx * 64
+            
+            func.instruction(&Instruction::LocalGet(3)); // y
+            func.instruction(&Instruction::I32Const(7));
+            func.instruction(&Instruction::I32And); // inner_y
+            func.instruction(&Instruction::I32Const(3));
+            func.instruction(&Instruction::I32Shl); // inner_y * 8
+            
+            func.instruction(&Instruction::LocalGet(2)); // x
+            func.instruction(&Instruction::I32Const(7));
+            func.instruction(&Instruction::I32And); // inner_x
+            
+            func.instruction(&Instruction::I32Add); // inner_idx
+            func.instruction(&Instruction::I32Add); // total_idx
+            func.instruction(&Instruction::LocalSet(l_addr));
+        func.instruction(&Instruction::Else);
+            // Linear
+            func.instruction(&Instruction::LocalGet(3)); // y
+            func.instruction(&Instruction::LocalGet(l_width));
+            func.instruction(&Instruction::I32Mul);
+            func.instruction(&Instruction::LocalGet(2)); // x
+            func.instruction(&Instruction::I32Add);
+            func.instruction(&Instruction::LocalSet(l_addr));
+        func.instruction(&Instruction::End);
+
+        func.instruction(&Instruction::LocalGet(l_addr));
+        func.instruction(&Instruction::LocalGet(l_bpp));
         func.instruction(&Instruction::I32Mul);
-
-        // Clamp X
-        func.instruction(&Instruction::LocalGet(2));
-        func.instruction(&Instruction::I32Const(0));
-        func.instruction(&Instruction::LocalGet(5));
-        func.instruction(&Instruction::I32Const(1));
-        func.instruction(&Instruction::I32Sub);
-
-        func.instruction(&Instruction::LocalGet(2));
-        func.instruction(&Instruction::I32Const(0));
-        func.instruction(&Instruction::I32LtS);
-        func.instruction(&Instruction::Select);
-
-        func.instruction(&Instruction::LocalGet(5));
-        func.instruction(&Instruction::I32Const(1));
-        func.instruction(&Instruction::I32Sub);
-
-        func.instruction(&Instruction::LocalGet(2));
-        func.instruction(&Instruction::LocalGet(5));
-        func.instruction(&Instruction::I32Const(1));
-        func.instruction(&Instruction::I32Sub);
-        func.instruction(&Instruction::I32LtS);
-        func.instruction(&Instruction::Select);
-
+        func.instruction(&Instruction::LocalGet(l_data_ptr)); // data_ptr
         func.instruction(&Instruction::I32Add);
-        func.instruction(&Instruction::I32Const(4));
-        func.instruction(&Instruction::I32Mul);
-        func.instruction(&Instruction::LocalGet(7)); // data_ptr
-        func.instruction(&Instruction::I32Add);
-        func.instruction(&Instruction::LocalSet(4)); // address
+        func.instruction(&Instruction::LocalSet(l_addr)); // address
 
         // 4. Load RGBA
         for i in 0..4 {
-            func.instruction(&Instruction::LocalGet(4));
+            func.instruction(&Instruction::LocalGet(l_addr));
             func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
                 offset: i * 4,
                 align: 2,
@@ -286,7 +290,7 @@ impl<'a> Compiler<'a> {
 
         let p_count = if is_3d { 5 } else { 4 };
         let mut func = Function::new(vec![
-            (14, ValType::I32), // locals: desc_addr, width, height, data_ptr, depth, format, bpp, tx, ty, tz, addr, ws, wt, wr
+            (15, ValType::I32), // locals: desc_addr, width, height, data_ptr, depth, format, bpp, tx, ty, tz, addr, ws, wt, wr, layout
             (4, ValType::F32),  // locals: res_r, res_g, res_b, res_a
         ]);
 
@@ -304,10 +308,11 @@ impl<'a> Compiler<'a> {
         let l_wrap_s = p_count + 11;
         let l_wrap_t = p_count + 12;
         let l_wrap_r = p_count + 13;
-        let l_res_r = p_count + 14;
-        let l_res_g = p_count + 15;
-        let l_res_b = p_count + 16;
-        let l_res_a = p_count + 17;
+        let l_layout = p_count + 14;
+        let l_res_r = p_count + 15;
+        let l_res_g = p_count + 16;
+        let l_res_b = p_count + 17;
+        let l_res_a = p_count + 18;
 
         // 1. Compute descriptor address: ptr + unit * 32
         func.instruction(&Instruction::LocalGet(0));
@@ -358,13 +363,25 @@ impl<'a> Compiler<'a> {
         func.instruction(&Instruction::I32And);
         func.instruction(&Instruction::LocalSet(l_wrap_s));
 
-        // Load wrap_r
+        // Load packed wrap_r/layout from offset 28
         func.instruction(&Instruction::LocalGet(l_desc_addr));
         func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
             offset: 28,
             align: 2,
             memory_index: 0,
         }));
+        func.instruction(&Instruction::LocalSet(l_wrap_r));
+
+        // Unpack layout from high 16 bits
+        func.instruction(&Instruction::LocalGet(l_wrap_r));
+        func.instruction(&Instruction::I32Const(16));
+        func.instruction(&Instruction::I32ShrU);
+        func.instruction(&Instruction::LocalSet(l_layout));
+
+        // Mask wrap_r
+        func.instruction(&Instruction::LocalGet(l_wrap_r));
+        func.instruction(&Instruction::I32Const(0xFFFF));
+        func.instruction(&Instruction::I32And);
         func.instruction(&Instruction::LocalSet(l_wrap_r));
 
         // 3. Compute texel coords with clamping
@@ -406,26 +423,107 @@ impl<'a> Compiler<'a> {
             compute_coord(4, l_depth, l_tz);
         }
 
-        // 4. Compute byte address
-        // offset = (tz * height + ty) * width + tx
-        if is_3d {
-            func.instruction(&Instruction::LocalGet(l_tz));
-            func.instruction(&Instruction::LocalGet(l_height));
-            func.instruction(&Instruction::I32Mul);
-            func.instruction(&Instruction::LocalGet(l_ty));
-            func.instruction(&Instruction::I32Add);
+        // 4. Compute byte address based on layout
+        func.instruction(&Instruction::LocalGet(l_layout));
+        func.instruction(&Instruction::I32Const(1)); // Tiled8x8
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+            // tiles_w = (width + 7) >> 3
             func.instruction(&Instruction::LocalGet(l_width));
-            func.instruction(&Instruction::I32Mul);
-            func.instruction(&Instruction::LocalGet(l_tx));
+            func.instruction(&Instruction::I32Const(7));
             func.instruction(&Instruction::I32Add);
-        } else {
+            func.instruction(&Instruction::I32Const(3));
+            func.instruction(&Instruction::I32ShrU);
+            
+            // tile_y = ty >> 3
             func.instruction(&Instruction::LocalGet(l_ty));
-            func.instruction(&Instruction::LocalGet(l_width));
+            func.instruction(&Instruction::I32Const(3));
+            func.instruction(&Instruction::I32ShrU);
+            
+            // tile_y * tiles_w
             func.instruction(&Instruction::I32Mul);
+            
+            // tile_x = tx >> 3
             func.instruction(&Instruction::LocalGet(l_tx));
+            func.instruction(&Instruction::I32Const(3));
+            func.instruction(&Instruction::I32ShrU);
+            
+            // (tile_y * tiles_w + tile_x)
             func.instruction(&Instruction::I32Add);
-        }
+            
+            // * 64
+            func.instruction(&Instruction::I32Const(6));
+            func.instruction(&Instruction::I32Shl);
+            
+            // inner_y = ty & 7
+            func.instruction(&Instruction::LocalGet(l_ty));
+            func.instruction(&Instruction::I32Const(7));
+            func.instruction(&Instruction::I32And);
+            func.instruction(&Instruction::I32Const(3));
+            func.instruction(&Instruction::I32Shl); // * 8
+            
+            // inner_x = tx & 7
+            func.instruction(&Instruction::LocalGet(l_tx));
+            func.instruction(&Instruction::I32Const(7));
+            func.instruction(&Instruction::I32And);
+            
+            // inner_idx = inner_y * 8 + inner_x
+            func.instruction(&Instruction::I32Add);
+            
+            // total_idx = tile_idx * 64 + inner_idx
+            func.instruction(&Instruction::I32Add);
 
+            if is_3d {
+                // Save idx to addr temporarily
+                func.instruction(&Instruction::LocalSet(l_addr));
+                
+                // tiles_w = (width + 7) >> 3
+                func.instruction(&Instruction::LocalGet(l_width));
+                func.instruction(&Instruction::I32Const(7));
+                func.instruction(&Instruction::I32Add);
+                func.instruction(&Instruction::I32Const(3));
+                func.instruction(&Instruction::I32ShrU);
+                
+                // tiles_h = (height + 7) >> 3
+                func.instruction(&Instruction::LocalGet(l_height));
+                func.instruction(&Instruction::I32Const(7));
+                func.instruction(&Instruction::I32Add);
+                func.instruction(&Instruction::I32Const(3));
+                func.instruction(&Instruction::I32ShrU);
+                
+                func.instruction(&Instruction::I32Mul);
+                func.instruction(&Instruction::I32Const(6));
+                func.instruction(&Instruction::I32Shl); // * 64
+                
+                func.instruction(&Instruction::LocalGet(l_tz));
+                func.instruction(&Instruction::I32Mul);
+                func.instruction(&Instruction::LocalGet(l_addr));
+                func.instruction(&Instruction::I32Add);
+            }
+            func.instruction(&Instruction::LocalSet(l_addr));
+        func.instruction(&Instruction::Else);
+            // Linear
+            if is_3d {
+                func.instruction(&Instruction::LocalGet(l_tz));
+                func.instruction(&Instruction::LocalGet(l_height));
+                func.instruction(&Instruction::I32Mul);
+                func.instruction(&Instruction::LocalGet(l_ty));
+                func.instruction(&Instruction::I32Add);
+                func.instruction(&Instruction::LocalGet(l_width));
+                func.instruction(&Instruction::I32Mul);
+                func.instruction(&Instruction::LocalGet(l_tx));
+                func.instruction(&Instruction::I32Add);
+            } else {
+                func.instruction(&Instruction::LocalGet(l_ty));
+                func.instruction(&Instruction::LocalGet(l_width));
+                func.instruction(&Instruction::I32Mul);
+                func.instruction(&Instruction::LocalGet(l_tx));
+                func.instruction(&Instruction::I32Add);
+            }
+            func.instruction(&Instruction::LocalSet(l_addr));
+        func.instruction(&Instruction::End);
+
+        func.instruction(&Instruction::LocalGet(l_addr));
         func.instruction(&Instruction::LocalGet(l_bpp));
         func.instruction(&Instruction::I32Mul);
         func.instruction(&Instruction::LocalGet(l_ptr));

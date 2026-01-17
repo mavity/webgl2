@@ -159,7 +159,7 @@ pub fn ctx_renderbuffer_storage(
         rb.height,
         1,
         gl_to_wgt_format(internal_format),
-        crate::wasm_gl_emu::device::StorageLayout::Linear,
+        crate::wasm_gl_emu::device::StorageLayout::Tiled8x8,
     );
 
     ERR_OK

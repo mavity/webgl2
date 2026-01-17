@@ -1,5 +1,5 @@
 //! Framebuffer management for render targets
-use crate::wasm_gl_emu::device::{GpuHandle, GpuKernel, StorageLayout};
+use crate::wasm_gl_emu::device::{GpuBuffer, GpuHandle, GpuKernel, StorageLayout};
 use wgpu_types as wgt;
 
 /// Framebuffer that owns its data
@@ -10,6 +10,7 @@ pub struct OwnedFramebuffer {
     pub gpu_handle: GpuHandle,
     pub depth: Vec<f32>,
     pub stencil: Vec<u8>,
+    pub layout: StorageLayout,
 }
 
 impl OwnedFramebuffer {
@@ -25,7 +26,8 @@ impl OwnedFramebuffer {
             _ => wgt::TextureFormat::Rgba8Unorm,     // GL_RGBA8
         };
         
-        let gpu_handle = kernel.create_buffer(width, height, 1, format, StorageLayout::Linear);
+        let layout = StorageLayout::Tiled8x8;
+        let gpu_handle = kernel.create_buffer(width, height, 1, format, layout);
         
         Self {
             width,
@@ -34,18 +36,20 @@ impl OwnedFramebuffer {
             gpu_handle,
             depth: vec![1.0; (width * height) as usize],
             stencil: vec![0; (width * height) as usize],
+            layout,
         }
     }
 
     pub fn as_framebuffer<'a>(&'a mut self, kernel: &'a mut GpuKernel) -> Framebuffer<'a> {
         let buffer = kernel.get_buffer_mut(self.gpu_handle).expect("buffer lost");
         Framebuffer {
-            width: self.width,
-            height: self.height,
+            width: buffer.width,
+            height: buffer.height,
             internal_format: self.internal_format,
             color: &mut buffer.data,
             depth: &mut self.depth,
             stencil: &mut self.stencil,
+            layout: self.layout,
         }
     }
 
@@ -74,6 +78,7 @@ pub struct Framebuffer<'a> {
     pub color: &'a mut [u8],
     pub depth: &'a mut [f32],
     pub stencil: &'a mut [u8],
+    pub layout: StorageLayout,
 }
 
 impl<'a> Framebuffer<'a> {
@@ -84,6 +89,7 @@ impl<'a> Framebuffer<'a> {
         color: &'a mut [u8],
         depth: &'a mut [f32],
         stencil: &'a mut [u8],
+        layout: StorageLayout,
     ) -> Self {
         Self {
             width,
@@ -92,6 +98,26 @@ impl<'a> Framebuffer<'a> {
             color,
             depth,
             stencil,
+            layout,
         }
+    }
+
+    pub fn get_pixel_offset(&self, x: u32, y: u32, z: u32) -> usize {
+        let format = match self.internal_format {
+            0x822E => wgt::TextureFormat::R32Float,
+            0x8230 => wgt::TextureFormat::Rg32Float,
+            0x8814 => wgt::TextureFormat::Rgba32Float,
+            _ => wgt::TextureFormat::Rgba8Unorm,
+        };
+        GpuBuffer::offset_for_layout(
+            x,
+            y,
+            z,
+            self.width,
+            self.height,
+            1,
+            format,
+            self.layout,
+        )
     }
 }

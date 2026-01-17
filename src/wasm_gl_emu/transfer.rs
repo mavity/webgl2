@@ -418,25 +418,31 @@ impl TransferEngine {
         handle: super::device::GpuHandle,
         x: i32,
         y: i32,
+        z: i32,
         width: u32,
         height: u32,
+        depth: u32,
         src: &[u8],
     ) {
         if let Some(buf) = kernel.get_buffer_mut(handle) {
             let bpp = buf.format.block_copy_size(None).unwrap_or(4) as usize;
             let src_stride = width as usize * bpp;
+            let layer_size = height as usize * src_stride;
 
-            for row in 0..height {
-                for col in 0..width {
-                    let dx = (x + col as i32) as u32;
-                    let dy = (y + row as i32) as u32;
+            for d in 0..depth {
+                for row in 0..height {
+                    for col in 0..width {
+                        let dx = (x + col as i32) as u32;
+                        let dy = (y + row as i32) as u32;
+                        let dz = (z + d as i32) as u32;
 
-                    if dx < buf.width && dy < buf.height {
-                        let dst_off = buf.get_pixel_offset(dx, dy, 0);
-                        let src_off = (row as usize * src_stride) + (col as usize * bpp);
+                        if dx < buf.width && dy < buf.height && dz < buf.depth {
+                            let dst_off = buf.get_pixel_offset(dx, dy, dz);
+                            let src_off = (d as usize * layer_size) + (row as usize * src_stride) + (col as usize * bpp);
 
-                        if dst_off + bpp <= buf.data.len() && src_off + bpp <= src.len() {
-                            buf.data[dst_off..dst_off + bpp].copy_from_slice(&src[src_off..src_off + bpp]);
+                            if dst_off + bpp <= buf.data.len() && src_off + bpp <= src.len() {
+                                buf.data[dst_off..dst_off + bpp].copy_from_slice(&src[src_off..src_off + bpp]);
+                            }
                         }
                     }
                 }

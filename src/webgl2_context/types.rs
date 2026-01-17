@@ -69,9 +69,12 @@ pub const GL_UNSIGNED_INT_24_8: u32 = 0x84FA;
 pub const GL_DEPTH24_STENCIL8: u32 = 0x88F0;
 
 pub const GL_RGBA8: u32 = 0x8058;
+pub const GL_RGB8: u32 = 0x8051;
 pub const GL_R32F: u32 = 0x822E;
 pub const GL_RG32F: u32 = 0x8230;
 pub const GL_RGBA32F: u32 = 0x8814;
+pub const GL_DEPTH_COMPONENT24: u32 = 0x81A6;
+pub const GL_DEPTH_COMPONENT32F: u32 = 0x8CAC;
 
 pub const GL_VERTEX_ATTRIB_ARRAY_ENABLED: u32 = 0x8622;
 pub const GL_VERTEX_ATTRIB_ARRAY_SIZE: u32 = 0x8623;
@@ -714,18 +717,9 @@ impl Context {
 
 /// Get bytes per pixel for a given internal format
 pub(crate) fn get_bytes_per_pixel(internal_format: u32) -> u32 {
-    match internal_format {
-        GL_R32F => 4,              // 1 channel × 4 bytes
-        GL_RG32F => 8,             // 2 channels × 4 bytes
-        GL_RGBA32F => 16,          // 4 channels × 4 bytes
-        GL_RGBA8 => 4,             // 4 channels × 1 byte
-        GL_RGBA4 => 2,             // packed 16-bit
-        GL_RGB565 => 2,            // packed 16-bit
-        GL_RGB5_A1 => 2,           // packed 16-bit
-        GL_DEPTH_COMPONENT16 => 2, // 16-bit depth
-        GL_STENCIL_INDEX8 => 1,    // 8-bit stencil
-        _ => 4,                    // Default to RGBA8
-    }
+    gl_to_wgt_format(internal_format)
+        .block_copy_size(None)
+        .unwrap_or(4)
 }
 
 /// Map GL internal format to wgt::TextureFormat
@@ -734,16 +728,25 @@ pub(crate) fn gl_to_wgt_format(internal_format: u32) -> wgpu_types::TextureForma
         GL_R32F => wgpu_types::TextureFormat::R32Float,
         GL_RG32F => wgpu_types::TextureFormat::Rg32Float,
         GL_RGBA32F => wgpu_types::TextureFormat::Rgba32Float,
-        GL_RGBA8 => wgpu_types::TextureFormat::Rgba8Unorm,
+        GL_RGBA8 | GL_RGB8 | GL_RGBA | GL_RGB => wgpu_types::TextureFormat::Rgba8Unorm,
+        GL_RED => wgpu_types::TextureFormat::R8Unorm,
+        GL_RG => wgpu_types::TextureFormat::Rg8Unorm,
+
         // Packed 16-bit formats.
         // WebGL2 requires these. We store them in distinct formats to tell them apart in the HAL.
-        // Since Bgr565, Rgba4 and Rgb5a1 are missing in this wgpu version, 
+        // Since Bgr565, Rgba4 and Rgb5a1 are missing in this wgpu version,
         // we use R16Uint, Rg8Uint and R16Sint as "unique placeholders".
         // They all have 2 bytes per pixel.
         GL_RGBA4 => wgpu_types::TextureFormat::Rg8Uint,
         GL_RGB565 => wgpu_types::TextureFormat::R16Uint,
         GL_RGB5_A1 => wgpu_types::TextureFormat::R16Sint,
+
         GL_DEPTH_COMPONENT16 => wgpu_types::TextureFormat::Depth16Unorm,
+        GL_DEPTH_COMPONENT24 => wgpu_types::TextureFormat::Depth24Plus,
+        GL_DEPTH_COMPONENT32F => wgpu_types::TextureFormat::Depth32Float,
+        GL_DEPTH24_STENCIL8 => wgpu_types::TextureFormat::Depth24PlusStencil8,
+        GL_STENCIL_INDEX8 => wgpu_types::TextureFormat::Stencil8,
+
         _ => wgpu_types::TextureFormat::Rgba8Unorm,
     }
 }

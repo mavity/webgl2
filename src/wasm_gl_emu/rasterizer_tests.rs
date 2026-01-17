@@ -108,6 +108,8 @@ fn test_rasterizer_draw_point() {
         ctx_handle: 0,
         memory: ShaderMemoryLayout::default(),
         viewport: (0, 0, 100, 100),
+        scissor: (0, 0, 100, 100),
+        scissor_enabled: false,
         uniform_data: &[],
         prepare_textures: None,
         blend: BlendState::default(),
@@ -120,7 +122,7 @@ fn test_rasterizer_draw_point() {
     rasterizer.draw_point(&mut fb, 50.0, 50.0, &[255, 0, 0, 255], &state);
 
     // Check the pixel was written
-    let idx = (50 * 100 + 50) * 4;
+    let idx = fb.get_pixel_offset(50, 50, 0);
     assert_eq!(fb.color[idx], 255);
     assert_eq!(fb.color[idx + 1], 0);
     assert_eq!(fb.color[idx + 2], 0);
@@ -137,6 +139,8 @@ fn test_rasterizer_draw_point_out_of_bounds() {
         ctx_handle: 0,
         memory: ShaderMemoryLayout::default(),
         viewport: (0, 0, 100, 100),
+        scissor: (0, 0, 100, 100),
+        scissor_enabled: false,
         uniform_data: &[],
         prepare_textures: None,
         blend: BlendState::default(),
@@ -169,7 +173,7 @@ fn test_rasterizer_draw_simple_triangle() {
     rasterizer.draw_triangle(&mut fb, p0, p1, p2, [0, 255, 0, 255]);
 
     // Check that some pixels were written (triangle center should be colored)
-    let idx = (15 * 100 + 15) * 4;
+    let idx = fb.get_pixel_offset(15, 15, 0);
     assert_eq!(fb.color[idx + 1], 255); // Green channel
 }
 
@@ -196,6 +200,8 @@ fn test_render_state_creation() {
         ctx_handle: 1,
         memory: ShaderMemoryLayout::default(),
         viewport: (0, 0, 800, 600),
+        scissor: (0, 0, 800, 600),
+        scissor_enabled: false,
         uniform_data: &uniform_data,
         prepare_textures: None,
         blend: BlendState::default(),

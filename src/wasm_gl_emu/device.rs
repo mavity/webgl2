@@ -51,8 +51,20 @@ pub struct GpuBuffer {
 
 impl GpuBuffer {
     pub fn new(width: u32, height: u32, depth: u32, format: wgt::TextureFormat, layout: StorageLayout) -> Self {
-        let bpp = format.block_copy_size(None).unwrap_or(4);
-        let size = (width as u64) * (height as u64) * (depth as u64) * (bpp as u64);
+        let bpp = format.block_copy_size(None).unwrap_or(4) as u64;
+        let size = match layout {
+            StorageLayout::Linear => (width as u64) * (height as u64) * (depth as u64) * bpp,
+            StorageLayout::Tiled8x8 => {
+                let tiles_w = (width + 7) / 8;
+                let tiles_h = (height + 7) / 8;
+                (tiles_w as u64) * (tiles_h as u64) * 64 * (depth as u64) * bpp
+            }
+            StorageLayout::Morton => {
+                // For Morton we ideally want power-of-two dimensions, but for now we just use the next 2^n
+                let dim = width.max(height).next_power_of_two();
+                (dim as u64) * (dim as u64) * (depth as u64) * bpp
+            }
+        };
         Self {
             data: vec![0; size as usize],
             width,
@@ -65,20 +77,43 @@ impl GpuBuffer {
 
     /// Calculate byte offset for a pixel at (x, y, z)
     pub fn get_pixel_offset(&self, x: u32, y: u32, z: u32) -> usize {
-        let bpp = self.format.block_copy_size(None).unwrap_or(4) as usize;
-        match self.layout {
-            StorageLayout::Linear => {
-                ((z * self.height * self.width + y * self.width + x) as usize) * bpp
-            }
+        Self::offset_for_layout(
+            x,
+            y,
+            z,
+            self.width,
+            self.height,
+            self.depth,
+            self.format,
+            self.layout,
+        )
+    }
+
+    /// Calculate byte offset given layout parameters (useful when buffer is borrowed)
+    pub fn offset_for_layout(
+        x: u32,
+        y: u32,
+        z: u32,
+        width: u32,
+        height: u32,
+        _depth: u32,
+        format: wgt::TextureFormat,
+        layout: StorageLayout,
+    ) -> usize {
+        let bpp = format.block_copy_size(None).unwrap_or(4) as usize;
+        match layout {
+            StorageLayout::Linear => ((z * height * width + y * width + x) as usize) * bpp,
             StorageLayout::Tiled8x8 => {
+                let tiles_w = (width + 7) / 8;
+                let tiles_h = (height + 7) / 8;
                 let tile_x = x / 8;
                 let tile_y = y / 8;
                 let inner_x = x % 8;
                 let inner_y = y % 8;
-                let tiles_per_row = (self.width + 7) / 8;
-                let tile_idx = (tile_y * tiles_per_row + tile_x) as usize;
+
+                let tile_idx = (tile_y * tiles_w + tile_x) as usize;
                 let inner_idx = (inner_y * 8 + inner_x) as usize;
-                let layer_size = (self.width * self.height * bpp as u32) as usize;
+                let layer_size = (tiles_w * tiles_h * 64) as usize * bpp;
                 (z as usize * layer_size) + (tile_idx * 64 + inner_idx) * bpp
             }
             StorageLayout::Morton => {
@@ -90,7 +125,8 @@ impl GpuBuffer {
                     }
                     z as usize
                 }
-                let layer_size = (self.width * self.height * bpp as u32) as usize;
+                let dim = width.max(height).next_power_of_two();
+                let layer_size = (dim * dim) as usize * bpp;
                 (z as usize * layer_size) + z_order(x, y) * bpp
             }
         }
@@ -200,13 +236,21 @@ impl GpuKernel {
         dst_y1: i32,
         _filter: u32, // TODO: support linear?
     ) {
-        let (src_data, src_w, src_h, src_bpp, src_layout) = if let Some(buf) = self.get_buffer(src_handle) {
-            (buf.data.clone(), buf.width, buf.height, buf.format.block_copy_size(None).unwrap_or(4) as usize, buf.layout)
+        let (src_data, src_w, src_h, src_d, src_format, src_layout) = if let Some(buf) = self.get_buffer(src_handle) {
+            (
+                buf.data.clone(),
+                buf.width,
+                buf.height,
+                buf.depth,
+                buf.format,
+                buf.layout,
+            )
         } else {
             return;
         };
 
         if let Some(dst_buf) = self.get_buffer_mut(dst_handle) {
+            let src_bpp = src_format.block_copy_size(None).unwrap_or(4) as usize;
             let dst_bpp = dst_buf.format.block_copy_size(None).unwrap_or(4) as usize;
             let bpp = src_bpp.min(dst_bpp);
 
@@ -215,7 +259,9 @@ impl GpuKernel {
             let src_w_region = (src_x1 - src_x0).abs();
             let src_h_region = (src_y1 - src_y0).abs();
 
-            if dst_w_region == 0 || dst_h_region == 0 { return; }
+            if dst_w_region == 0 || dst_h_region == 0 {
+                return;
+            }
 
             let x_step = src_w_region as f32 / dst_w_region as f32;
             let y_step = src_h_region as f32 / dst_h_region as f32;
@@ -230,7 +276,8 @@ impl GpuKernel {
                     let dx = dst_x0 + dx_rel * x_dir;
                     let dy = dst_y0 + dy_rel * y_dir;
 
-                    if dx < 0 || dx >= dst_buf.width as i32 || dy < 0 || dy >= dst_buf.height as i32 {
+                    if dx < 0 || dx >= dst_buf.width as i32 || dy < 0 || dy >= dst_buf.height as i32
+                    {
                         continue;
                     }
 
@@ -241,10 +288,16 @@ impl GpuKernel {
                         continue;
                     }
 
-                    let src_off = match src_layout {
-                        StorageLayout::Linear => ((sy as u32 * src_w + sx as u32) as usize) * src_bpp,
-                        _ => 0,
-                    };
+                    let src_off = GpuBuffer::offset_for_layout(
+                        sx as u32,
+                        sy as u32,
+                        0,
+                        src_w,
+                        src_h,
+                        src_d,
+                        src_format,
+                        src_layout,
+                    );
                     let dst_off = dst_buf.get_pixel_offset(dx as u32, dy as u32, 0);
 
                     if src_off + bpp <= src_data.len() && dst_off + bpp <= dst_buf.data.len() {
@@ -342,7 +395,7 @@ impl GpuKernel {
                         *base.offset(4) = b.format as i32;
                         *base.offset(5) = b.bytes_per_pixel as i32;
                         *base.offset(6) = ((b.wrap_s & 0xFFFF) | ((b.wrap_t & 0xFFFF) << 16)) as i32;
-                        *base.offset(7) = b.wrap_r as i32;
+                        *base.offset(7) = (b.wrap_r & 0xFFFF) as i32 | ((buf.layout as i32) << 16);
                     }
                 }
             }

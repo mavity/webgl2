@@ -243,13 +243,21 @@ pub fn ctx_tex_image_2d(
             height,
             1,
             super::types::gl_to_wgt_format(storage_internal_format),
-            crate::wasm_gl_emu::device::StorageLayout::Linear,
+            crate::wasm_gl_emu::device::StorageLayout::Tiled8x8,
         );
 
-        if let Some(buf) = ctx_obj.kernel.get_buffer_mut(gpu_handle) {
-            let to_copy = pixel_data.len().min(buf.data.len());
-            buf.data[..to_copy].copy_from_slice(&pixel_data[..to_copy]);
-        }
+        // Copy pixels using TransferEngine to handle tiling
+        crate::wasm_gl_emu::transfer::TransferEngine::write_pixels(
+            &mut ctx_obj.kernel,
+            gpu_handle,
+            0,
+            0,
+            0,
+            width,
+            height,
+            1,
+            &pixel_data,
+        );
 
         let level_data = MipLevel {
             width,
@@ -345,13 +353,20 @@ pub fn ctx_tex_image_3d(
             height,
             depth,
             super::types::gl_to_wgt_format(storage_internal_format),
-            crate::wasm_gl_emu::device::StorageLayout::Linear,
+            crate::wasm_gl_emu::device::StorageLayout::Tiled8x8,
         );
 
-        if let Some(buf) = ctx_obj.kernel.get_buffer_mut(gpu_handle) {
-            let to_copy = pixel_data.len().min(buf.data.len());
-            buf.data[..to_copy].copy_from_slice(&pixel_data[..to_copy]);
-        }
+        crate::wasm_gl_emu::TransferEngine::write_pixels(
+            &mut ctx_obj.kernel,
+            gpu_handle,
+            0,
+            0,
+            0,
+            width,
+            height,
+            depth,
+            &pixel_data,
+        );
 
         let level_data = MipLevel {
             width,
@@ -420,8 +435,10 @@ pub fn ctx_tex_sub_image_2d(
             level_data.gpu_handle,
             xoffset,
             yoffset,
+            0,
             width,
             height,
+            1,
             sub_data,
         );
 
@@ -507,11 +524,20 @@ pub fn ctx_generate_mipmap(ctx: u32, target: u32) -> u32 {
                 next_height,
                 1,
                 gl_to_wgt_format(internal_format),
-                crate::wasm_gl_emu::device::StorageLayout::Linear,
+                crate::wasm_gl_emu::device::StorageLayout::Tiled8x8,
             );
-            if let Some(buf) = ctx_obj.kernel.get_buffer_mut(next_handle) {
-                buf.data.copy_from_slice(&next_data);
-            }
+            
+            crate::wasm_gl_emu::TransferEngine::write_pixels(
+                &mut ctx_obj.kernel,
+                next_handle,
+                0,
+                0,
+                0,
+                next_width,
+                next_height,
+                1,
+                &next_data,
+            );
 
             // We need to re-get the texture because we might have modified ctx_obj.kernel (and thus borrowed ctx_obj)
             let tex = ctx_obj.textures.get_mut(&tex_handle).unwrap();
@@ -584,7 +610,7 @@ pub fn ctx_copy_tex_image_2d(
             height as u32,
             1,
             gl_to_wgt_format(internal_format),
-            crate::wasm_gl_emu::device::StorageLayout::Linear,
+            crate::wasm_gl_emu::device::StorageLayout::Tiled8x8,
         );
 
         ctx_obj.kernel.copy_buffer(
