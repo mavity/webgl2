@@ -27,22 +27,7 @@ pub fn ctx_get_buffer_parameter(ctx: u32, target: u32, pname: u32) -> i32 {
         }
     };
 
-    let buffer_handle = match target {
-        GL_ARRAY_BUFFER => ctx_obj.bound_array_buffer,
-        GL_ELEMENT_ARRAY_BUFFER => {
-            if let Some(vao) = ctx_obj.vertex_arrays.get(&ctx_obj.bound_vertex_array) {
-                vao.element_array_buffer
-            } else {
-                None
-            }
-        }
-        _ => {
-            set_last_error("invalid buffer target");
-            return -1;
-        }
-    };
-
-    let buffer_handle = match buffer_handle {
+    let buffer_handle = match ctx_obj.get_buffer_handle_for_target(target) {
         Some(h) => h,
         None => {
             set_last_error("no buffer bound to target");
@@ -117,8 +102,12 @@ pub fn ctx_delete_buffer(ctx: u32, buf: u32) -> u32 {
     if let Some(b) = ctx_obj.buffers.remove(&buf) {
         ctx_obj.kernel.destroy_buffer(b.gpu_handle);
     }
-    if ctx_obj.bound_array_buffer == Some(buf) {
-        ctx_obj.bound_array_buffer = None;
+    
+    // Unbind from all targets
+    for val in ctx_obj.buffer_bindings.values_mut() {
+        if *val == Some(buf) {
+            *val = None;
+        }
     }
 
     // Unbind from all VAOs
@@ -132,6 +121,60 @@ pub fn ctx_delete_buffer(ctx: u32, buf: u32) -> u32 {
             }
         }
     }
+    ERR_OK
+}
+
+/// Copy data between buffers.
+pub fn ctx_copy_buffer_sub_data(
+    ctx: u32,
+    read_target: u32,
+    write_target: u32,
+    read_offset: u32,
+    write_offset: u32,
+    size: u32,
+) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+
+    let read_buf_handle = match ctx_obj.get_buffer_handle_for_target(read_target) {
+        Some(h) => h,
+        None => {
+            set_last_error("no source buffer bound");
+            return ERR_INVALID_OPERATION;
+        }
+    };
+    let write_buf_handle = match ctx_obj.get_buffer_handle_for_target(write_target) {
+        Some(h) => h,
+        None => {
+            set_last_error("no destination buffer bound");
+            return ERR_INVALID_OPERATION;
+        }
+    };
+
+    let src_gpu = match ctx_obj.buffers.get(&read_buf_handle) {
+        Some(b) => b.gpu_handle,
+        None => return ERR_INVALID_HANDLE,
+    };
+    let dst_gpu = match ctx_obj.buffers.get(&write_buf_handle) {
+        Some(b) => b.gpu_handle,
+        None => return ERR_INVALID_HANDLE,
+    };
+
+    ctx_obj.kernel.copy_blob(
+        src_gpu,
+        dst_gpu,
+        read_offset as usize,
+        write_offset as usize,
+        size as usize,
+    );
+
     ERR_OK
 }
 
@@ -152,21 +195,17 @@ pub fn ctx_bind_buffer(ctx: u32, target: u32, buf: u32) -> u32 {
         return ERR_INVALID_HANDLE;
     }
 
-    match target {
-        GL_ARRAY_BUFFER => ctx_obj.bound_array_buffer = if buf == 0 { None } else { Some(buf) },
-        GL_ELEMENT_ARRAY_BUFFER => {
-            if let Some(vao) = ctx_obj.vertex_arrays.get_mut(&ctx_obj.bound_vertex_array) {
-                vao.element_array_buffer = if buf == 0 { None } else { Some(buf) };
-            } else {
-                // Should not happen if bound_vertex_array is valid
-                set_last_error("current vertex array not found");
-                return ERR_INVALID_OPERATION;
-            }
+    if target == GL_ELEMENT_ARRAY_BUFFER {
+        if let Some(vao) = ctx_obj.vertex_arrays.get_mut(&ctx_obj.bound_vertex_array) {
+            vao.element_array_buffer = if buf == 0 { None } else { Some(buf) };
+        } else {
+            set_last_error("current vertex array not found");
+            return ERR_INVALID_OPERATION;
         }
-        _ => {
-            set_last_error("invalid buffer target");
-            return ERR_INVALID_ARGS;
-        }
+    } else {
+        ctx_obj
+            .buffer_bindings
+            .insert(target, if buf == 0 { None } else { Some(buf) });
     }
     ERR_OK
 }
@@ -183,22 +222,7 @@ pub fn ctx_buffer_data(ctx: u32, target: u32, ptr: u32, len: u32, usage: u32) ->
         }
     };
 
-    let buf_handle = match target {
-        GL_ARRAY_BUFFER => ctx_obj.bound_array_buffer,
-        GL_ELEMENT_ARRAY_BUFFER => {
-            if let Some(vao) = ctx_obj.vertex_arrays.get(&ctx_obj.bound_vertex_array) {
-                vao.element_array_buffer
-            } else {
-                None
-            }
-        }
-        _ => {
-            set_last_error("invalid buffer target");
-            return ERR_INVALID_ARGS;
-        }
-    };
-
-    let buf_handle = match buf_handle {
+    let buf_handle = match ctx_obj.get_buffer_handle_for_target(target) {
         Some(h) => h,
         None => {
             set_last_error("no buffer bound to target");
@@ -234,22 +258,7 @@ pub fn ctx_buffer_sub_data(ctx: u32, target: u32, offset: u32, ptr: u32, len: u3
         }
     };
 
-    let buf_handle = match target {
-        GL_ARRAY_BUFFER => ctx_obj.bound_array_buffer,
-        GL_ELEMENT_ARRAY_BUFFER => {
-            if let Some(vao) = ctx_obj.vertex_arrays.get(&ctx_obj.bound_vertex_array) {
-                vao.element_array_buffer
-            } else {
-                None
-            }
-        }
-        _ => {
-            set_last_error("invalid buffer target");
-            return ERR_INVALID_ARGS;
-        }
-    };
-
-    let buf_handle = match buf_handle {
+    let buf_handle = match ctx_obj.get_buffer_handle_for_target(target) {
         Some(h) => h,
         None => {
             set_last_error("no buffer bound to target");

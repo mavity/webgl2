@@ -41,42 +41,30 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
     };
 
     if (mask & GL_COLOR_BUFFER_BIT) != 0 {
-        let (handle, _, _, _) = ctx_obj.get_current_color_attachment_info();
+        let (handle, _, _, _) = ctx_obj.get_color_attachment_info(false);
         if handle.is_valid() {
-            ctx_obj.kernel.clear(handle, ctx_obj.clear_color);
+            if ctx_obj.scissor_test_enabled {
+                let (sx, sy, sw, sh) = ctx_obj.scissor_box;
+                ctx_obj.kernel.clear_rect(handle, ctx_obj.clear_color, sx, sy, sw, sh);
+            } else {
+                ctx_obj.kernel.clear(handle, ctx_obj.clear_color);
+            }
         }
     }
 
     if (mask & 0x00000100) != 0 {
         // GL_DEPTH_BUFFER_BIT
-        if ctx_obj.bound_framebuffer.is_none() {
-            if ctx_obj.depth_state.mask {
-                for d in ctx_obj.default_framebuffer.depth.iter_mut() {
-                    *d = 1.0; // Default clear depth
-                }
-            }
+        if ctx_obj.bound_draw_framebuffer.is_none() {
+            ctx_obj.default_framebuffer.clear_depth(1.0, ctx_obj.depth_state.mask);
         }
     }
 
     if (mask & 0x00000400) != 0 {
         // GL_STENCIL_BUFFER_BIT
-        // Currently we only have a default framebuffer stencil buffer implicitly (if we added it to data type)
-        if ctx_obj.bound_framebuffer.is_none() {
-            // Check stencil write mask (front face usually used for clear?)
-            // Spec says: "The stencil buffer is cleared to the value set by clearStencil. The stencil write mask state is respected."
-            // Actually spec says: "The scissor box and the stencil write mask affect the operation of Clear."
-            let write_mask = ctx_obj.stencil_state.front.write_mask; // Use front mask? Or does clear ignore it?
-                                                                     // "The pixel ownership test, the scissor test, dithering, and the buffer writemasks affect the operation of Clear."
-                                                                     // So yes, we must respect mask.
-
-            // For now assume clear value is 0 (we didn't implement clearStencil yet to set clean value to state)
-            // Default clear value is 0.
-
+        if ctx_obj.bound_draw_framebuffer.is_none() {
+            let write_mask = ctx_obj.stencil_state.front.write_mask;
             let clear_val = 0; // TODO: get from state
-
-            for s in ctx_obj.default_framebuffer.stencil.iter_mut() {
-                *s = (*s & !write_mask as u8) | (clear_val & write_mask as u8);
-            }
+            ctx_obj.default_framebuffer.clear_stencil(clear_val as u8, write_mask as u8);
         }
     }
 

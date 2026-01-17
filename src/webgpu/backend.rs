@@ -736,7 +736,7 @@ impl hal::Queue for SoftQueue {
                                             let mut dummy_stencil =
                                                 vec![0u8; (width * height) as usize];
 
-                                            let mut fb = wasm_gl_emu::Framebuffer::new(
+                                            let _fb = wasm_gl_emu::Framebuffer::new(
                                                 width,
                                                 height,
                                                 internal_format,
@@ -756,7 +756,9 @@ impl hal::Queue for SoftQueue {
                                                 ctx_handle: 0, // TODO: Pass context handle
                                                 memory: wasm_gl_emu::ShaderMemoryLayout::default(),
                                                 viewport: (0, 0, width, height), // TODO: SetViewport command
-                                                uniform_data: &[],               // TODO: BindGroups
+                                                scissor: (0, 0, width, height),
+                                                scissor_enabled: false,
+                                                uniform_data: &[], // TODO: BindGroups
                                                 prepare_textures: None,
                                                 blend: wasm_gl_emu::rasterizer::BlendState::default(
                                                 ),
@@ -821,7 +823,7 @@ impl hal::Queue for SoftQueue {
                                             let mut dummy_stencil =
                                                 vec![0u8; (width * height) as usize];
 
-                                            let mut fb = wasm_gl_emu::Framebuffer::new(
+                                            let _fb = wasm_gl_emu::Framebuffer::new(
                                                 width,
                                                 height,
                                                 internal_format,
@@ -841,6 +843,8 @@ impl hal::Queue for SoftQueue {
                                                 ctx_handle: 0,
                                                 memory: wasm_gl_emu::ShaderMemoryLayout::default(),
                                                 viewport: (0, 0, width, height),
+                                                scissor: (0, 0, width, height),
+                                                scissor_enabled: false,
                                                 uniform_data: &[],
                                                 prepare_textures: None,
                                                 blend: wasm_gl_emu::rasterizer::BlendState::default(

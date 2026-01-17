@@ -5,6 +5,9 @@ use super::types::*;
 // Framebuffer Operations
 // ============================================================================
 
+pub const GL_READ_FRAMEBUFFER: u32 = 0x8CA8;
+pub const GL_DRAW_FRAMEBUFFER: u32 = 0x8CA9;
+
 /// Check if object is a framebuffer.
 pub fn ctx_is_framebuffer(ctx: u32, handle: u32) -> bool {
     clear_last_error();
@@ -64,15 +67,18 @@ pub fn ctx_delete_framebuffer(ctx: u32, fb: u32) -> u32 {
         return ERR_INVALID_HANDLE;
     }
     // If this was the bound framebuffer, unbind it
-    if ctx_obj.bound_framebuffer == Some(fb) {
-        ctx_obj.bound_framebuffer = None;
+    if ctx_obj.bound_read_framebuffer == Some(fb) {
+        ctx_obj.bound_read_framebuffer = None;
+    }
+    if ctx_obj.bound_draw_framebuffer == Some(fb) {
+        ctx_obj.bound_draw_framebuffer = None;
     }
     ERR_OK
 }
 
 /// Bind a framebuffer in the given context.
 /// Returns errno.
-pub fn ctx_bind_framebuffer(ctx: u32, _target: u32, fb: u32) -> u32 {
+pub fn ctx_bind_framebuffer(ctx: u32, target: u32, fb: u32) -> u32 {
     clear_last_error();
     if fb != INVALID_HANDLE && fb != 0 {
         let reg = get_registry().borrow();
@@ -96,10 +102,17 @@ pub fn ctx_bind_framebuffer(ctx: u32, _target: u32, fb: u32) -> u32 {
             return ERR_INVALID_HANDLE;
         }
     };
-    if fb == 0 {
-        ctx_obj.bound_framebuffer = None;
+    
+    let fb_opt = if fb == 0 { None } else { Some(fb) };
+    
+    if target == GL_READ_FRAMEBUFFER {
+        ctx_obj.bound_read_framebuffer = fb_opt;
+    } else if target == GL_DRAW_FRAMEBUFFER {
+        ctx_obj.bound_draw_framebuffer = fb_opt;
     } else {
-        ctx_obj.bound_framebuffer = Some(fb);
+        // GL_FRAMEBUFFER sets both
+        ctx_obj.bound_read_framebuffer = fb_opt;
+        ctx_obj.bound_draw_framebuffer = fb_opt;
     }
     ERR_OK
 }
@@ -108,7 +121,7 @@ pub fn ctx_bind_framebuffer(ctx: u32, _target: u32, fb: u32) -> u32 {
 /// Returns errno.
 pub fn ctx_framebuffer_texture2d(
     ctx: u32,
-    _target: u32,
+    target: u32,
     _attachment: u32,
     _textarget: u32,
     tex: u32,
@@ -124,7 +137,13 @@ pub fn ctx_framebuffer_texture2d(
         }
     };
 
-    let fb_handle = match ctx_obj.bound_framebuffer {
+    let fb_handle = if target == GL_READ_FRAMEBUFFER {
+        ctx_obj.bound_read_framebuffer
+    } else {
+        ctx_obj.bound_draw_framebuffer
+    };
+
+    let fb_handle = match fb_handle {
         Some(h) => h,
         None => {
             set_last_error("no framebuffer bound");
@@ -210,7 +229,13 @@ pub fn ctx_framebuffer_renderbuffer(
         }
     };
 
-    let fb_handle = match ctx_obj.bound_framebuffer {
+    let fb_handle = if target == GL_READ_FRAMEBUFFER {
+        ctx_obj.bound_read_framebuffer
+    } else {
+        ctx_obj.bound_draw_framebuffer
+    };
+
+    let fb_handle = match fb_handle {
         Some(h) => h,
         None => {
             set_last_error("no framebuffer bound");
@@ -249,6 +274,47 @@ pub fn ctx_framebuffer_renderbuffer(
         set_last_error("invalid attachment");
         return ERR_INVALID_ENUM;
     }
+
+    ERR_OK
+}
+
+/// Blit a region from the read framebuffer to the draw framebuffer.
+pub fn ctx_blit_framebuffer(
+    ctx: u32,
+    src_x0: i32,
+    src_y0: i32,
+    src_x1: i32,
+    src_y1: i32,
+    dst_x0: i32,
+    dst_y0: i32,
+    dst_x1: i32,
+    dst_y1: i32,
+    mask: u32,
+    filter: u32,
+) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+
+    if (mask & GL_COLOR_BUFFER_BIT) != 0 {
+        let (src_handle, _, _, _) = ctx_obj.get_color_attachment_info(true);
+        let (dst_handle, _, _, _) = ctx_obj.get_color_attachment_info(false);
+
+        if src_handle.is_valid() && dst_handle.is_valid() {
+            ctx_obj.kernel.blit(
+                src_handle, dst_handle, src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1,
+                dst_y1, filter,
+            );
+        }
+    }
+
+    // TODO: support depth/stencil blit
 
     ERR_OK
 }

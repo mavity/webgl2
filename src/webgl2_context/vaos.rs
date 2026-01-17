@@ -162,7 +162,7 @@ pub fn ctx_vertex_attrib_pointer(
         None => return ERR_INVALID_HANDLE,
     };
 
-    let bound_buffer = ctx_obj.bound_array_buffer;
+    let bound_buffer = ctx_obj.get_buffer_handle_for_target(GL_ARRAY_BUFFER);
 
     if bound_buffer.is_none() && offset != 0 {
         set_last_error("offset is non-zero but no buffer is bound to ARRAY_BUFFER");
@@ -219,7 +219,7 @@ pub fn ctx_vertex_attrib_ipointer(
         None => return ERR_INVALID_HANDLE,
     };
 
-    let bound_buffer = ctx_obj.bound_array_buffer;
+    let bound_buffer = ctx_obj.get_buffer_handle_for_target(GL_ARRAY_BUFFER);
 
     if bound_buffer.is_none() && offset != 0 {
         set_last_error("offset is non-zero but no buffer is bound to ARRAY_BUFFER");

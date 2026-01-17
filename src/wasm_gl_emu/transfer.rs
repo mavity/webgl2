@@ -23,31 +23,80 @@ pub enum IndexType {
     U32,
 }
 
+/// A lazy index buffer fetcher that avoids intermediate allocations
+pub struct LazyIndexBuffer {
+    pub src_ptr: *const u8,
+    pub src_len: usize,
+    pub index_type: IndexType,
+    pub offset: u32,
+    pub count: u32,
+}
+
+impl crate::wasm_gl_emu::rasterizer::IndexBuffer for LazyIndexBuffer {
+    fn len(&self) -> usize {
+        self.count as usize
+    }
+
+    fn get(&self, i: usize) -> u32 {
+        let data = unsafe { std::slice::from_raw_parts(self.src_ptr, self.src_len) };
+        match self.index_type {
+            IndexType::U8 => {
+                let off = (self.offset as usize) + i;
+                data.get(off).copied().map(|v| v as u32).unwrap_or(0)
+            }
+            IndexType::U16 => {
+                let off = (self.offset as usize) + i * 2;
+                if off + 2 <= data.len() {
+                    u16::from_ne_bytes([data[off], data[off + 1]]) as u32
+                } else {
+                    0
+                }
+            }
+            IndexType::U32 => {
+                let off = (self.offset as usize) + i * 4;
+                if off + 4 <= data.len() {
+                    u32::from_ne_bytes([
+                        data[off],
+                        data[off + 1],
+                        data[off + 2],
+                        data[off + 3],
+                    ])
+                } else {
+                    0
+                }
+            }
+        }
+    }
+}
+
+/// Description of a vertex attribute binding for backend fetching
+#[derive(Debug, Clone, Copy)]
+pub struct AttributeBinding {
+    /// Pointer to the start of the buffer data
+    pub buffer_ptr: *const u8,
+    /// Offset in bytes within the buffer
+    pub offset: usize,
+    /// Stride in bytes between consecutive vertices
+    pub stride: usize,
+    /// Number of components (1, 2, 3, or 4)
+    pub size: i32,
+    /// GL type (GL_FLOAT, GL_UNSIGNED_BYTE, etc)
+    pub type_: u32,
+    /// Whether the data should be normalized
+    pub normalized: bool,
+    /// Whether the attribute is an integer type (vertexAttribIPointer)
+    pub is_integer: bool,
+    /// Size of a single component in bytes
+    pub type_size: usize,
+    /// Divisor for instanced rendering (0 = per-vertex, >0 = per-instance)
+    pub divisor: u32,
+    /// Default value for the attribute if the buffer is missing or disabled
+    pub default_value: [u32; 4],
+}
+
 pub struct TransferEngine;
 
 impl TransferEngine {
-    fn safe_read_u32(data: &[u8], offset: usize) -> u32 {
-        if offset + 4 <= data.len() {
-            u32::from_ne_bytes(data[offset..offset+4].try_into().unwrap())
-        } else if offset < data.len() {
-            let mut buf = [0u8; 4];
-            let len = data.len() - offset;
-            buf[..len].copy_from_slice(&data[offset..offset+len]);
-            u32::from_ne_bytes(buf)
-        } else {
-            0
-        }
-    }
-
-    fn safe_read_u16(data: &[u8], offset: usize) -> u16 {
-        if offset + 2 <= data.len() {
-            u16::from_ne_bytes([data[offset], data[offset+1]])
-        } else if offset < data.len() {
-            data[offset] as u16
-        } else {
-            0
-        }
-    }
     /// Fetch indices from a GPU buffer and convert to u32
     pub fn fetch_indices(
         src: &GpuBuffer,
@@ -91,215 +140,187 @@ impl TransferEngine {
         result
     }
 
-    /// Fetch a single vertex attribute component set from a buffer
+    /// Fetch a batch of vertex attributes for a specific vertex and instance
+    pub fn fetch_vertex_batch(
+        bindings: &[AttributeBinding],
+        vertex_index: u32,
+        instance_index: u32,
+        dest: &mut [u32], // Destination array (usually 16 slots * 4 components)
+    ) {
+        for (loc, attr) in bindings.iter().enumerate() {
+            let base_idx = loc * 4;
+            if base_idx + 4 > dest.len() {
+                break;
+            }
+
+            let effective_index = if attr.divisor == 0 {
+                vertex_index as usize
+            } else {
+                (instance_index / attr.divisor) as usize
+            };
+
+            let mut comp_dest = [0u32; 4];
+            Self::fetch_vertex_attribute(
+                attr,
+                effective_index,
+                &mut comp_dest,
+            );
+
+            dest[base_idx..base_idx + 4].copy_from_slice(&comp_dest);
+        }
+    }
+
+    /// Fetch a single vertex attribute component set from a buffer using raw GL parameters
     pub fn fetch_vertex_attribute(
-        src: &GpuBuffer,
-        format: wgt::VertexFormat,
-        offset: u32,
-        effective_index: u32,
-        stride: u32,
+        binding: &AttributeBinding,
+        vertex_index: usize,
         dest: &mut [u32; 4],
     ) {
-        let data = &src.data;
-        let base_offset = offset as usize + (effective_index as usize * stride as usize);
-        
         // Zero out dest initially
         dest.fill(0);
+        // Default W component is 1.0 (float) or 1 (int)
+        if binding.is_integer {
+            dest[3] = 1;
+        } else {
+            dest[3] = 1.0f32.to_bits();
+        }
 
-        if base_offset >= data.len() {
+        if binding.buffer_ptr.is_null() {
+            dest.copy_from_slice(&binding.default_value);
             return;
         }
 
-        // We use bits representation for floating point values
-        match format {
-            wgt::VertexFormat::Float32 => {
-                dest[0] = Self::safe_read_u32(data, base_offset);
-            }
-            wgt::VertexFormat::Float32x2 => {
-                for i in 0..2 {
-                    dest[i] = Self::safe_read_u32(data, base_offset + i * 4);
+        let base_offset = binding.offset + vertex_index * binding.stride;
+        
+        for i in 0..(binding.size as usize).min(4) {
+            let component_offset = base_offset + i * binding.type_size;
+            
+            unsafe {
+                let ptr = binding.buffer_ptr.add(component_offset);
+                
+                match binding.type_ {
+                    0x1406 /* FLOAT */ => {
+                        let mut bytes = [0u8; 4];
+                        std::ptr::copy_nonoverlapping(ptr, bytes.as_mut_ptr(), 4);
+                        dest[i] = u32::from_le_bytes(bytes);
+                    }
+                    0x1401 /* UNSIGNED_BYTE */ => {
+                        let val = *ptr;
+                        if binding.is_integer {
+                            dest[i] = val as u32;
+                        } else if binding.normalized {
+                            dest[i] = (val as f32 / 255.0).to_bits();
+                        } else {
+                            dest[i] = (val as f32).to_bits();
+                        }
+                    }
+                    0x1400 /* BYTE */ => {
+                        let val = *ptr as i8;
+                        if binding.is_integer {
+                            dest[i] = val as i32 as u32;
+                        } else if binding.normalized {
+                            dest[i] = (val as f32 / 127.0).clamp(-1.0, 1.0).to_bits();
+                        } else {
+                            dest[i] = (val as f32).to_bits();
+                        }
+                    }
+                    0x1403 /* UNSIGNED_SHORT */ => {
+                        let mut bytes = [0u8; 2];
+                        std::ptr::copy_nonoverlapping(ptr, bytes.as_mut_ptr(), 2);
+                        let val = u16::from_le_bytes(bytes);
+                        if binding.is_integer {
+                            dest[i] = val as u32;
+                        } else if binding.normalized {
+                            dest[i] = (val as f32 / 65535.0).to_bits();
+                        } else {
+                            dest[i] = (val as f32).to_bits();
+                        }
+                    }
+                    0x1402 /* SHORT */ => {
+                        let mut bytes = [0u8; 2];
+                        std::ptr::copy_nonoverlapping(ptr, bytes.as_mut_ptr(), 2);
+                        let val = i16::from_le_bytes(bytes);
+                        if binding.is_integer {
+                            dest[i] = val as i32 as u32;
+                        } else if binding.normalized {
+                            dest[i] = (val as f32 / 32767.0).clamp(-1.0, 1.0).to_bits();
+                        } else {
+                            dest[i] = (val as f32).to_bits();
+                        }
+                    }
+                    0x1405 /* UNSIGNED_INT */ => {
+                        let mut bytes = [0u8; 4];
+                        std::ptr::copy_nonoverlapping(ptr, bytes.as_mut_ptr(), 4);
+                        let val = u32::from_le_bytes(bytes);
+                        dest[i] = val;
+                    }
+                    0x1404 /* INT */ => {
+                        let mut bytes = [0u8; 4];
+                        std::ptr::copy_nonoverlapping(ptr, bytes.as_mut_ptr(), 4);
+                        let val = i32::from_le_bytes(bytes);
+                        dest[i] = val as u32;
+                    }
+                    _ => {}
                 }
             }
-            wgt::VertexFormat::Float32x3 => {
-                for i in 0..3 {
-                    dest[i] = Self::safe_read_u32(data, base_offset + i * 4);
-                }
-            }
-            wgt::VertexFormat::Float32x4 => {
-                for i in 0..4 {
-                    dest[i] = Self::safe_read_u32(data, base_offset + i * 4);
-                }
-            }
-            wgt::VertexFormat::Uint8 => {
-                dest[0] = data[base_offset] as u32;
-            }
-            wgt::VertexFormat::Sint8 => {
-                dest[0] = (data[base_offset] as i8) as i32 as u32;
-            }
-            wgt::VertexFormat::Unorm8 => {
-                let val = data[base_offset] as f32 / 255.0;
-                dest[0] = val.to_bits();
-            }
-            wgt::VertexFormat::Snorm8 => {
-                let val = (data[base_offset] as i8) as f32 / 127.0;
-                dest[0] = val.clamp(-1.0, 1.0).to_bits();
-            }
-            wgt::VertexFormat::Uint8x2 => {
-                for i in 0..2 {
-                    if base_offset + i < data.len() {
-                        dest[i] = data[base_offset + i] as u32;
+        }
+    }
+
+    /// Writes texture metadata to the specified linear memory pointer for shader access
+    pub fn write_texture_metadata(
+        kernel: &crate::wasm_gl_emu::device::GpuKernel,
+        bindings: &[Option<super::device::TextureBinding>],
+        dest_ptr: u32,
+    ) {
+        kernel.write_texture_metadata(bindings, dest_ptr);
+    }
+
+    /// Downscale an RGBA8 buffer by 2x in each dimension (box filter)
+    pub fn downscale_rgba8(
+        src: &[u8],
+        src_w: u32,
+        src_h: u32,
+        dst: &mut [u8],
+        dst_w: u32,
+        dst_h: u32,
+    ) {
+        let bpp = 4;
+        for y in 0..dst_h {
+            for x in 0..dst_w {
+                let src_x = x * 2;
+                let src_y = y * 2;
+                let mut r_sum = 0u32;
+                let mut g_sum = 0u32;
+                let mut b_sum = 0u32;
+                let mut a_sum = 0u32;
+                let mut count = 0u32;
+
+                for dy in 0..2 {
+                    for dx in 0..2 {
+                        let sx = src_x + dx;
+                        let sy = src_y + dy;
+                        if sx < src_w && sy < src_h {
+                            let idx = ((sy * src_w + sx) * bpp) as usize;
+                            if idx + 4 <= src.len() {
+                                r_sum += src[idx] as u32;
+                                g_sum += src[idx + 1] as u32;
+                                b_sum += src[idx + 2] as u32;
+                                a_sum += src[idx + 3] as u32;
+                                count += 1;
+                            }
+                        }
                     }
                 }
-            }
-            wgt::VertexFormat::Unorm8x2 => {
-                for i in 0..2 {
-                    if base_offset + i < data.len() {
-                        let val = data[base_offset + i] as f32 / 255.0;
-                        dest[i] = val.to_bits();
+
+                if count > 0 {
+                    let out_idx = ((y * dst_w + x) * bpp) as usize;
+                    if out_idx + 4 <= dst.len() {
+                        dst[out_idx] = (r_sum / count) as u8;
+                        dst[out_idx + 1] = (g_sum / count) as u8;
+                        dst[out_idx + 2] = (b_sum / count) as u8;
+                        dst[out_idx + 3] = (a_sum / count) as u8;
                     }
                 }
-            }
-            wgt::VertexFormat::Sint8x2 => {
-                for i in 0..2 {
-                    if base_offset + i < data.len() {
-                        dest[i] = (data[base_offset + i] as i8) as i32 as u32;
-                    }
-                }
-            }
-            wgt::VertexFormat::Snorm8x2 => {
-                for i in 0..2 {
-                    if base_offset + i < data.len() {
-                        let val = (data[base_offset + i] as i8) as f32 / 127.0;
-                        dest[i] = val.clamp(-1.0, 1.0).to_bits();
-                    }
-                }
-            }
-            wgt::VertexFormat::Uint8x4 => {
-                for i in 0..4 {
-                    if base_offset + i < data.len() {
-                        dest[i] = data[base_offset + i] as u32;
-                    }
-                }
-            }
-            wgt::VertexFormat::Unorm8x4 => {
-                for i in 0..4 {
-                    if base_offset + i < data.len() {
-                        let val = data[base_offset + i] as f32 / 255.0;
-                        dest[i] = val.to_bits();
-                    }
-                }
-            }
-            wgt::VertexFormat::Sint8x4 => {
-                for i in 0..4 {
-                    if base_offset + i < data.len() {
-                        dest[i] = (data[base_offset + i] as i8) as i32 as u32;
-                    }
-                }
-            }
-            wgt::VertexFormat::Snorm8x4 => {
-                for i in 0..4 {
-                    if base_offset + i < data.len() {
-                        let val = (data[base_offset + i] as i8) as f32 / 127.0;
-                        dest[i] = val.clamp(-1.0, 1.0).to_bits();
-                    }
-                }
-            }
-            wgt::VertexFormat::Uint16 => {
-                dest[0] = Self::safe_read_u16(data, base_offset) as u32;
-            }
-            wgt::VertexFormat::Sint16 => {
-                dest[0] = (Self::safe_read_u16(data, base_offset) as i16 as i32) as u32;
-            }
-            wgt::VertexFormat::Unorm16 => {
-                let val = Self::safe_read_u16(data, base_offset) as f32 / 65535.0;
-                dest[0] = val.to_bits();
-            }
-            wgt::VertexFormat::Snorm16 => {
-                let val = (Self::safe_read_u16(data, base_offset) as i16 as f32) / 32767.0;
-                dest[0] = val.clamp(-1.0, 1.0).to_bits();
-            }
-            wgt::VertexFormat::Uint16x2 => {
-                for i in 0..2 {
-                    dest[i] = Self::safe_read_u16(data, base_offset + i * 2) as u32;
-                }
-            }
-            wgt::VertexFormat::Unorm16x2 => {
-                for i in 0..2 {
-                    let val = Self::safe_read_u16(data, base_offset + i * 2) as f32 / 65535.0;
-                    dest[i] = val.to_bits();
-                }
-            }
-            wgt::VertexFormat::Sint16x2 => {
-                for i in 0..2 {
-                    dest[i] = (Self::safe_read_u16(data, base_offset + i * 2) as i16 as i32) as u32;
-                }
-            }
-            wgt::VertexFormat::Snorm16x2 => {
-                for i in 0..2 {
-                    let val = (Self::safe_read_u16(data, base_offset + i * 2) as i16 as f32) / 32767.0;
-                    dest[i] = val.clamp(-1.0, 1.0).to_bits();
-                }
-            }
-            wgt::VertexFormat::Uint16x4 => {
-                for i in 0..4 {
-                    dest[i] = Self::safe_read_u16(data, base_offset + i * 2) as u32;
-                }
-            }
-            wgt::VertexFormat::Unorm16x4 => {
-                for i in 0..4 {
-                    let val = Self::safe_read_u16(data, base_offset + i * 2) as f32 / 65535.0;
-                    dest[i] = val.to_bits();
-                }
-            }
-            wgt::VertexFormat::Sint16x4 => {
-                for i in 0..4 {
-                    dest[i] = (Self::safe_read_u16(data, base_offset + i * 2) as i16 as i32) as u32;
-                }
-            }
-            wgt::VertexFormat::Snorm16x4 => {
-                for i in 0..4 {
-                    let val = (Self::safe_read_u16(data, base_offset + i * 2) as i16 as f32) / 32767.0;
-                    dest[i] = val.clamp(-1.0, 1.0).to_bits();
-                }
-            }
-            wgt::VertexFormat::Uint32 => {
-                dest[0] = Self::safe_read_u32(data, base_offset);
-            }
-            wgt::VertexFormat::Sint32 => {
-                dest[0] = Self::safe_read_u32(data, base_offset);
-            }
-            wgt::VertexFormat::Uint32x2 => {
-                for i in 0..2 {
-                    dest[i] = Self::safe_read_u32(data, base_offset + i * 4);
-                }
-            }
-            wgt::VertexFormat::Sint32x2 => {
-                for i in 0..2 {
-                    dest[i] = Self::safe_read_u32(data, base_offset + i * 4);
-                }
-            }
-            wgt::VertexFormat::Uint32x3 => {
-                for i in 0..3 {
-                    dest[i] = Self::safe_read_u32(data, base_offset + i * 4);
-                }
-            }
-            wgt::VertexFormat::Sint32x3 => {
-                for i in 0..3 {
-                    dest[i] = Self::safe_read_u32(data, base_offset + i * 4);
-                }
-            }
-            wgt::VertexFormat::Uint32x4 => {
-                for i in 0..4 {
-                    dest[i] = Self::safe_read_u32(data, base_offset + i * 4);
-                }
-            }
-            wgt::VertexFormat::Sint32x4 => {
-                for i in 0..4 {
-                    dest[i] = Self::safe_read_u32(data, base_offset + i * 4);
-                }
-            }
-            _ => {
-                // Fallback for unimplemented formats
             }
         }
     }

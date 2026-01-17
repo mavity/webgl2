@@ -4,118 +4,50 @@ use crate::wasm_gl_emu::rasterizer::{
     RasterPipeline, RenderState, ShaderMemoryLayout, VertexFetcher,
 };
 
-use std::collections::HashMap;
-
-fn get_flat_varyings_mask(ctx: &Context) -> u64 {
-    let mut mask = 0u64;
+fn ctx_get_program_flat_varyings_mask(ctx: &Context) -> u64 {
     if let Some(program_id) = ctx.current_program {
         if let Some(program) = ctx.programs.get(&program_id) {
             if let Some(ref fs_module) = program.fs_module {
-                for ep in &fs_module.entry_points {
-                    if ep.stage == naga::ShaderStage::Fragment {
-                        for arg in &ep.function.arguments {
-                            let mut make_flat = false;
-                            let mut location = None;
-
-                            if let Some(naga::Binding::Location {
-                                location: loc,
-                                interpolation,
-                                ..
-                            }) = &arg.binding
-                            {
-                                location = Some(*loc);
-                                if let Some(interp) = interpolation {
-                                    if *interp == naga::Interpolation::Flat {
-                                        make_flat = true;
-                                    }
-                                }
-                            }
-
-                            if !make_flat {
-                                let ty = &fs_module.types[arg.ty];
-                                match &ty.inner {
-                                    naga::TypeInner::Scalar(scalar) => {
-                                        if scalar.kind == naga::ScalarKind::Sint
-                                            || scalar.kind == naga::ScalarKind::Uint
-                                        {
-                                            make_flat = true;
-                                        }
-                                    }
-                                    naga::TypeInner::Vector { scalar, .. } => {
-                                        if scalar.kind == naga::ScalarKind::Sint
-                                            || scalar.kind == naga::ScalarKind::Uint
-                                        {
-                                            make_flat = true;
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-
-                            if make_flat {
-                                if let Some(loc) = location {
-                                    let ty = &fs_module.types[arg.ty];
-                                    let components = match &ty.inner {
-                                        naga::TypeInner::Scalar(_) => 1,
-                                        naga::TypeInner::Vector { size, .. } => match size {
-                                            naga::VectorSize::Bi => 2,
-                                            naga::VectorSize::Tri => 3,
-                                            naga::VectorSize::Quad => 4,
-                                        },
-                                        _ => 1,
-                                    };
-
-                                    let start_bit = (loc + 1) * 4;
-                                    for i in 0..components {
-                                        let bit = start_bit + i;
-                                        if bit < 64 {
-                                            mask |= 1u64 << bit;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                return crate::wasm_gl_emu::rasterizer::RasterPipeline::compute_flat_varyings_mask(fs_module);
             }
         }
     }
-    mask
+    0
 }
 
-struct WebGLVertexFetcher<'a> {
-    vertex_arrays: &'a HashMap<u32, VertexArray>,
-    bound_vertex_array: u32,
-    buffers: &'a HashMap<u32, Buffer>,
+struct WebGLVertexFetcher {
+    bindings: Vec<crate::wasm_gl_emu::transfer::AttributeBinding>,
 }
 
-impl<'a> VertexFetcher for WebGLVertexFetcher<'a> {
-    fn fetch(&self, kernel: &crate::wasm_gl_emu::GpuKernel, vertex_index: u32, instance_index: u32, dest: &mut [u8]) {
-        let mut attr_data = vec![0u32; 16 * 4];
-        Context::fetch_vertex_attributes_static(
-            self.vertex_arrays,
-            self.bound_vertex_array,
-            self.buffers,
+impl VertexFetcher for WebGLVertexFetcher {
+    fn fetch(
+        &self,
+        _kernel: &crate::wasm_gl_emu::GpuKernel,
+        vertex_index: u32,
+        instance_index: u32,
+        dest: &mut [u8],
+    ) {
+        let mut attr_data = [0u32; 64]; // 16 locations * 4 components
+        crate::wasm_gl_emu::transfer::TransferEngine::fetch_vertex_batch(
+            &self.bindings,
             vertex_index,
             instance_index,
             &mut attr_data,
-            kernel,
         );
 
-        // Clear dest
+        // Copy to dest with correct layout
         dest.fill(0);
-
-        // Vertex attribute layout handled via `output_layout::compute_input_offset` (do not duplicate layout math here).
-
         for (loc, chunk) in attr_data.chunks(4).enumerate() {
-            let dest_offset = crate::naga_wasm_backend::output_layout::compute_input_offset(
+            let (dest_offset, _) = crate::naga_wasm_backend::output_layout::compute_input_offset(
                 loc as u32,
                 naga::ShaderStage::Vertex,
-            )
-            .0 as usize;
-            if dest_offset + 16 <= dest.len() {
-                let bytes = unsafe { std::slice::from_raw_parts(chunk.as_ptr() as *const u8, 16) };
-                dest[dest_offset..dest_offset + 16].copy_from_slice(bytes);
+            );
+            let off = dest_offset as usize;
+            if off + 16 <= dest.len() {
+                unsafe {
+                    let ptr = chunk.as_ptr() as *const u8;
+                    dest[off..off + 16].copy_from_slice(std::slice::from_raw_parts(ptr, 16));
+                }
             }
         }
     }
@@ -161,7 +93,7 @@ pub fn ctx_draw_arrays_instanced(
     let (vx, vy, vw, vh) = ctx_obj.viewport;
 
     // Create pipeline configuration
-    let mask = get_flat_varyings_mask(ctx_obj);
+    let mask = ctx_get_program_flat_varyings_mask(ctx_obj);
     // Build pipeline and include varying debug info if shaders debugging is enabled
     let pipeline = RasterPipeline {
         flat_varyings_mask: mask,
@@ -177,6 +109,8 @@ pub fn ctx_draw_arrays_instanced(
         ctx_handle: ctx,
         memory: ShaderMemoryLayout::default(),
         viewport: (vx, vy, vw, vh),
+        scissor: ctx_obj.scissor_box,
+        scissor_enabled: ctx_obj.scissor_test_enabled,
         uniform_data: &ctx_obj.uniform_data,
         prepare_textures: None,
         blend: ctx_obj.blend_state,
@@ -186,9 +120,7 @@ pub fn ctx_draw_arrays_instanced(
     };
 
     let fetcher = WebGLVertexFetcher {
-        vertex_arrays: &ctx_obj.vertex_arrays,
-        bound_vertex_array: ctx_obj.bound_vertex_array,
-        buffers: &ctx_obj.buffers,
+        bindings: ctx_obj.get_attribute_bindings(),
     };
 
     // Calculate indices for draw_arrays (just 0..count)
@@ -200,7 +132,7 @@ pub fn ctx_draw_arrays_instanced(
     // It passes i as vertex_id.
     // If we want start from 'first', we should probably pass indices.
 
-    let (target_handle, target_w, target_h, target_fmt) = ctx_obj.get_current_color_attachment_info();
+    let (target_handle, target_w, target_h, target_fmt) = ctx_obj.get_color_attachment_info(false);
 
     ctx_obj
         .rasterizer
@@ -269,36 +201,18 @@ pub fn ctx_draw_elements_instanced(
         None
     };
 
-    let indices: Vec<u32> = if let Some(h) = ebo_handle {
-        if let Some(buf) = ctx_obj.buffers.get(&h) {
-            if let Some(gpu_buf) = ctx_obj.kernel.get_buffer(buf.gpu_handle) {
-                let itype = match type_ {
-                    GL_UNSIGNED_BYTE => crate::wasm_gl_emu::IndexType::U8,
-                    GL_UNSIGNED_SHORT => crate::wasm_gl_emu::IndexType::U16,
-                    GL_UNSIGNED_INT => crate::wasm_gl_emu::IndexType::U32,
-                    _ => return ERR_INVALID_ENUM,
-                };
-                crate::wasm_gl_emu::TransferEngine::fetch_indices(
-                    gpu_buf,
-                    itype,
-                    offset,
-                    count as u32,
-                )
-            } else {
-                return ERR_INVALID_OPERATION;
-            }
-        } else {
-            return ERR_INVALID_OPERATION;
-        }
-    } else {
-        return ERR_INVALID_OPERATION;
+    let itype = match type_ {
+        GL_UNSIGNED_BYTE => crate::wasm_gl_emu::IndexType::U8,
+        GL_UNSIGNED_SHORT => crate::wasm_gl_emu::IndexType::U16,
+        GL_UNSIGNED_INT => crate::wasm_gl_emu::IndexType::U32,
+        _ => return ERR_INVALID_ENUM,
     };
 
     let (vx, vy, vw, vh) = ctx_obj.viewport;
 
     // Create pipeline configuration
     let pipeline = RasterPipeline {
-        flat_varyings_mask: get_flat_varyings_mask(ctx_obj),
+        flat_varyings_mask: ctx_get_program_flat_varyings_mask(ctx_obj),
         vs_table_idx,
         fs_table_idx,
         ..Default::default()
@@ -311,6 +225,8 @@ pub fn ctx_draw_elements_instanced(
         ctx_handle: ctx,
         memory: ShaderMemoryLayout::default(),
         viewport: (vx, vy, vw, vh),
+        scissor: ctx_obj.scissor_box,
+        scissor_enabled: ctx_obj.scissor_test_enabled,
         uniform_data: &ctx_obj.uniform_data,
         prepare_textures: None,
         blend: ctx_obj.blend_state,
@@ -320,32 +236,39 @@ pub fn ctx_draw_elements_instanced(
     };
 
     let fetcher = WebGLVertexFetcher {
-        vertex_arrays: &ctx_obj.vertex_arrays,
-        bound_vertex_array: ctx_obj.bound_vertex_array,
-        buffers: &ctx_obj.buffers,
+        bindings: ctx_obj.get_attribute_bindings(),
     };
 
-    let (target_handle, target_w, target_h, target_fmt) = ctx_obj.get_current_color_attachment_info();
+    let (target_handle, target_w, target_h, target_fmt) = ctx_obj.get_color_attachment_info(false);
 
-    ctx_obj
-        .rasterizer
-        .draw(&mut ctx_obj.kernel, crate::wasm_gl_emu::rasterizer::DrawConfig {
-            color_target: crate::wasm_gl_emu::rasterizer::ColorTarget::Handle(target_handle),
-            width: target_w,
-            height: target_h,
-            internal_format: target_fmt,
-            depth: &mut ctx_obj.default_framebuffer.depth,
-            stencil: &mut ctx_obj.default_framebuffer.stencil,
-            pipeline: &pipeline,
-            state: &state,
-            vertex_fetcher: &fetcher,
-            vertex_count: count as usize,
-            instance_count: instance_count as usize,
-            first_vertex: 0,
-            first_instance: 0,
-            indices: Some(&indices),
-            mode,
-        });
+    // Prepare indices lazily if EBO is bound
+    let lazy_indices = ebo_handle.and_then(|h| ctx_obj.buffers.get(&h)).and_then(|buf| ctx_obj.kernel.get_buffer(buf.gpu_handle)).map(|gpu_buf| {
+        crate::wasm_gl_emu::transfer::LazyIndexBuffer {
+            src_ptr: gpu_buf.data.as_ptr(),
+            src_len: gpu_buf.data.len(),
+            index_type: itype,
+            offset,
+            count: count as u32,
+        }
+    });
+
+    ctx_obj.rasterizer.draw(&mut ctx_obj.kernel, crate::wasm_gl_emu::rasterizer::DrawConfig {
+        color_target: crate::wasm_gl_emu::rasterizer::ColorTarget::Handle(target_handle),
+        width: target_w,
+        height: target_h,
+        internal_format: target_fmt,
+        depth: &mut ctx_obj.default_framebuffer.depth,
+        stencil: &mut ctx_obj.default_framebuffer.stencil,
+        pipeline: &pipeline,
+        state: &state,
+        vertex_fetcher: &fetcher,
+        vertex_count: count as usize,
+        instance_count: instance_count as usize,
+        first_vertex: 0,
+        first_instance: 0,
+        indices: lazy_indices.as_ref().map(|l| l as &dyn crate::wasm_gl_emu::rasterizer::IndexBuffer),
+        mode,
+    });
 
     ERR_OK
 }
@@ -381,60 +304,12 @@ pub fn ctx_read_pixels(
     };
 
     // Get the source handle and dimensions
-    let (src_handle, src_width, src_height, _src_format) =
-        if let Some(fb_handle) = ctx_obj.bound_framebuffer {
-            let fb = match ctx_obj.framebuffers.get(&fb_handle) {
-                Some(f) => f,
-                None => {
-                    set_last_error("framebuffer not found");
-                    return ERR_INVALID_HANDLE;
-                }
-            };
+    let (src_handle, src_width, src_height, _src_format) = ctx_obj.get_color_attachment_info(true);
 
-            match fb.color_attachment {
-                Some(Attachment::Texture(tex_handle)) => {
-                    let tex = match ctx_obj.textures.get(&tex_handle) {
-                        Some(t) => t,
-                        None => {
-                            set_last_error("attached texture not found");
-                            return ERR_INVALID_HANDLE;
-                        }
-                    };
-                    if let Some(level) = tex.levels.get(&0) {
-                        (
-                            level.gpu_handle,
-                            level.width,
-                            level.height,
-                            level.internal_format,
-                        )
-                    } else {
-                        set_last_error("texture incomplete");
-                        return ERR_INVALID_OPERATION;
-                    }
-                }
-                Some(Attachment::Renderbuffer(rb_handle)) => {
-                    let rb = match ctx_obj.renderbuffers.get(&rb_handle) {
-                        Some(r) => r,
-                        None => {
-                            set_last_error("attached renderbuffer not found");
-                            return ERR_INVALID_HANDLE;
-                        }
-                    };
-                    (rb.gpu_handle, rb.width, rb.height, rb.internal_format)
-                }
-                None => {
-                    set_last_error("framebuffer has no color attachment");
-                    return ERR_INVALID_ARGS;
-                }
-            }
-        } else {
-            (
-                ctx_obj.default_framebuffer.gpu_handle,
-                ctx_obj.default_framebuffer.width,
-                ctx_obj.default_framebuffer.height,
-                ctx_obj.default_framebuffer.internal_format,
-            )
-        };
+    if !src_handle.is_valid() {
+        set_last_error("no color attachment to read from");
+        return ERR_INVALID_OPERATION;
+    }
 
     // Debug: when reading tiny buffers, print their contents to help debugging
     if src_width == 1 && src_height == 1 {}

@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
-use wgpu_types as wgt;
 pub(crate) use crate::wasm_gl_emu::device::GpuHandle;
 pub(crate) use crate::wasm_gl_emu::device::GpuKernel;
 
@@ -24,6 +23,12 @@ pub const GL_OUT_OF_MEMORY: u32 = 0x0505;
 
 pub const GL_ARRAY_BUFFER: u32 = 0x8892;
 pub const GL_ELEMENT_ARRAY_BUFFER: u32 = 0x8893;
+pub const GL_COPY_READ_BUFFER: u32 = 0x8F36;
+pub const GL_COPY_WRITE_BUFFER: u32 = 0x8F37;
+pub const GL_PIXEL_PACK_BUFFER: u32 = 0x88EB;
+pub const GL_PIXEL_UNPACK_BUFFER: u32 = 0x88EC;
+pub const GL_UNIFORM_BUFFER: u32 = 0x8A11;
+pub const GL_TRANSFORM_FEEDBACK_BUFFER: u32 = 0x8C8E;
 
 pub const GL_COMPILE_STATUS: u32 = 0x8B81;
 pub const GL_LINK_STATUS: u32 = 0x8B82;
@@ -331,9 +336,10 @@ pub struct Context {
     pub(crate) next_renderbuffer_handle: u32,
 
     pub(crate) bound_texture: Option<u32>,
-    pub(crate) bound_framebuffer: Option<u32>,
+    pub(crate) bound_read_framebuffer: Option<u32>,
+    pub(crate) bound_draw_framebuffer: Option<u32>,
     pub(crate) bound_renderbuffer: Option<u32>,
-    pub(crate) bound_array_buffer: Option<u32>,
+    pub(crate) buffer_bindings: HashMap<u32, Option<u32>>,
     pub(crate) bound_vertex_array: u32,
     pub(crate) current_program: Option<u32>,
 
@@ -391,9 +397,10 @@ impl Context {
             next_renderbuffer_handle: FIRST_HANDLE,
 
             bound_texture: None,
-            bound_framebuffer: None,
+            bound_read_framebuffer: None,
+            bound_draw_framebuffer: None,
             bound_renderbuffer: None,
-            bound_array_buffer: None,
+            buffer_bindings: HashMap::new(),
             bound_vertex_array: 0,
             current_program: None,
 
@@ -511,6 +518,56 @@ impl Context {
         );
     }
 
+    pub(crate) fn get_attribute_bindings(&self) -> Vec<crate::wasm_gl_emu::transfer::AttributeBinding> {
+        let vao = &self.vertex_arrays[&self.bound_vertex_array];
+        vao.attributes
+            .iter()
+            .map(|attr| {
+                let (buffer_ptr, offset) = if attr.enabled {
+                    let ptr = if let Some(buffer_id) = attr.buffer {
+                        if let Some(buf_obj) = self.buffers.get(&buffer_id) {
+                            if let Some(gpu_buf) = self.kernel.get_buffer(buf_obj.gpu_handle) {
+                                gpu_buf.data.as_ptr()
+                            } else {
+                                std::ptr::null()
+                            }
+                        } else {
+                            std::ptr::null()
+                        }
+                    } else {
+                        std::ptr::null()
+                    };
+                    (ptr, attr.offset as usize)
+                } else {
+                    (std::ptr::null(), 0)
+                };
+
+                let type_size = match attr.type_ {
+                    0x1401 | 0x1400 => 1, // BYTE, UNSIGNED_BYTE
+                    0x1403 | 0x1402 => 2, // SHORT, UNSIGNED_SHORT
+                    _ => 4,               // FLOAT, INT, UNSIGNED_INT
+                };
+
+                crate::wasm_gl_emu::transfer::AttributeBinding {
+                    buffer_ptr,
+                    type_: attr.type_,
+                    size: attr.size,
+                    normalized: attr.normalized,
+                    is_integer: attr.is_integer,
+                    offset,
+                    stride: if attr.stride == 0 {
+                        (attr.size as usize) * type_size
+                    } else {
+                        attr.stride as usize
+                    },
+                    type_size,
+                    divisor: attr.divisor,
+                    default_value: attr.default_value,
+                }
+            })
+            .collect()
+    }
+
     pub(crate) fn fetch_vertex_attributes_static(
         vertex_arrays: &HashMap<u32, VertexArray>,
         bound_vertex_array: u32,
@@ -518,136 +575,104 @@ impl Context {
         vertex_id: u32,
         instance_id: u32,
         dest: &mut [u32],
-        kernel: &crate::wasm_gl_emu::GpuKernel,
+        kernel: &crate::wasm_gl_emu::device::GpuKernel,
     ) {
         let vao = match vertex_arrays.get(&bound_vertex_array) {
             Some(v) => v,
-            None => return, // Should not happen as default VAO is always there
+            None => return,
         };
 
-        for (i, attr) in vao.attributes.iter().enumerate() {
-            let base_idx = i * 4;
-            if !attr.enabled {
-                dest[base_idx..base_idx + 4].copy_from_slice(&attr.default_value);
-                continue;
-            }
-
-            // Calculate effective index based on divisor
-            let effective_index = if attr.divisor == 0 {
-                vertex_id
-            } else {
-                instance_id / attr.divisor
-            };
-
-            if let Some(buffer_id) = attr.buffer {
-                if let Some(buffer) = buffers.get(&buffer_id) {
-                    if let Some(gpu_buf) = kernel.get_buffer(buffer.gpu_handle) {
-                        let itype = match (attr.type_, attr.size) {
-                            (0x1406, 1) => wgt::VertexFormat::Float32,
-                            (0x1406, 2) => wgt::VertexFormat::Float32x2,
-                            (0x1406, 3) => wgt::VertexFormat::Float32x3,
-                            (0x1406, 4) => wgt::VertexFormat::Float32x4,
-                            (0x1401, 1) => if attr.normalized { wgt::VertexFormat::Unorm8 } else { wgt::VertexFormat::Uint8 },
-                            (0x1401, 2) => if attr.normalized { wgt::VertexFormat::Unorm8x2 } else { wgt::VertexFormat::Uint8x2 },
-                            (0x1401, 3..=4) => if attr.normalized { wgt::VertexFormat::Unorm8x4 } else { wgt::VertexFormat::Uint8x4 },
-                            (0x1400, 1) => if attr.normalized { wgt::VertexFormat::Snorm8 } else { wgt::VertexFormat::Sint8 },
-                            (0x1400, 2) => if attr.normalized { wgt::VertexFormat::Snorm8x2 } else { wgt::VertexFormat::Sint8x2 },
-                            (0x1400, 3..=4) => if attr.normalized { wgt::VertexFormat::Snorm8x4 } else { wgt::VertexFormat::Sint8x4 },
-                            (0x1403, 1) => if attr.normalized { wgt::VertexFormat::Unorm16 } else { wgt::VertexFormat::Uint16 },
-                            (0x1403, 2) => if attr.normalized { wgt::VertexFormat::Unorm16x2 } else { wgt::VertexFormat::Uint16x2 },
-                            (0x1403, 3..=4) => if attr.normalized { wgt::VertexFormat::Unorm16x4 } else { wgt::VertexFormat::Uint16x4 },
-                            (0x1402, 1) => if attr.normalized { wgt::VertexFormat::Snorm16 } else { wgt::VertexFormat::Sint16 },
-                            (0x1402, 2) => if attr.normalized { wgt::VertexFormat::Snorm16x2 } else { wgt::VertexFormat::Sint16x2 },
-                            (0x1402, 3..=4) => if attr.normalized { wgt::VertexFormat::Snorm16x4 } else { wgt::VertexFormat::Sint16x4 },
-                            (0x1405, 1) => wgt::VertexFormat::Uint32,
-                            (0x1405, 2) => wgt::VertexFormat::Uint32x2,
-                            (0x1405, 3) => wgt::VertexFormat::Uint32x3,
-                            (0x1405, 4) => wgt::VertexFormat::Uint32x4,
-                            (0x1404, 1) => wgt::VertexFormat::Sint32,
-                            (0x1404, 2) => wgt::VertexFormat::Sint32x2,
-                            (0x1404, 3) => wgt::VertexFormat::Sint32x3,
-                            (0x1404, 4) => wgt::VertexFormat::Sint32x4,
-                            _ => wgt::VertexFormat::Float32x4, // Fallback
-                        };
-
-                        let effective_stride = if attr.stride == 0 {
-                            let type_size = match attr.type_ {
-                                0x1400 => 1, // GL_BYTE
-                                0x1401 => 1, // GL_UNSIGNED_BYTE
-                                0x1402 => 2, // GL_SHORT
-                                0x1403 => 2, // GL_UNSIGNED_SHORT
-                                0x1404 => 4, // GL_INT
-                                0x1405 => 4, // GL_UNSIGNED_INT
-                                0x1406 => 4, // GL_FLOAT
-                                _ => 4,
-                            };
-                            attr.size as u32 * type_size
-                        } else {
-                            attr.stride as u32
-                        };
-
-                        let mut comp_dest = [0u32; 4];
-                        crate::wasm_gl_emu::TransferEngine::fetch_vertex_attribute(
-                            gpu_buf,
-                            itype,
-                            attr.offset,
-                            effective_index,
-                            effective_stride,
-                            &mut comp_dest,
-                        );
-
-                        // Fix up defaults if not 4 components
-                        if attr.size < 4 {
-                            if !attr.is_integer {
-                                if attr.size == 1 { comp_dest[1] = 0; comp_dest[2] = 0; comp_dest[3] = 1.0f32.to_bits(); }
-                                else if attr.size == 2 { comp_dest[2] = 0; comp_dest[3] = 1.0f32.to_bits(); }
-                                else if attr.size == 3 { comp_dest[3] = 1.0f32.to_bits(); }
+        let bindings: Vec<_> = vao
+            .attributes
+            .iter()
+            .map(|attr| {
+                let (buffer_ptr, offset) = if attr.enabled {
+                    let ptr = if let Some(buffer_id) = attr.buffer {
+                        if let Some(buf_obj) = buffers.get(&buffer_id) {
+                            if let Some(gpu_buf) = kernel.get_buffer(buf_obj.gpu_handle) {
+                                gpu_buf.data.as_ptr()
                             } else {
-                                if attr.size == 1 { comp_dest[1] = 0; comp_dest[2] = 0; comp_dest[3] = 1; }
-                                else if attr.size == 2 { comp_dest[2] = 0; comp_dest[3] = 1; }
-                                else if attr.size == 3 { comp_dest[3] = 1; }
+                                std::ptr::null()
                             }
+                        } else {
+                            std::ptr::null()
                         }
+                    } else {
+                        std::ptr::null()
+                    };
+                    (ptr, attr.offset as usize)
+                } else {
+                    (std::ptr::null(), 0)
+                };
 
-                        dest[base_idx..base_idx + 4].copy_from_slice(&comp_dest);
-                        continue;
-                    }
+                let type_size = match attr.type_ {
+                    0x1401 | 0x1400 => 1,
+                    0x1403 | 0x1402 => 2,
+                    _ => 4,
+                };
+
+                crate::wasm_gl_emu::transfer::AttributeBinding {
+                    buffer_ptr,
+                    type_: attr.type_,
+                    size: attr.size,
+                    normalized: attr.normalized,
+                    is_integer: attr.is_integer,
+                    offset,
+                    stride: if attr.stride == 0 {
+                        (attr.size as usize) * type_size
+                    } else {
+                        attr.stride as usize
+                    },
+                    type_size,
+                    divisor: attr.divisor,
+                    default_value: attr.default_value,
                 }
-            }
+            })
+            .collect();
 
-            // Fallback for enabled but missing/invalid fetch
-            dest[base_idx..base_idx + 4].copy_from_slice(&attr.default_value);
-        }
+        crate::wasm_gl_emu::transfer::TransferEngine::fetch_vertex_batch(
+            &bindings,
+            vertex_id,
+            instance_id,
+            dest,
+        );
     }
 
     pub(crate) fn prepare_texture_metadata(&self, dest_ptr: u32) {
-        for (i, tex_handle) in self.texture_units.iter().enumerate() {
-            let offset = i * 32;
-            if let Some(h) = tex_handle {
+        let mut bindings = Vec::with_capacity(self.texture_units.len());
+        for tex_handle in &self.texture_units {
+            let binding = if let Some(h) = tex_handle {
                 if let Some(tex) = self.textures.get(h) {
                     if let Some(level0) = tex.levels.get(&0) {
-                        if let Some(buf) = self.kernel.get_buffer(level0.gpu_handle) {
-                            unsafe {
-                                let base = (dest_ptr + offset as u32) as *mut i32;
-                                *base.offset(0) = level0.width as i32;
-                                *base.offset(1) = level0.height as i32;
-                                *base.offset(2) = buf.data.as_ptr() as i32;
-                                *base.offset(3) = level0.depth as i32;
-                                *base.offset(4) = level0.internal_format as i32;
-                                *base.offset(5) = get_bytes_per_pixel(level0.internal_format) as i32;
-                                *base.offset(6) =
-                                    ((tex.wrap_s & 0xFFFF) | ((tex.wrap_t & 0xFFFF) << 16)) as i32;
-                                *base.offset(7) = tex.wrap_r as i32;
-                            }
-                        }
+                        Some(crate::wasm_gl_emu::device::TextureBinding {
+                            width: level0.width,
+                            height: level0.height,
+                            depth: level0.depth,
+                            format: level0.internal_format,
+                            bytes_per_pixel: get_bytes_per_pixel(level0.internal_format),
+                            wrap_s: tex.wrap_s,
+                            wrap_t: tex.wrap_t,
+                            wrap_r: tex.wrap_r,
+                            gpu_handle: level0.gpu_handle,
+                        })
+                    } else {
+                        None
                     }
+                } else {
+                    None
                 }
-            }
+            } else {
+                None
+            };
+            bindings.push(binding);
         }
+
+        self.kernel.write_texture_metadata(&bindings, dest_ptr);
     }
 
-    pub(crate) fn get_current_color_attachment_info(&self) -> (GpuHandle, u32, u32, u32) {
-        if let Some(fb_handle) = self.bound_framebuffer {
+    pub(crate) fn get_color_attachment_info(&self, read: bool) -> (GpuHandle, u32, u32, u32) {
+        let fb_handle = if read { self.bound_read_framebuffer } else { self.bound_draw_framebuffer };
+        if let Some(fb_handle) = fb_handle {
             if let Some(fb) = self.framebuffers.get(&fb_handle) {
                 match fb.color_attachment {
                     Some(Attachment::Texture(tex_handle)) => {
@@ -674,6 +699,16 @@ impl Context {
                 self.default_framebuffer.internal_format,
             )
         }
+    }
+
+    pub(crate) fn get_buffer_handle_for_target(&self, target: u32) -> Option<u32> {
+        if target == GL_ELEMENT_ARRAY_BUFFER {
+            return self
+                .vertex_arrays
+                .get(&self.bound_vertex_array)
+                .and_then(|vao| vao.element_array_buffer);
+        }
+        self.buffer_bindings.get(&target).cloned().flatten()
     }
 }
 

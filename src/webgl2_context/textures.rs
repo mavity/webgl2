@@ -491,40 +491,16 @@ pub fn ctx_generate_mipmap(ctx: u32, target: u32) -> u32 {
             let next_height = std::cmp::max(1, height / 2);
             let next_level_idx = current_level_idx + 1;
 
-            let mut next_data =
-                Vec::with_capacity((next_width * next_height * bytes_per_pixel) as usize);
+            let mut next_data = vec![0u8; (next_width * next_height * bytes_per_pixel) as usize];
 
-            for y in 0..next_height {
-                for x in 0..next_width {
-                    let src_x = x * 2;
-                    let src_y = y * 2;
-                    let mut r_sum = 0u32;
-                    let mut g_sum = 0u32;
-                    let mut b_sum = 0u32;
-                    let mut a_sum = 0u32;
-                    let mut count = 0u32;
-
-                    for dy in 0..2 {
-                        for dx in 0..2 {
-                            let sx = src_x + dx;
-                            let sy = src_y + dy;
-                            if sx < width && sy < height {
-                                let idx = ((sy * width + sx) * bytes_per_pixel) as usize;
-                                r_sum += prev_data[idx] as u32;
-                                g_sum += prev_data[idx + 1] as u32;
-                                b_sum += prev_data[idx + 2] as u32;
-                                a_sum += prev_data[idx + 3] as u32;
-                                count += 1;
-                            }
-                        }
-                    }
-
-                    next_data.push((r_sum / count) as u8);
-                    next_data.push((g_sum / count) as u8);
-                    next_data.push((b_sum / count) as u8);
-                    next_data.push((a_sum / count) as u8);
-                }
-            }
+            crate::wasm_gl_emu::transfer::TransferEngine::downscale_rgba8(
+                &prev_data,
+                width,
+                height,
+                &mut next_data,
+                next_width,
+                next_height,
+            );
 
             let next_handle = ctx_obj.kernel.create_buffer(
                 next_width,
@@ -583,28 +559,13 @@ pub fn ctx_copy_tex_image_2d(
     };
 
     // 1. Identify Source
-    let (src_handle, _, _, _) = ctx_obj.get_current_color_attachment_info();
+    let (src_handle, _, _, _) = ctx_obj.get_color_attachment_info(true);
     if !src_handle.is_valid() {
         set_last_error("no source for copyTexImage2D");
         return ERR_INVALID_OPERATION;
     }
 
-    // 2. Read from source to temporary buffer (using wgpu-types for universal comparison)
-    let mut pixels = vec![0u8; (width * height * 4) as usize];
-    crate::wasm_gl_emu::TransferEngine::read_pixels(
-        &crate::wasm_gl_emu::TransferRequest {
-            src_buffer: ctx_obj.kernel.get_buffer(src_handle).unwrap(),
-            dst_format: wgpu_types::TextureFormat::Rgba8Unorm,
-            dst_layout: crate::wasm_gl_emu::device::StorageLayout::Linear,
-            x,
-            y,
-            width: width as u32,
-            height: height as u32,
-        },
-        &mut pixels,
-    );
-
-    // 3. Create/Update texture level
+    // 2. Identify Target
     let tex_handle = match ctx_obj.bound_texture {
         Some(h) => h,
         None => {
@@ -626,10 +587,16 @@ pub fn ctx_copy_tex_image_2d(
             crate::wasm_gl_emu::device::StorageLayout::Linear,
         );
 
-        if let Some(buf) = ctx_obj.kernel.get_buffer_mut(gpu_handle) {
-            let to_copy = pixels.len().min(buf.data.len());
-            buf.data[..to_copy].copy_from_slice(&pixels[..to_copy]);
-        }
+        ctx_obj.kernel.copy_buffer(
+            src_handle,
+            gpu_handle,
+            x.max(0) as u32,
+            y.max(0) as u32,
+            0,
+            0,
+            width as u32,
+            height as u32,
+        );
 
         tex.levels.insert(
             level as usize,

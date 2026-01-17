@@ -587,6 +587,26 @@ pub extern "C" fn wasm_ctx_framebuffer_texture2d(
     webgl2_context::ctx_framebuffer_texture2d(ctx, target, attachment, textarget, tex, level)
 }
 
+/// Blit a region from the read framebuffer to the draw framebuffer.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_blit_framebuffer(
+    ctx: u32,
+    src_x0: i32,
+    src_y0: i32,
+    src_x1: i32,
+    src_y1: i32,
+    dst_x0: i32,
+    dst_y0: i32,
+    dst_x1: i32,
+    dst_y1: i32,
+    mask: u32,
+    filter: u32,
+) -> u32 {
+    webgl2_context::ctx_blit_framebuffer(
+        ctx, src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask, filter,
+    )
+}
+
 // ---- Pixel Operations ----
 
 /// Read pixels from the bound framebuffer into dest_ptr.
@@ -810,6 +830,25 @@ pub extern "C" fn wasm_ctx_buffer_sub_data(
     len: u32,
 ) -> u32 {
     webgl2_context::ctx_buffer_sub_data(ctx, target, offset, ptr, len)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_copy_buffer_sub_data(
+    ctx: u32,
+    read_target: u32,
+    write_target: u32,
+    read_offset: u32,
+    write_offset: u32,
+    size: u32,
+) -> u32 {
+    webgl2_context::ctx_copy_buffer_sub_data(
+        ctx,
+        read_target,
+        write_target,
+        read_offset,
+        write_offset,
+        size,
+    )
 }
 
 // ---- Shader and Program Operations ----

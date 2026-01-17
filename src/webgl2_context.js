@@ -30,6 +30,7 @@ export class WasmWebGL2RenderingContext {
   DEPTH_BUFFER_BIT = 0x00000100;
   DEPTH_TEST = 0x0B71;
   STENCIL_TEST = 0x0B90;
+  SCISSOR_TEST = 0x0C11;
   STENCIL_BUFFER_BIT = 0x00000400;
   COMPILE_STATUS = 0x8B81;
   LINK_STATUS = 0x8B82;
@@ -37,6 +38,12 @@ export class WasmWebGL2RenderingContext {
   VALIDATE_STATUS = 0x8B83;
   ARRAY_BUFFER = 0x8892;
   ELEMENT_ARRAY_BUFFER = 0x8893;
+  COPY_READ_BUFFER = 0x8F36;
+  COPY_WRITE_BUFFER = 0x8F37;
+  PIXEL_PACK_BUFFER = 0x88EB;
+  PIXEL_UNPACK_BUFFER = 0x88EC;
+  UNIFORM_BUFFER = 0x8A11;
+  TRANSFORM_FEEDBACK_BUFFER = 0x8C8E;
   STATIC_DRAW = 0x88E4;
   BYTE = 0x1400;
   UNSIGNED_BYTE = 0x1401;
@@ -108,6 +115,8 @@ export class WasmWebGL2RenderingContext {
 
   RENDERBUFFER = 0x8D41;
   FRAMEBUFFER = 0x8D40;
+  READ_FRAMEBUFFER = 0x8CA8;
+  DRAW_FRAMEBUFFER = 0x8CA9;
   DEPTH_COMPONENT16 = 0x81A5;
   DEPTH_STENCIL = 0x84F9;
   RGBA4 = 0x8056;
@@ -1432,7 +1441,22 @@ export class WasmWebGL2RenderingContext {
       ex.wasm_free(ptr);
     }
   }
-  copyBufferSubData(readTarget, writeTarget, readOffset, writeOffset, size) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  copyBufferSubData(readTarget, writeTarget, readOffset, writeOffset, size) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_copy_buffer_sub_data !== 'function') {
+      throw new Error('wasm_ctx_copy_buffer_sub_data not found');
+    }
+    const code = ex.wasm_ctx_copy_buffer_sub_data(
+      this._ctxHandle,
+      readTarget >>> 0,
+      writeTarget >>> 0,
+      readOffset >>> 0,
+      writeOffset >>> 0,
+      size >>> 0
+    );
+    _checkErr(code, this._instance);
+  }
   getBufferParameter(target, pname) {
     this._assertNotDestroyed();
     const ex = this._instance.exports;
@@ -1664,7 +1688,20 @@ export class WasmWebGL2RenderingContext {
   }
 
   checkFramebufferStatus(target) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  blitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  blitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_blit_framebuffer !== 'function') {
+      throw new Error('wasm_ctx_blit_framebuffer not found');
+    }
+    const code = ex.wasm_ctx_blit_framebuffer(
+      this._ctxHandle,
+      srcX0 | 0, srcY0 | 0, srcX1 | 0, srcY1 | 0,
+      dstX0 | 0, dstY0 | 0, dstX1 | 0, dstY1 | 0,
+      mask >>> 0, filter >>> 0
+    );
+    _checkErr(code, this._instance);
+  }
   readBuffer(src) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
   pixelStorei(pname, param) { this._assertNotDestroyed(); throw new Error('not implemented'); }

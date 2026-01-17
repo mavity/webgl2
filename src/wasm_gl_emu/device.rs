@@ -102,6 +102,20 @@ pub struct GpuKernel {
     resources: HashMap<GpuHandle, GpuBuffer>,
 }
 
+/// Description of a texture binding for shader metadata
+#[derive(Debug, Clone)]
+pub struct TextureBinding {
+    pub width: u32,
+    pub height: u32,
+    pub depth: u32,
+    pub format: u32,
+    pub bytes_per_pixel: u32,
+    pub wrap_s: u32,
+    pub wrap_t: u32,
+    pub wrap_r: u32,
+    pub gpu_handle: GpuHandle,
+}
+
 impl Default for GpuKernel {
     fn default() -> Self {
         Self {
@@ -156,8 +170,103 @@ impl GpuKernel {
         self.resources.remove(&handle);
     }
 
+    /// Copy a sub-region from one buffer to another
+    pub fn copy_buffer(
+        &mut self,
+        src_handle: GpuHandle,
+        dst_handle: GpuHandle,
+        src_x: u32,
+        src_y: u32,
+        dst_x: u32,
+        dst_y: u32,
+        width: u32,
+        height: u32,
+    ) {
+        self.blit(src_handle, dst_handle, src_x as i32, src_y as i32, (src_x + width) as i32, (src_y + height) as i32, dst_x as i32, dst_y as i32, (dst_x + width) as i32, (dst_y + height) as i32, 0x2600 /* GL_NEAREST */);
+    }
+
+    /// Blit a region from one buffer to another with scaling
+    pub fn blit(
+        &mut self,
+        src_handle: GpuHandle,
+        dst_handle: GpuHandle,
+        src_x0: i32,
+        src_y0: i32,
+        src_x1: i32,
+        src_y1: i32,
+        dst_x0: i32,
+        dst_y0: i32,
+        dst_x1: i32,
+        dst_y1: i32,
+        _filter: u32, // TODO: support linear?
+    ) {
+        let (src_data, src_w, src_h, src_bpp, src_layout) = if let Some(buf) = self.get_buffer(src_handle) {
+            (buf.data.clone(), buf.width, buf.height, buf.format.block_copy_size(None).unwrap_or(4) as usize, buf.layout)
+        } else {
+            return;
+        };
+
+        if let Some(dst_buf) = self.get_buffer_mut(dst_handle) {
+            let dst_bpp = dst_buf.format.block_copy_size(None).unwrap_or(4) as usize;
+            let bpp = src_bpp.min(dst_bpp);
+
+            let dst_w_region = (dst_x1 - dst_x0).abs();
+            let dst_h_region = (dst_y1 - dst_y0).abs();
+            let src_w_region = (src_x1 - src_x0).abs();
+            let src_h_region = (src_y1 - src_y0).abs();
+
+            if dst_w_region == 0 || dst_h_region == 0 { return; }
+
+            let x_step = src_w_region as f32 / dst_w_region as f32;
+            let y_step = src_h_region as f32 / dst_h_region as f32;
+
+            let x_dir = if dst_x1 > dst_x0 { 1 } else { -1 };
+            let y_dir = if dst_y1 > dst_y0 { 1 } else { -1 };
+            let sx_dir = if src_x1 > src_x0 { 1 } else { -1 };
+            let sy_dir = if src_y1 > src_y0 { 1 } else { -1 };
+
+            for dy_rel in 0..dst_h_region {
+                for dx_rel in 0..dst_w_region {
+                    let dx = dst_x0 + dx_rel * x_dir;
+                    let dy = dst_y0 + dy_rel * y_dir;
+
+                    if dx < 0 || dx >= dst_buf.width as i32 || dy < 0 || dy >= dst_buf.height as i32 {
+                        continue;
+                    }
+
+                    let sx = src_x0 + ((dx_rel as f32 * x_step) as i32) * sx_dir;
+                    let sy = src_y0 + ((dy_rel as f32 * y_step) as i32) * sy_dir;
+
+                    if sx < 0 || sx >= src_w as i32 || sy < 0 || sy >= src_h as i32 {
+                        continue;
+                    }
+
+                    let src_off = match src_layout {
+                        StorageLayout::Linear => ((sy as u32 * src_w + sx as u32) as usize) * src_bpp,
+                        _ => 0,
+                    };
+                    let dst_off = dst_buf.get_pixel_offset(dx as u32, dy as u32, 0);
+
+                    if src_off + bpp <= src_data.len() && dst_off + bpp <= dst_buf.data.len() {
+                        dst_buf.data[dst_off..dst_off + bpp]
+                            .copy_from_slice(&src_data[src_off..src_off + bpp]);
+                    }
+                }
+            }
+        }
+    }
+
     /// Clear a buffer with a specific color
     pub fn clear(&mut self, handle: GpuHandle, color: [f32; 4]) {
+        if let Some(buf) = self.get_buffer(handle) {
+            let width = buf.width;
+            let height = buf.height;
+            self.clear_rect(handle, color, 0, 0, width, height);
+        }
+    }
+
+    /// Clear a sub-region of a buffer
+    pub fn clear_rect(&mut self, handle: GpuHandle, color: [f32; 4], x: i32, y: i32, width: u32, height: u32) {
         if let Some(buf) = self.get_buffer_mut(handle) {
             let bpp = buf.format.block_copy_size(None).unwrap_or(4) as usize;
             let mut pixel_bytes = vec![0u8; bpp];
@@ -175,8 +284,6 @@ impl GpuKernel {
                     });
                 }
                 wgt::TextureFormat::R16Uint => {
-                    // RGB565 (packed as BGR in wgpu usually, but we define our own here for R16Uint)
-                    // Let's use B: 11-15, G: 5-10, R: 0-4
                     let r = (color[0].clamp(0.0, 1.0) * 31.0).round() as u16;
                     let g = (color[1].clamp(0.0, 1.0) * 63.0).round() as u16;
                     let b = (color[2].clamp(0.0, 1.0) * 31.0).round() as u16;
@@ -184,7 +291,6 @@ impl GpuKernel {
                     pixel_bytes.copy_from_slice(&val.to_ne_bytes());
                 }
                 wgt::TextureFormat::Rg8Uint => {
-                    // RGBA4
                     let r = (color[0].clamp(0.0, 1.0) * 15.0).round() as u16;
                     let g = (color[1].clamp(0.0, 1.0) * 15.0).round() as u16;
                     let b = (color[2].clamp(0.0, 1.0) * 15.0).round() as u16;
@@ -193,7 +299,6 @@ impl GpuKernel {
                     pixel_bytes.copy_from_slice(&val.to_ne_bytes());
                 }
                 wgt::TextureFormat::R16Sint => {
-                    // RGB5_A1
                     let r = (color[0].clamp(0.0, 1.0) * 31.0).round() as u16;
                     let g = (color[1].clamp(0.0, 1.0) * 31.0).round() as u16;
                     let b = (color[2].clamp(0.0, 1.0) * 31.0).round() as u16;
@@ -202,13 +307,74 @@ impl GpuKernel {
                     pixel_bytes.copy_from_slice(&val.to_ne_bytes());
                 }
                 _ => {
-                    buf.data.fill(0);
-                    return;
+                    // Fallback to zeroing if format not explicitly handled for clear color
+                    pixel_bytes.fill(0);
                 }
             }
 
-            for chunk in buf.data.chunks_exact_mut(bpp) {
-                chunk.copy_from_slice(&pixel_bytes);
+            for row in 0..height {
+                for col in 0..width {
+                    let dx = x + col as i32;
+                    let dy = y + row as i32;
+                    if dx >= 0 && dx < buf.width as i32 && dy >= 0 && dy < buf.height as i32 {
+                        let off = buf.get_pixel_offset(dx as u32, dy as u32, 0);
+                        if off + bpp <= buf.data.len() {
+                            buf.data[off..off + bpp].copy_from_slice(&pixel_bytes);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Writes texture metadata to the specified linear memory pointer for shader access
+    pub fn write_texture_metadata(&self, bindings: &[Option<TextureBinding>], dest_ptr: u32) {
+        for (i, binding) in bindings.iter().enumerate() {
+            let offset = i * 32;
+            if let Some(b) = binding {
+                if let Some(buf) = self.get_buffer(b.gpu_handle) {
+                    unsafe {
+                        let base = (dest_ptr + offset as u32) as *mut i32;
+                        *base.offset(0) = b.width as i32;
+                        *base.offset(1) = b.height as i32;
+                        *base.offset(2) = buf.data.as_ptr() as i32;
+                        *base.offset(3) = b.depth as i32;
+                        *base.offset(4) = b.format as i32;
+                        *base.offset(5) = b.bytes_per_pixel as i32;
+                        *base.offset(6) = ((b.wrap_s & 0xFFFF) | ((b.wrap_t & 0xFFFF) << 16)) as i32;
+                        *base.offset(7) = b.wrap_r as i32;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Copy a 1D range between two buffers (blobs)
+    pub fn copy_blob(
+        &mut self,
+        src_handle: GpuHandle,
+        dst_handle: GpuHandle,
+        src_off: usize,
+        dst_off: usize,
+        size: usize,
+    ) {
+        if src_handle == dst_handle {
+            return;
+        }
+
+        let data_to_copy = if let Some(src_buf) = self.resources.get(&src_handle) {
+            if src_off + size <= src_buf.data.len() {
+                src_buf.data[src_off..src_off + size].to_vec()
+            } else {
+                return;
+            }
+        } else {
+            return;
+        };
+
+        if let Some(dst_buf) = self.resources.get_mut(&dst_handle) {
+            if dst_off + size <= dst_buf.data.len() {
+                dst_buf.data[dst_off..dst_off + size].copy_from_slice(&data_to_copy);
             }
         }
     }

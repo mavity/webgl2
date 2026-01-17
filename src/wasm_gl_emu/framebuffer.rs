@@ -48,6 +48,22 @@ impl OwnedFramebuffer {
             stencil: &mut self.stencil,
         }
     }
+
+    pub fn clear_depth(&mut self, depth: f32, mask: bool) {
+        if mask {
+            self.depth.fill(depth);
+        }
+    }
+
+    pub fn clear_stencil(&mut self, value: u8, write_mask: u8) {
+        if write_mask == 0xFF {
+            self.stencil.fill(value);
+        } else {
+            for s in self.stencil.iter_mut() {
+                *s = (*s & !write_mask) | (value & write_mask);
+            }
+        }
+    }
 }
 
 /// Framebuffer that borrows its data

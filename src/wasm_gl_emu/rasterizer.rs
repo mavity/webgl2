@@ -54,6 +54,10 @@ pub struct RenderState<'a> {
     pub memory: ShaderMemoryLayout,
     /// Viewport (x, y, width, height)
     pub viewport: (i32, i32, u32, u32),
+    /// Scissor (x, y, width, height)
+    pub scissor: (i32, i32, u32, u32),
+    /// Whether scissor test is enabled
+    pub scissor_enabled: bool,
     /// Uniform data buffer
     pub uniform_data: &'a [u8],
     /// Texture metadata preparation callback
@@ -204,6 +208,80 @@ pub struct RasterPipeline {
     pub vs_table_idx: Option<u32>,
     /// Function table index for fragment shader (if available)
     pub fs_table_idx: Option<u32>,
+}
+
+impl RasterPipeline {
+    /// Computes the flat varyings mask from a fragment shader Naga module
+    pub fn compute_flat_varyings_mask(fs_module: &naga::Module) -> u64 {
+        let mut mask = 0u64;
+        for ep in &fs_module.entry_points {
+            if ep.stage == naga::ShaderStage::Fragment {
+                for arg in &ep.function.arguments {
+                    let mut make_flat = false;
+                    let mut location = None;
+
+                    if let Some(naga::Binding::Location {
+                        location: loc,
+                        interpolation,
+                        ..
+                    }) = &arg.binding
+                    {
+                        location = Some(*loc);
+                        if let Some(interp) = interpolation {
+                            if *interp == naga::Interpolation::Flat {
+                                make_flat = true;
+                            }
+                        }
+                    }
+
+                    if !make_flat {
+                        let ty = &fs_module.types[arg.ty];
+                        match &ty.inner {
+                            naga::TypeInner::Scalar(scalar) => {
+                                if scalar.kind == naga::ScalarKind::Sint
+                                    || scalar.kind == naga::ScalarKind::Uint
+                                {
+                                    make_flat = true;
+                                }
+                            }
+                            naga::TypeInner::Vector { scalar, .. } => {
+                                if scalar.kind == naga::ScalarKind::Sint
+                                    || scalar.kind == naga::ScalarKind::Uint
+                                {
+                                    make_flat = true;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    if make_flat {
+                        if let Some(loc) = location {
+                            let ty = &fs_module.types[arg.ty];
+                            let components = match &ty.inner {
+                                naga::TypeInner::Scalar(_) => 1,
+                                naga::TypeInner::Vector { size, .. } => match size {
+                                    naga::VectorSize::Bi => 2,
+                                    naga::VectorSize::Tri => 3,
+                                    naga::VectorSize::Quad => 4,
+                                },
+                                _ => 1,
+                            };
+
+                            let start_bit = (loc + 1) * 4;
+                            for i in 0..components {
+                                let bit = start_bit + i;
+                                if bit < 64 {
+                                    mask |= 1u64 << bit;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        mask
+    }
 }
 
 impl Default for RasterPipeline {
@@ -369,6 +447,30 @@ fn blend_pixel_f32(src: [f32; 4], dst: [f32; 4], state: &BlendState) -> [f32; 4]
 #[derive(Default)]
 pub struct Rasterizer {}
 
+/// Interface for fetching indices
+pub trait IndexBuffer {
+    fn len(&self) -> usize;
+    fn get(&self, i: usize) -> u32;
+}
+
+impl IndexBuffer for [u32] {
+    fn len(&self) -> usize {
+        self.len()
+    }
+    fn get(&self, i: usize) -> u32 {
+        self[i]
+    }
+}
+
+impl IndexBuffer for Vec<u32> {
+    fn len(&self) -> usize {
+        self.len()
+    }
+    fn get(&self, i: usize) -> u32 {
+        self[i]
+    }
+}
+
 pub struct DrawConfig<'a> {
     pub color_target: ColorTarget<'a>,
     pub width: u32,
@@ -383,7 +485,7 @@ pub struct DrawConfig<'a> {
     pub instance_count: usize,
     pub first_vertex: usize,
     pub first_instance: usize,
-    pub indices: Option<&'a [u32]>,
+    pub indices: Option<&'a dyn IndexBuffer>,
     pub mode: u32,
 }
 
@@ -478,16 +580,27 @@ impl Rasterizer {
     ) {
         let (vx, vy, vw, vh) = state.viewport;
 
+        // Scissor limit
+        let (mut limit_x0, mut limit_y0, mut limit_x1, mut limit_y1) = (0, 0, fb.width as i32 - 1, fb.height as i32 - 1);
+        
+        if state.scissor_enabled {
+            let (sx, sy, sw, sh) = state.scissor;
+            limit_x0 = limit_x0.max(sx);
+            limit_y0 = limit_y0.max(sy);
+            limit_x1 = limit_x1.min(sx + sw as i32 - 1);
+            limit_y1 = limit_y1.min(sy + sh as i32 - 1);
+        }
+
         // Screen coordinates (with perspective divide)
         let p0 = screen_position(&v0.position, vx, vy, vw, vh);
         let p1 = screen_position(&v1.position, vx, vy, vw, vh);
         let p2 = screen_position(&v2.position, vx, vy, vw, vh);
 
         // Bounding box
-        let min_x = p0.0.min(p1.0).min(p2.0).max(0.0).floor() as i32;
-        let max_x = p0.0.max(p1.0).max(p2.0).min(vw as f32 - 1.0).ceil() as i32;
-        let min_y = p0.1.min(p1.1).min(p2.1).max(0.0).floor() as i32;
-        let max_y = p0.1.max(p1.1).max(p2.1).min(vh as f32 - 1.0).ceil() as i32;
+        let min_x = p0.0.min(p1.0).min(p2.0).max(limit_x0 as f32).floor() as i32;
+        let max_x = p0.0.max(p1.0).max(p2.0).min(limit_x1 as f32).ceil() as i32;
+        let min_y = p0.1.min(p1.1).min(p2.1).max(limit_y0 as f32).floor() as i32;
+        let max_y = p0.1.max(p1.1).max(p2.1).min(limit_y1 as f32).ceil() as i32;
 
         if max_x < min_x || max_y < min_y {
             return;
@@ -923,15 +1036,15 @@ impl Rasterizer {
             let mut vertices = Vec::with_capacity(config.vertex_count);
 
             // 1. Run Vertex Shader for all vertices
-            let count = if let Some(idxs) = config.indices {
+            let count = if let Some(ref idxs) = config.indices {
                 idxs.len()
             } else {
                 config.vertex_count
             };
 
             for i in 0..count {
-                let vertex_id = if let Some(idxs) = config.indices {
-                    idxs[i]
+                let vertex_id = if let Some(ref idxs) = config.indices {
+                    idxs.get(i)
                 } else {
                     (config.first_vertex + i) as u32
                 };
