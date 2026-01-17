@@ -105,6 +105,7 @@ pub fn type_size(type_inner: &TypeInner) -> Result<u32, BackendError> {
             )),
         },
         TypeInner::Struct { span, .. } => Ok(*span),
+        TypeInner::Image { .. } | TypeInner::Sampler { .. } => Ok(4),
         _ => Err(BackendError::TypeConversion(format!(
             "Unsupported type for size calculation: {:?}",
             type_inner

@@ -1084,18 +1084,25 @@ pub fn translate_expression_component(
         Expression::ImageSample {
             image, coordinate, ..
         } => {
-            // Call module-local sampling helper
-            // Signature: (texture_ptr: i32, unit: i32, u: f32, v: f32) -> (f32, f32, f32, f32)
+            let ty_handle = ctx.typifier[*image].handle().unwrap();
+            let dim = match ctx.module.types[ty_handle].inner {
+                naga::TypeInner::Image { dim, .. } => dim,
+                _ => naga::ImageDimension::D2,
+            };
 
-            if let Some(tex_fetch_idx) = ctx.webgl_texture_sample_idx {
+            let sampler_idx = if dim == naga::ImageDimension::D3 {
+                ctx.webgl_sampler_3d_idx
+            } else {
+                ctx.webgl_sampler_2d_idx
+            };
+
+            if let Some(tex_fetch_idx) = sampler_idx {
                 // 1. Push texture_ptr (global)
                 ctx.wasm_func
                     .instruction(&Instruction::GlobalGet(output_layout::TEXTURE_PTR_GLOBAL));
 
-                // 2. Get texture unit index from the image expression
+                // 2. Get texture unit index
                 translate_expression_component(*image, 0, ctx)?;
-
-                // If the image expression is a GlobalVariable, load the value (texture unit index)
                 if let Expression::GlobalVariable(_) = ctx.func.expressions[*image] {
                     ctx.wasm_func
                         .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
@@ -1105,24 +1112,23 @@ pub fn translate_expression_component(
                         }));
                 }
 
-                // 3. Push U coordinate
+                // 3. Push coordinates
                 translate_expression_component(*coordinate, 0, ctx)?;
-
-                // 4. Push V coordinate
                 translate_expression_component(*coordinate, 1, ctx)?;
+                if dim == naga::ImageDimension::D3 {
+                    translate_expression_component(*coordinate, 2, ctx)?;
+                }
 
-                // 5. Call host texel fetch import -> returns (f32, f32, f32, f32) on WASM stack
+                // 4. Call helper
                 ctx.wasm_func.instruction(&Instruction::Call(tex_fetch_idx));
 
-                // 6. Store all 4 results in explicit sampling locals
-                // The multivalue return produces 4 f32 values on the stack: [r, g, b, a]
-                // We need to store them in reverse order due to stack semantics (last value on top).
+                // 5. Store results
                 let sample_base = ctx
                     .sample_f32_locals
                     .expect("Sampling locals not allocated for function with ImageSample?");
 
                 ctx.wasm_func
-                    .instruction(&Instruction::LocalSet(sample_base + 3)); // a (top of stack)
+                    .instruction(&Instruction::LocalSet(sample_base + 3)); // a
                 ctx.wasm_func
                     .instruction(&Instruction::LocalSet(sample_base + 2)); // b
                 ctx.wasm_func
@@ -1130,11 +1136,10 @@ pub fn translate_expression_component(
                 ctx.wasm_func
                     .instruction(&Instruction::LocalSet(sample_base)); // r
 
-                // 7. Load the requested component
+                // 6. Return requested component
                 ctx.wasm_func
                     .instruction(&Instruction::LocalGet(sample_base + component_idx));
             } else {
-                // Fallback: return black if helper not emitted
                 ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
             }
         }
@@ -1222,6 +1227,13 @@ pub fn translate_expression_component(
                         ctx.wasm_func
                             .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
                                 offset: 4,
+                                align: 2,
+                                memory_index: 0,
+                            }));
+                    } else if component_idx == 2 {
+                        ctx.wasm_func
+                            .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                                offset: 12,
                                 align: 2,
                                 memory_index: 0,
                             }));
@@ -1726,6 +1738,7 @@ pub fn translate_expression(
                 }
             }
             Expression::GlobalVariable(handle) => {
+                let var = &ctx.module.global_variables[*handle];
                 if let Some(&(offset, base_ptr_idx)) = ctx.global_offsets.get(handle) {
                     ctx.wasm_func
                         .instruction(&Instruction::GlobalGet(base_ptr_idx));
@@ -1736,17 +1749,35 @@ pub fn translate_expression(
                     }
                 } else {
                     // Fallback for unknown globals
-                    let var = &ctx.module.global_variables[*handle];
-                    if var.name.as_deref() == Some("gl_Position")
-                        || var.name.as_deref() == Some("gl_Position_1")
-                    {
-                        ctx.wasm_func.instruction(&Instruction::GlobalGet(
-                            output_layout::VARYING_PTR_GLOBAL,
-                        )); // varying_ptr
-                    } else {
-                        ctx.wasm_func.instruction(&Instruction::GlobalGet(
-                            output_layout::PRIVATE_PTR_GLOBAL,
-                        )); // private_ptr
+                    match var.name.as_deref() {
+                        Some("gl_Position") | Some("gl_Position_1") => {
+                            ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                output_layout::VARYING_PTR_GLOBAL,
+                            ));
+                        }
+                        Some(name)
+                            if name.starts_with("output")
+                                || name == "outColor"
+                                || name == "fragColor"
+                                || name == "gl_FragColor" =>
+                        {
+                            ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                output_layout::PRIVATE_PTR_GLOBAL,
+                            ));
+                        }
+                        _ => {
+                            if var.space == naga::AddressSpace::Uniform
+                                || var.space == naga::AddressSpace::Handle
+                            {
+                                ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                    output_layout::UNIFORM_PTR_GLOBAL,
+                                ));
+                            } else {
+                                ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                    output_layout::PRIVATE_PTR_GLOBAL,
+                                ));
+                            }
+                        }
                     }
                 }
             }

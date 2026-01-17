@@ -4,6 +4,8 @@
 //! by both WebGL2 and WebGPU implementations. It handles vertex fetching,
 //! barycentric interpolation, and fragment shading.
 
+use crate::webgl2_context::types::*;
+
 /// Vertex data after vertex shader execution
 #[derive(Clone)]
 pub struct ProcessedVertex {
@@ -42,46 +44,6 @@ impl Default for ShaderMemoryLayout {
             texture_ptr: 0x5000,
         }
     }
-}
-
-/// Type alias for shader function signature.
-/// Matches WASM shader exports: (type, attr_ptr, uniform_ptr, varying_ptr, private_ptr, texture_ptr)
-type ShaderFunc = unsafe extern "C" fn(i32, i32, i32, i32, i32, i32);
-
-/// Call shader directly via function table.
-///
-/// # Safety
-/// - `table_index` must be valid (set during linkProgram)
-/// - Memory pointers must be valid and aligned
-/// - Shader WASM instance must still exist
-///
-/// # Implementation Note
-/// In WebAssembly, function pointers ARE table indices.
-/// This transmute is safe because:
-/// 1. WASM spec guarantees table indices map to functions
-/// 2. call_indirect validates signature at runtime
-/// 3. Invalid indices trap (don't cause UB)
-#[inline]
-unsafe fn call_shader_direct(
-    table_index: u32,
-    shader_type: u32,
-    attr_ptr: u32,
-    uniform_ptr: u32,
-    varying_ptr: u32,
-    private_ptr: u32,
-    texture_ptr: u32,
-) {
-    // Transmute table index to function pointer
-    let func: ShaderFunc = std::mem::transmute(table_index as usize);
-
-    func(
-        shader_type as i32,
-        attr_ptr as i32,
-        uniform_ptr as i32,
-        varying_ptr as i32,
-        private_ptr as i32,
-        texture_ptr as i32,
-    );
 }
 
 /// Render state for a draw call
@@ -157,12 +119,12 @@ pub struct StencilFaceState {
 impl Default for StencilFaceState {
     fn default() -> Self {
         Self {
-            func: 0x0207, // GL_ALWAYS
+            func: GL_ALWAYS,
             ref_val: 0,
             mask: 0xFFFFFFFF,
-            fail: 0x1E00,  // GL_KEEP
-            zfail: 0x1E00, // GL_KEEP
-            zpass: 0x1E00, // GL_KEEP
+            fail: GL_KEEP,
+            zfail: GL_KEEP,
+            zpass: GL_KEEP,
             write_mask: 0xFFFFFFFF,
         }
     }
@@ -188,7 +150,7 @@ impl Default for DepthState {
     fn default() -> Self {
         Self {
             enabled: false,
-            func: 0x0201, // GL_LESS
+            func: GL_LESS,
             mask: true,
         }
     }
@@ -211,12 +173,12 @@ impl Default for BlendState {
     fn default() -> Self {
         Self {
             enabled: false,
-            src_rgb: 1,       // GL_ONE
-            dst_rgb: 0,       // GL_ZERO
-            src_alpha: 1,     // GL_ONE
-            dst_alpha: 0,     // GL_ZERO
-            eq_rgb: 0x8006,   // GL_FUNC_ADD
-            eq_alpha: 0x8006, // GL_FUNC_ADD
+            src_rgb: GL_ONE,
+            dst_rgb: GL_ZERO,
+            src_alpha: GL_ONE,
+            dst_alpha: GL_ZERO,
+            eq_rgb: GL_FUNC_ADD,
+            eq_alpha: GL_FUNC_ADD,
             color: [0.0, 0.0, 0.0, 0.0],
         }
     }
@@ -239,8 +201,8 @@ pub struct RasterPipeline {
 impl Default for RasterPipeline {
     fn default() -> Self {
         Self {
-            vertex_shader_type: 0x8B31,   // GL_VERTEX_SHADER
-            fragment_shader_type: 0x8B30, // GL_FRAGMENT_SHADER
+            vertex_shader_type: GL_VERTEX_SHADER,
+            fragment_shader_type: GL_FRAGMENT_SHADER,
             memory: ShaderMemoryLayout::default(),
             flat_varyings_mask: 0,
             vs_table_idx: None,
@@ -257,26 +219,26 @@ fn get_factor(
     alpha_sat: f32,
 ) -> [f32; 4] {
     match factor {
-        0 => [0.0, 0.0, 0.0, 0.0],                                          // ZERO
-        1 => [1.0, 1.0, 1.0, 1.0],                                          // ONE
-        0x0300 => src,                                                      // SRC_COLOR
-        0x0301 => [1.0 - src[0], 1.0 - src[1], 1.0 - src[2], 1.0 - src[3]], // ONE_MINUS_SRC_COLOR
-        0x0302 => [src[3], src[3], src[3], src[3]],                         // SRC_ALPHA
-        0x0303 => [1.0 - src[3], 1.0 - src[3], 1.0 - src[3], 1.0 - src[3]], // ONE_MINUS_SRC_ALPHA
-        0x0304 => [dst[3], dst[3], dst[3], dst[3]],                         // DST_ALPHA
-        0x0305 => [1.0 - dst[3], 1.0 - dst[3], 1.0 - dst[3], 1.0 - dst[3]], // ONE_MINUS_DST_ALPHA
-        0x0306 => dst,                                                      // DST_COLOR
-        0x0307 => [1.0 - dst[0], 1.0 - dst[1], 1.0 - dst[2], 1.0 - dst[3]], // ONE_MINUS_DST_COLOR
-        0x0308 => [alpha_sat, alpha_sat, alpha_sat, 1.0],                   // SRC_ALPHA_SATURATE
-        0x8001 => constant,                                                 // CONSTANT_COLOR
-        0x8002 => [
+        GL_ZERO => [0.0, 0.0, 0.0, 0.0], // ZERO
+        GL_ONE => [1.0, 1.0, 1.0, 1.0],  // ONE
+        GL_SRC_COLOR => src,             // SRC_COLOR
+        GL_ONE_MINUS_SRC_COLOR => [1.0 - src[0], 1.0 - src[1], 1.0 - src[2], 1.0 - src[3]], // ONE_MINUS_SRC_COLOR
+        GL_SRC_ALPHA => [src[3], src[3], src[3], src[3]], // SRC_ALPHA
+        GL_ONE_MINUS_SRC_ALPHA => [1.0 - src[3], 1.0 - src[3], 1.0 - src[3], 1.0 - src[3]], // ONE_MINUS_SRC_ALPHA
+        GL_DST_ALPHA => [dst[3], dst[3], dst[3], dst[3]], // DST_ALPHA
+        GL_ONE_MINUS_DST_ALPHA => [1.0 - dst[3], 1.0 - dst[3], 1.0 - dst[3], 1.0 - dst[3]], // ONE_MINUS_DST_ALPHA
+        GL_DST_COLOR => dst, // DST_COLOR
+        GL_ONE_MINUS_DST_COLOR => [1.0 - dst[0], 1.0 - dst[1], 1.0 - dst[2], 1.0 - dst[3]], // ONE_MINUS_DST_COLOR
+        GL_SRC_ALPHA_SATURATE => [alpha_sat, alpha_sat, alpha_sat, 1.0], // SRC_ALPHA_SATURATE
+        GL_CONSTANT_COLOR => constant,                                   // CONSTANT_COLOR
+        GL_ONE_MINUS_CONSTANT_COLOR => [
             1.0 - constant[0],
             1.0 - constant[1],
             1.0 - constant[2],
             1.0 - constant[3],
         ], // ONE_MINUS_CONSTANT_COLOR
-        0x8003 => [constant[3], constant[3], constant[3], constant[3]],     // CONSTANT_ALPHA
-        0x8004 => [
+        GL_CONSTANT_ALPHA => [constant[3], constant[3], constant[3], constant[3]], // CONSTANT_ALPHA
+        GL_ONE_MINUS_CONSTANT_ALPHA => [
             1.0 - constant[3],
             1.0 - constant[3],
             1.0 - constant[3],
@@ -288,11 +250,11 @@ fn get_factor(
 
 fn blend_channel(src: f32, dst: f32, s_factor: f32, d_factor: f32, eq: u32) -> f32 {
     match eq {
-        0x8006 => src * s_factor + dst * d_factor, // FUNC_ADD
-        0x800A => src * s_factor - dst * d_factor, // FUNC_SUBTRACT
-        0x800B => dst * d_factor - src * s_factor, // FUNC_REVERSE_SUBTRACT
-        0x8007 => src.min(dst),                    // MIN
-        0x8008 => src.max(dst),                    // MAX
+        GL_FUNC_ADD => src * s_factor + dst * d_factor, // FUNC_ADD
+        GL_FUNC_SUBTRACT => src * s_factor - dst * d_factor, // FUNC_SUBTRACT
+        GL_FUNC_REVERSE_SUBTRACT => dst * d_factor - src * s_factor, // FUNC_REVERSE_SUBTRACT
+        GL_MIN => src.min(dst),                         // MIN
+        GL_MAX => src.max(dst),                         // MAX
         _ => src,
     }
 }
@@ -358,6 +320,43 @@ fn blend_pixel(src: [u8; 4], dst: [u8; 4], state: &BlendState) -> [u8; 4] {
     ]
 }
 
+fn blend_pixel_f32(src: [f32; 4], dst: [f32; 4], state: &BlendState) -> [f32; 4] {
+    if !state.enabled {
+        return src;
+    }
+
+    let alpha_sat = src[3].min(1.0 - dst[3]);
+    let s_factor_rgb = get_factor(state.src_rgb, src, dst, state.color, alpha_sat);
+    let d_factor_rgb = get_factor(state.dst_rgb, src, dst, state.color, alpha_sat);
+    let s_factor_a = get_factor(state.src_alpha, src, dst, state.color, alpha_sat);
+    let d_factor_a = get_factor(state.dst_alpha, src, dst, state.color, alpha_sat);
+
+    [
+        blend_channel(
+            src[0],
+            dst[0],
+            s_factor_rgb[0],
+            d_factor_rgb[0],
+            state.eq_rgb,
+        ),
+        blend_channel(
+            src[1],
+            dst[1],
+            s_factor_rgb[1],
+            d_factor_rgb[1],
+            state.eq_rgb,
+        ),
+        blend_channel(
+            src[2],
+            dst[2],
+            s_factor_rgb[2],
+            d_factor_rgb[2],
+            state.eq_rgb,
+        ),
+        blend_channel(src[3], dst[3], s_factor_a[3], d_factor_a[3], state.eq_alpha),
+    ]
+}
+
 /// Software triangle rasterizer
 #[derive(Default)]
 pub struct Rasterizer {}
@@ -388,15 +387,10 @@ impl Rasterizer {
         let ix = x as i32;
         let iy = y as i32;
         if ix >= 0 && ix < fb.width as i32 && iy >= 0 && iy < fb.height as i32 {
-            let bytes_per_pixel = match fb.internal_format {
-                0x822E => 4,  // GL_R32F
-                0x8230 => 8,  // GL_RG32F
-                0x8814 => 16, // GL_RGBA32F
-                _ => 4,       // GL_RGBA8
-            };
+            let bytes_per_pixel = get_bytes_per_pixel(fb.internal_format);
             let idx = ((iy as u32 * fb.width + ix as u32) * bytes_per_pixel) as usize;
             if idx + color.len() <= fb.color.len() {
-                if fb.internal_format == 0x8058 {
+                if fb.internal_format == GL_RGBA8 {
                     // GL_RGBA8: Use quantized blending
                     let existing = [
                         fb.color[idx],
@@ -448,9 +442,10 @@ impl Rasterizer {
                 let py = y as f32 + 0.5;
 
                 if is_inside(px, py, p0, p1, p2) {
-                    let idx = ((y as u32 * fb.width + x as u32) * 4) as usize;
-                    if idx + 3 < fb.color.len() {
-                        fb.color[idx..idx + 4].copy_from_slice(&color);
+                    let bytes_per_pixel = get_bytes_per_pixel(fb.internal_format);
+                    let idx = ((y as u32 * fb.width + x as u32) * bytes_per_pixel) as usize;
+                    if idx + color.len() <= fb.color.len() {
+                        fb.color[idx..idx + color.len()].copy_from_slice(&color);
                     }
                 }
             }
@@ -636,18 +631,162 @@ impl Rasterizer {
                     );
 
                     // Write color to framebuffer (format-aware)
-                    let bytes_per_pixel = match fb.internal_format {
-                        0x822E => 4,  // GL_R32F
-                        0x8230 => 8,  // GL_RG32F
-                        0x8814 => 16, // GL_RGBA32F
-                        _ => 4,       // GL_RGBA8
-                    };
+                    let bytes_per_pixel = get_bytes_per_pixel(fb.internal_format);
                     let color_idx = fb_idx * bytes_per_pixel as usize;
 
                     if color_idx + color.len() <= fb.color.len() {
-                        // For float formats, write directly without blending (for now)
-                        // For RGBA8, use existing blend logic
-                        if fb.internal_format == 0x8058 {
+                        // For float formats, write directly with optional blending
+                        if fb.internal_format == GL_R32F
+                            || fb.internal_format == GL_RG32F
+                            || fb.internal_format == GL_RGBA32F
+                        {
+                            // GL_R32F, GL_RG32F, GL_RGBA32F
+                            if state.blend.enabled {
+                                let existing: [f32; 4] = match fb.internal_format {
+                                    GL_R32F => {
+                                        let v = f32::from_ne_bytes(
+                                            fb.color[color_idx..color_idx + 4].try_into().unwrap(),
+                                        );
+                                        [v, 0.0, 0.0, 1.0]
+                                    }
+                                    GL_RG32F => {
+                                        let v0 = f32::from_ne_bytes(
+                                            fb.color[color_idx..color_idx + 4].try_into().unwrap(),
+                                        );
+                                        let v1 = f32::from_ne_bytes(
+                                            fb.color[color_idx + 4..color_idx + 8]
+                                                .try_into()
+                                                .unwrap(),
+                                        );
+                                        [v0, v1, 0.0, 1.0]
+                                    }
+                                    GL_RGBA32F => {
+                                        let v0 = f32::from_ne_bytes(
+                                            fb.color[color_idx..color_idx + 4].try_into().unwrap(),
+                                        );
+                                        let v1 = f32::from_ne_bytes(
+                                            fb.color[color_idx + 4..color_idx + 8]
+                                                .try_into()
+                                                .unwrap(),
+                                        );
+                                        let v2 = f32::from_ne_bytes(
+                                            fb.color[color_idx + 8..color_idx + 12]
+                                                .try_into()
+                                                .unwrap(),
+                                        );
+                                        let v3 = f32::from_ne_bytes(
+                                            fb.color[color_idx + 12..color_idx + 16]
+                                                .try_into()
+                                                .unwrap(),
+                                        );
+                                        [v0, v1, v2, v3]
+                                    }
+                                    _ => [0.0, 0.0, 0.0, 1.0],
+                                };
+
+                                let src_color: [f32; 4] = match fb.internal_format {
+                                    GL_R32F => [
+                                        f32::from_ne_bytes(color[0..4].try_into().unwrap()),
+                                        0.0,
+                                        0.0,
+                                        1.0,
+                                    ],
+                                    GL_RG32F => [
+                                        f32::from_ne_bytes(color[0..4].try_into().unwrap()),
+                                        f32::from_ne_bytes(color[4..8].try_into().unwrap()),
+                                        0.0,
+                                        1.0,
+                                    ],
+                                    GL_RGBA32F => [
+                                        f32::from_ne_bytes(color[0..4].try_into().unwrap()),
+                                        f32::from_ne_bytes(color[4..8].try_into().unwrap()),
+                                        f32::from_ne_bytes(color[8..12].try_into().unwrap()),
+                                        f32::from_ne_bytes(color[12..16].try_into().unwrap()),
+                                    ],
+                                    _ => [0.0, 0.0, 0.0, 1.0],
+                                };
+
+                                let blended = blend_pixel_f32(src_color, existing, &state.blend);
+
+                                // Write back blended
+                                match fb.internal_format {
+                                    GL_R32F => {
+                                        if state.color_mask.r {
+                                            fb.color[color_idx..color_idx + 4]
+                                                .copy_from_slice(&blended[0].to_ne_bytes());
+                                        }
+                                    }
+                                    GL_RG32F => {
+                                        if state.color_mask.r {
+                                            fb.color[color_idx..color_idx + 4]
+                                                .copy_from_slice(&blended[0].to_ne_bytes());
+                                        }
+                                        if state.color_mask.g {
+                                            fb.color[color_idx + 4..color_idx + 8]
+                                                .copy_from_slice(&blended[1].to_ne_bytes());
+                                        }
+                                    }
+                                    GL_RGBA32F => {
+                                        if state.color_mask.r {
+                                            fb.color[color_idx..color_idx + 4]
+                                                .copy_from_slice(&blended[0].to_ne_bytes());
+                                        }
+                                        if state.color_mask.g {
+                                            fb.color[color_idx + 4..color_idx + 8]
+                                                .copy_from_slice(&blended[1].to_ne_bytes());
+                                        }
+                                        if state.color_mask.b {
+                                            fb.color[color_idx + 8..color_idx + 12]
+                                                .copy_from_slice(&blended[2].to_ne_bytes());
+                                        }
+                                        if state.color_mask.a {
+                                            fb.color[color_idx + 12..color_idx + 16]
+                                                .copy_from_slice(&blended[3].to_ne_bytes());
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            } else {
+                                // Clamp to mask if not blending
+                                match fb.internal_format {
+                                    GL_R32F => {
+                                        if state.color_mask.r {
+                                            fb.color[color_idx..color_idx + 4]
+                                                .copy_from_slice(&color[0..4]);
+                                        }
+                                    }
+                                    GL_RG32F => {
+                                        if state.color_mask.r {
+                                            fb.color[color_idx..color_idx + 4]
+                                                .copy_from_slice(&color[0..4]);
+                                        }
+                                        if state.color_mask.g {
+                                            fb.color[color_idx + 4..color_idx + 8]
+                                                .copy_from_slice(&color[4..8]);
+                                        }
+                                    }
+                                    GL_RGBA32F => {
+                                        if state.color_mask.r {
+                                            fb.color[color_idx..color_idx + 4]
+                                                .copy_from_slice(&color[0..4]);
+                                        }
+                                        if state.color_mask.g {
+                                            fb.color[color_idx + 4..color_idx + 8]
+                                                .copy_from_slice(&color[4..8]);
+                                        }
+                                        if state.color_mask.b {
+                                            fb.color[color_idx + 8..color_idx + 12]
+                                                .copy_from_slice(&color[8..12]);
+                                        }
+                                        if state.color_mask.a {
+                                            fb.color[color_idx + 12..color_idx + 16]
+                                                .copy_from_slice(&color[12..16]);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        } else if fb.internal_format == GL_RGBA8 {
                             // GL_RGBA8: Use quantized blending
                             let existing = [
                                 fb.color[color_idx],
@@ -699,31 +838,18 @@ impl Rasterizer {
         }
 
         // Execute fragment shader
-        // Try direct call if table index available, fallback to JS trampoline
-        if let Some(fs_idx) = pipeline.fs_table_idx {
-            unsafe {
-                call_shader_direct(
-                    fs_idx,
-                    pipeline.fragment_shader_type,
-                    0,
-                    pipeline.memory.uniform_ptr,
-                    pipeline.memory.varying_ptr,
-                    pipeline.memory.private_ptr,
-                    pipeline.memory.texture_ptr,
-                );
-            }
-        } else {
-            // Fallback: JS trampoline (preserves existing behavior)
-            crate::js_execute_shader(
-                state.ctx_handle,
-                pipeline.fragment_shader_type,
-                0,
-                pipeline.memory.uniform_ptr,
-                pipeline.memory.varying_ptr,
-                pipeline.memory.private_ptr,
-                pipeline.memory.texture_ptr,
-            );
-        }
+        // Fallback: JS trampoline (direct call is currently broken in Rust-WASM)
+
+        crate::js_execute_shader(
+            state.ctx_handle,
+            pipeline.fragment_shader_type,
+            pipeline.fs_table_idx.unwrap_or(0),
+            pipeline.memory.attr_ptr,
+            pipeline.memory.uniform_ptr,
+            pipeline.memory.varying_ptr,
+            pipeline.memory.private_ptr,
+            pipeline.memory.texture_ptr,
+        );
 
         // Read color from private memory
         let mut color_bytes = [0u8; 16];
@@ -826,6 +952,7 @@ impl Rasterizer {
                 crate::js_execute_shader(
                     config.state.ctx_handle,
                     config.pipeline.vertex_shader_type,
+                    config.pipeline.vs_table_idx.unwrap_or(0),
                     config.pipeline.memory.attr_ptr,
                     config.pipeline.memory.uniform_ptr,
                     config.pipeline.memory.varying_ptr,
@@ -862,7 +989,7 @@ impl Rasterizer {
             }
 
             // 2. Rasterize
-            if config.mode == 0x0000 {
+            if config.mode == GL_POINTS {
                 // GL_POINTS
                 for v in &vertices {
                     let screen_x =
@@ -879,7 +1006,7 @@ impl Rasterizer {
                     );
                     self.draw_point(config.fb, screen_x, screen_y, &color, config.state);
                 }
-            } else if config.mode == 0x0004 {
+            } else if config.mode == GL_TRIANGLES {
                 // GL_TRIANGLES
                 for i in (0..vertices.len()).step_by(3) {
                     if i + 2 >= vertices.len() {
@@ -889,6 +1016,16 @@ impl Rasterizer {
                     let v1 = &vertices[i + 1];
                     let v2 = &vertices[i + 2];
 
+                    self.rasterize_triangle(config.fb, v0, v1, v2, config.pipeline, config.state);
+                }
+            } else if config.mode == GL_TRIANGLE_STRIP {
+                // GL_TRIANGLE_STRIP
+                for i in 0..vertices.len().saturating_sub(2) {
+                    let (v0, v1, v2) = if i % 2 == 0 {
+                        (&vertices[i], &vertices[i + 1], &vertices[i + 2])
+                    } else {
+                        (&vertices[i + 1], &vertices[i], &vertices[i + 2])
+                    };
                     self.rasterize_triangle(config.fb, v0, v1, v2, config.pipeline, config.state);
                 }
             }
@@ -926,14 +1063,14 @@ fn is_inside(px: f32, py: f32, p0: (f32, f32), p1: (f32, f32), p2: (f32, f32)) -
 
 fn compare_depth(func: u32, incoming: f32, current: f32) -> bool {
     match func {
-        0x0200 => false,               // GL_NEVER
-        0x0201 => incoming < current,  // GL_LESS
-        0x0202 => incoming == current, // GL_EQUAL
-        0x0203 => incoming <= current, // GL_LEQUAL
-        0x0204 => incoming > current,  // GL_GREATER
-        0x0205 => incoming != current, // GL_NOTEQUAL
-        0x0206 => incoming >= current, // GL_GEQUAL
-        0x0207 => true,                // GL_ALWAYS
+        GL_NEVER => false,                  // GL_NEVER
+        GL_LESS => incoming < current,      // GL_LESS
+        GL_EQUAL => incoming == current,    // GL_EQUAL
+        GL_LEQUAL => incoming <= current,   // GL_LEQUAL
+        GL_GREATER => incoming > current,   // GL_GREATER
+        GL_NOTEQUAL => incoming != current, // GL_NOTEQUAL
+        GL_GEQUAL => incoming >= current,   // GL_GEQUAL
+        GL_ALWAYS => true,                  // GL_ALWAYS
         _ => false,
     }
 }
@@ -942,14 +1079,14 @@ fn compare_stencil(func: u32, ref_val: i32, current: u8, mask: u32) -> bool {
     let c = (current as u32) & mask;
     let r = (ref_val as u32) & mask;
     match func {
-        0x0200 => false,  // GL_NEVER
-        0x0201 => r < c,  // GL_LESS
-        0x0202 => r == c, // GL_EQUAL
-        0x0203 => r <= c, // GL_LEQUAL
-        0x0204 => r > c,  // GL_GREATER
-        0x0205 => r != c, // GL_NOTEQUAL
-        0x0206 => r >= c, // GL_GEQUAL
-        0x0207 => true,   // GL_ALWAYS
+        GL_NEVER => false,     // GL_NEVER
+        GL_LESS => r < c,      // GL_LESS
+        GL_EQUAL => r == c,    // GL_EQUAL
+        GL_LEQUAL => r <= c,   // GL_LEQUAL
+        GL_GREATER => r > c,   // GL_GREATER
+        GL_NOTEQUAL => r != c, // GL_NOTEQUAL
+        GL_GEQUAL => r >= c,   // GL_GEQUAL
+        GL_ALWAYS => true,     // GL_ALWAYS
         _ => false,
     }
 }
@@ -957,14 +1094,14 @@ fn compare_stencil(func: u32, ref_val: i32, current: u8, mask: u32) -> bool {
 fn apply_stencil_op(op: u32, current: u8, ref_val: i32) -> u8 {
     let c = current as i32;
     match op {
-        0x0000 => 0,                                  // GL_ZERO
-        0x1E00 => current,                            // GL_KEEP
-        0x1E01 => ref_val as u8,                      // GL_REPLACE
-        0x1E02 => c.saturating_add(1).min(255) as u8, // GL_INCR
-        0x1E03 => c.saturating_sub(1).max(0) as u8,   // GL_DECR
-        0x150A => !current,                           // GL_INVERT
-        0x8507 => ((c + 1) % 256) as u8,              // GL_INCR_WRAP
-        0x8508 => ((c - 1 + 256) % 256) as u8,        // GL_DECR_WRAP
+        GL_ZERO => 0,                                  // GL_ZERO
+        GL_KEEP => current,                            // GL_KEEP
+        GL_REPLACE => ref_val as u8,                   // GL_REPLACE
+        GL_INCR => c.saturating_add(1).min(255) as u8, // GL_INCR
+        GL_DECR => c.saturating_sub(1).max(0) as u8,   // GL_DECR
+        GL_INVERT => !current,                         // GL_INVERT
+        GL_INCR_WRAP => ((c + 1) % 256) as u8,         // GL_INCR_WRAP
+        GL_DECR_WRAP => ((c - 1 + 256) % 256) as u8,   // GL_DECR_WRAP
         _ => current,
     }
 }
@@ -1007,8 +1144,8 @@ mod tests {
     #[test]
     fn test_raster_pipeline_default() {
         let pipeline = RasterPipeline::default();
-        assert_eq!(pipeline.vertex_shader_type, 0x8B31);
-        assert_eq!(pipeline.fragment_shader_type, 0x8B30);
+        assert_eq!(pipeline.vertex_shader_type, GL_VERTEX_SHADER);
+        assert_eq!(pipeline.fragment_shader_type, GL_FRAGMENT_SHADER);
     }
 }
 

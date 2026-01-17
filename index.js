@@ -221,10 +221,10 @@ async function initWASM({ debug } = {}) {
         const bytes = mem.subarray(ptr, ptr + len);
         console.log(new TextDecoder('utf-8').decode(bytes));
       },
-      wasm_execute_shader: (ctx, type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr) => {
+      wasm_execute_shader: (ctx, type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr) => {
         const gl = WasmWebGL2RenderingContext._contexts.get(ctx);
         if (gl) {
-          gl._executeShader(type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
+          gl._executeShader(type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
         } else {
           // console.log(`DEBUG: wasm_execute_shader: ctx ${ctx} not found in _contexts`);
         }

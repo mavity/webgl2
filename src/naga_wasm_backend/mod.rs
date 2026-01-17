@@ -231,8 +231,10 @@ pub struct TranslationContext<'a> {
     pub private_memory_layout: Option<&'a memory_layout::PrivateMemoryLayout>,
     /// Number of function parameters (WASM locals reserved for params start at 0)
     pub param_count: u32,
-    /// Index of the emitted module-local helper `__webgl_texture_sample`
-    pub webgl_texture_sample_idx: Option<u32>,
+    /// Index of the emitted module-local helper `__webgl_sampler_2d`
+    pub webgl_sampler_2d_idx: Option<u32>,
+    /// Index of the emitted module-local helper `__webgl_sampler_3d`
+    pub webgl_sampler_3d_idx: Option<u32>,
     /// Index of the emitted module-local helper `__webgl_image_load`
     pub webgl_image_load_idx: Option<u32>,
     /// Base index for the 4 explicit f32 locals used for texture sampling results

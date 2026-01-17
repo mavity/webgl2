@@ -277,7 +277,7 @@ pub fn ctx_draw_elements_instanced(
             let mut idxs = Vec::with_capacity(count as usize);
             for i in 0..count {
                 let idx = match type_ {
-                    0x1401 => {
+                    GL_UNSIGNED_BYTE => {
                         // GL_UNSIGNED_BYTE
                         let off = (offset as usize) + i as usize;
                         if off < data.len() {
@@ -286,7 +286,7 @@ pub fn ctx_draw_elements_instanced(
                             0
                         }
                     }
-                    0x1403 => {
+                    GL_UNSIGNED_SHORT => {
                         // GL_UNSIGNED_SHORT
                         let off = (offset as usize) + (i as usize) * 2;
                         if off + 2 <= data.len() {
@@ -295,7 +295,7 @@ pub fn ctx_draw_elements_instanced(
                             0
                         }
                     }
-                    0x1405 => {
+                    GL_UNSIGNED_INT => {
                         // GL_UNSIGNED_INT
                         let off = (offset as usize) + (i as usize) * 4;
                         if off + 4 <= data.len() {
@@ -462,18 +462,18 @@ pub fn ctx_read_pixels(
     if src_width == 1 && src_height == 1 {}
 
     // Calculate bytes per pixel based on format and type
-    let bytes_per_pixel = if type_ == 0x1406 {
+    let bytes_per_pixel = if type_ == GL_FLOAT {
         // GL_FLOAT
         match format {
-            0x1903 => 4,  // GL_RED: 1 channel
-            0x8227 => 8,  // GL_RG: 2 channels
-            0x1908 => 16, // GL_RGBA: 4 channels
-            _ => 4,       // Default
+            GL_RED => 4,   // GL_RED: 1 channel
+            GL_RG => 8,    // GL_RG: 2 channels
+            GL_RGBA => 16, // GL_RGBA: 4 channels
+            _ => 4,        // Default
         }
     } else {
         // GL_UNSIGNED_BYTE or other
         match format {
-            0x1908 => 4, // GL_RGBA: 4 bytes
+            GL_RGBA => 4, // GL_RGBA: 4 bytes
             _ => 4,
         }
     };
@@ -502,7 +502,7 @@ pub fn ctx_read_pixels(
                 let src_idx = ((sy as u32 * src_width + sx as u32) * src_bytes_per_pixel) as usize;
 
                 // For float formats, copy bytes directly
-                if is_float_format(src_format) && type_ == 0x1406 {
+                if is_float_format(src_format) && type_ == GL_FLOAT {
                     // GL_FLOAT
                     let bytes_to_copy = bytes_per_pixel.min(src_bytes_per_pixel) as usize;
                     if src_idx + bytes_to_copy <= src_data.len()
@@ -517,8 +517,8 @@ pub fn ctx_read_pixels(
 
                 // If source and destination formats are both 4-byte RGBA (but might have different codes),
                 // copy them directly to avoid complex logic.
-                if (src_format == GL_RGBA8 || src_format == 0x1908)
-                    && (format == GL_RGBA8 || format == 0x1908)
+                if (src_format == GL_RGBA8 || src_format == GL_RGBA)
+                    && (format == GL_RGBA8 || format == GL_RGBA)
                     && src_bytes_per_pixel == 4
                     && bytes_per_pixel == 4
                 {
@@ -533,7 +533,7 @@ pub fn ctx_read_pixels(
                 }
 
                 match src_format {
-                    GL_RGBA8 | 0x1908 => {
+                    GL_RGBA8 | GL_RGBA => {
                         if src_idx + 3 < src_data.len() {
                             dest_slice[dst_off] = src_data[src_idx];
                             dest_slice[dst_off + 1] = src_data[src_idx + 1];

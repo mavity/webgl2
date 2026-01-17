@@ -11,8 +11,8 @@ test('texture sampling works', async () => {
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     const pixels = new Uint8Array([
-      255, 0, 0, 255,   0, 255, 0, 255,
-      0, 0, 255, 255,   255, 255, 255, 255
+      255, 0, 0, 255, 0, 255, 0, 255,
+      0, 0, 255, 255, 255, 255, 255, 255
     ]);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
 
@@ -29,12 +29,11 @@ void main() {
 
     const fsSource = `#version 300 es
 precision highp float;
-uniform texture2D u_texture;
-uniform sampler u_sampler;
+uniform sampler2D u_texture;
 in vec2 v_uv;
 out vec4 fragColor;
 void main() {
-  fragColor = texture(sampler2D(u_texture, u_sampler), v_uv);
+  fragColor = texture(u_texture, v_uv);
 }
 `;
 
@@ -79,7 +78,7 @@ void main() {
     // (0.5, 0.5) * (2, 2) = (1, 1).
     // texel_x = 1, texel_y = 1.
     // pixels[1, 1] is White (255, 255, 255, 255).
-    
+
     assert.strictEqual(result[0], 255, 'Red should be 255');
     assert.strictEqual(result[1], 0, 'Green should be 0');
     assert.strictEqual(result[2], 0, 'Blue should be 0');

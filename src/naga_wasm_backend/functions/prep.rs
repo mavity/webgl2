@@ -55,8 +55,8 @@ pub fn prep_module(module: &Module, _module_info: &ModuleInfo) -> FunctionRegist
 
     // Process entry points
     for entry_point in &module.entry_points {
-        // Entry points use a fixed ABI with 6 pointer parameters
-        // (type, attr_ptr, uniform_ptr, varying_ptr, private_ptr, texture_ptr) -> ()
+        // Entry points use a fixed ABI with 8 parameters
+        // (ctx, type, table_idx, attr_ptr, uniform_ptr, varying_ptr, private_ptr, texture_ptr) -> ()
 
         // Calculate frame size based on local variables
         let mut frame_size = 0u32;

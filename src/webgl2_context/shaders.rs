@@ -121,8 +121,8 @@ pub fn ctx_compile_shader(ctx: u32, shader: u32) -> u32 {
 
     if let Some(s) = ctx_obj.shaders.get_mut(&shader) {
         let stage = match s.type_ {
-            0x8B31 => naga::ShaderStage::Vertex,
-            0x8B30 => naga::ShaderStage::Fragment,
+            GL_VERTEX_SHADER => naga::ShaderStage::Vertex,
+            GL_FRAGMENT_SHADER => naga::ShaderStage::Fragment,
             _ => {
                 s.compiled = false;
                 s.info_log = "Invalid shader type".to_string();
@@ -330,12 +330,12 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                     return ERR_OK;
                 }
                 match s.type_ {
-                    0x8B31 => {
+                    GL_VERTEX_SHADER => {
                         vs_module = s.module.clone();
                         vs_info = s.info.clone();
                         vs_source = s.source.clone();
                     }
-                    0x8B30 => {
+                    GL_FRAGMENT_SHADER => {
                         fs_module = s.module.clone();
                         fs_info = s.info.clone();
                         fs_source = s.source.clone();
@@ -856,8 +856,8 @@ pub fn ctx_get_program_wasm_len(ctx: u32, program: u32, shader_type: u32) -> u32
 
     if let Some(p) = ctx_obj.programs.get(&program) {
         let wasm = match shader_type {
-            0x8B31 => &p.vs_wasm,
-            0x8B30 => &p.fs_wasm,
+            GL_VERTEX_SHADER => &p.vs_wasm,
+            GL_FRAGMENT_SHADER => &p.fs_wasm,
             _ => return 0,
         };
 
@@ -888,8 +888,8 @@ pub fn ctx_get_program_wasm(
 
     if let Some(p) = ctx_obj.programs.get(&program) {
         let wasm = match shader_type {
-            0x8B31 => &p.vs_wasm,
-            0x8B30 => &p.fs_wasm,
+            GL_VERTEX_SHADER => &p.vs_wasm,
+            GL_FRAGMENT_SHADER => &p.fs_wasm,
             _ => return 0,
         };
 
@@ -1188,8 +1188,8 @@ pub fn ctx_get_program_debug_stub(
 
     if let Some(p) = ctx_obj.programs.get(&program) {
         let stub = match shader_type {
-            0x8B31 => &p.vs_stub, // VERTEX_SHADER
-            0x8B30 => &p.fs_stub, // FRAGMENT_SHADER
+            GL_VERTEX_SHADER => &p.vs_stub,   // VERTEX_SHADER
+            GL_FRAGMENT_SHADER => &p.fs_stub, // FRAGMENT_SHADER
             _ => {
                 set_last_error("invalid shader type");
                 return 0;
@@ -1255,8 +1255,8 @@ pub fn ctx_get_program_wasm_ref(ctx: u32, program: u32, shader_type: u32) -> (u3
 
     if let Some(p) = ctx_obj.programs.get(&program) {
         let wasm = match shader_type {
-            0x8B31 => &p.vs_wasm, // VERTEX_SHADER
-            0x8B30 => &p.fs_wasm, // FRAGMENT_SHADER
+            GL_VERTEX_SHADER => &p.vs_wasm,   // VERTEX_SHADER
+            GL_FRAGMENT_SHADER => &p.fs_wasm, // FRAGMENT_SHADER
             _ => {
                 set_last_error("invalid shader type");
                 return (0, 0);
@@ -1296,8 +1296,8 @@ pub fn ctx_get_program_wat_ref(ctx: u32, program: u32, shader_type: u32) -> (u32
 
     if let Some(p) = ctx_obj.programs.get(&program) {
         let wasm = match shader_type {
-            0x8B31 => &p.vs_wasm, // VERTEX_SHADER
-            0x8B30 => &p.fs_wasm, // FRAGMENT_SHADER
+            GL_VERTEX_SHADER => &p.vs_wasm,   // VERTEX_SHADER
+            GL_FRAGMENT_SHADER => &p.fs_wasm, // FRAGMENT_SHADER
             _ => {
                 set_last_error("invalid shader type");
                 return (0, 0);
@@ -1358,6 +1358,7 @@ fn reflect_program_resources(p: &mut Program) {
         let gl_float_mat3: u32 = 0x8B5B;
         let gl_float_mat4: u32 = 0x8B5C;
         let gl_sampler_2d: u32 = 0x8B5E;
+        let gl_sampler_3d: u32 = 0x8B5F;
         let gl_sampler_cube: u32 = 0x8B60;
 
         match &ty.inner {
@@ -1389,10 +1390,9 @@ fn reflect_program_resources(p: &mut Program) {
                 (VectorSize::Quad, VectorSize::Quad) => (gl_float_mat4, 1),
                 _ => (0, 1),
             },
-            TypeInner::Image {
-                dim, arrayed: _, ..
-            } => match dim {
+            TypeInner::Image { dim, .. } => match dim {
                 naga::ImageDimension::D2 => (gl_sampler_2d, 1),
+                naga::ImageDimension::D3 => (gl_sampler_3d, 1),
                 naga::ImageDimension::Cube => (gl_sampler_cube, 1),
                 _ => (0, 1),
             },

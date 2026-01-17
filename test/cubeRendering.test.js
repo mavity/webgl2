@@ -36,13 +36,13 @@ test('Cube Test 1: Vertex shader compilation with MVP matrix uniform', async () 
 
     const vs = gl.createShader(gl.VERTEX_SHADER);
     assert.ok(vs, 'Vertex shader should be created');
-    
+
     gl.shaderSource(vs, vsSource);
     gl.compileShader(vs);
-    
+
     const compileStatus = gl.getShaderParameter(vs, gl.COMPILE_STATUS);
     assert.strictEqual(compileStatus, true, 'Vertex shader should compile successfully');
-    
+
     // Note: Even successfully compiled shaders may have info logs (warnings, etc.)
     // So we don't assert log length is 0, we just check compilation status
   } finally {
@@ -67,13 +67,13 @@ test('Cube Test 2: Fragment shader compilation with texture and sampler uniforms
 
     const fs = gl.createShader(gl.FRAGMENT_SHADER);
     assert.ok(fs, 'Fragment shader should be created');
-    
+
     gl.shaderSource(fs, fsSource);
     gl.compileShader(fs);
-    
+
     const compileStatus = gl.getShaderParameter(fs, gl.COMPILE_STATUS);
     assert.strictEqual(compileStatus, true, 'Fragment shader should compile successfully');
-    
+
     // Note: Even successfully compiled shaders may have info logs (warnings, etc.)
     // So we don't assert log length is 0, we just check compilation status
   } finally {
@@ -116,11 +116,11 @@ test('Cube Test 3: Program linking with vertex and fragment shaders', async () =
 
     const program = gl.createProgram();
     assert.ok(program, 'Program should be created');
-    
+
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
     gl.linkProgram(program);
-    
+
     const linkStatus = gl.getProgramParameter(program, gl.LINK_STATUS);
     assert.strictEqual(linkStatus, true, 'Program should link successfully');
   } finally {
@@ -166,11 +166,11 @@ test('Cube Test 4: Program attribute locations (position and UV)', async () => {
     gl.attachShader(program, fs);
     gl.linkProgram(program);
     gl.useProgram(program);
-    
+
     // Check attribute locations
     const positionLoc = gl.getAttribLocation(program, 'position');
     assert.strictEqual(positionLoc, 0, 'Position attribute should be at location 0');
-    
+
     const uvLoc = gl.getAttribLocation(program, 'uv');
     assert.strictEqual(uvLoc, 1, 'UV attribute should be at location 1');
   } finally {
@@ -238,10 +238,10 @@ test('Cube Test 5: Cube vertex buffer creation and data upload', async () => {
 
     const buffer = gl.createBuffer();
     assert.ok(buffer, 'Buffer should be created');
-    
+
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-    
+
     // Verify buffer was created and data was uploaded
     const bufferSize = gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE);
     assert.strictEqual(bufferSize, vertices.byteLength, 'Buffer size should match vertex data size');
@@ -267,14 +267,14 @@ test('Cube Test 6: Vertex attribute pointer setup (position at location 0, UV at
     // Set up attribute pointers: 3 floats for position, 2 for UV, stride is 20 bytes
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 20, 0);
-    
+
     gl.enableVertexAttribArray(1);
     gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 20, 12);
-    
+
     // Verify attributes are enabled
     const enabled0 = gl.getVertexAttrib(0, gl.VERTEX_ATTRIB_ARRAY_ENABLED);
     assert.strictEqual(enabled0, true, 'Position attribute should be enabled');
-    
+
     const enabled1 = gl.getVertexAttrib(1, gl.VERTEX_ATTRIB_ARRAY_ENABLED);
     assert.strictEqual(enabled1, true, 'UV attribute should be enabled');
   } finally {
@@ -338,11 +338,11 @@ test('Cube Test 7: Vertex data validation (36 vertices, 6 faces)', async () => {
     // Validate vertex count
     const vertexCount = vertices.length / 5; // 5 floats per vertex
     assert.strictEqual(vertexCount, 36, 'Should have exactly 36 vertices');
-    
+
     // Validate face count (6 vertices per face)
     const faceCount = vertexCount / 6;
     assert.strictEqual(faceCount, 6, 'Should have exactly 6 faces');
-    
+
     // Verify all position coordinates are within expected cube bounds [-0.5, 0.5]
     for (let i = 0; i < vertices.length; i += 5) {
       const x = vertices[i];
@@ -352,7 +352,7 @@ test('Cube Test 7: Vertex data validation (36 vertices, 6 faces)', async () => {
       assert.ok(y >= -0.5 && y <= 0.5, `Y coordinate ${y} should be in range [-0.5, 0.5]`);
       assert.ok(z >= -0.5 && z <= 0.5, `Z coordinate ${z} should be in range [-0.5, 0.5]`);
     }
-    
+
     // Verify all UV coordinates are in [0, 1] range
     for (let i = 0; i < vertices.length; i += 5) {
       const u = vertices[i + 3];
@@ -374,9 +374,9 @@ test('Cube Test 8: Texture creation with checkerboard pattern (gold and cornflow
   try {
     const tex = gl.createTexture();
     assert.ok(tex, 'Texture should be created');
-    
+
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    
+
     // Create 16x16 checkerboard pattern
     const texData = new Uint8Array(16 * 16 * 4);
     for (let y = 0; y < 16; y++) {
@@ -398,9 +398,9 @@ test('Cube Test 8: Texture creation with checkerboard pattern (gold and cornflow
         }
       }
     }
-    
+
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 16, 16, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData);
-    
+
     // Verify texture data size is correct
     assert.strictEqual(texData.length, 16 * 16 * 4, 'Texture data should be correct size');
   } finally {
@@ -454,10 +454,10 @@ test('Cube Test 9: Texture binding and uniform location setup', async () => {
     // Get uniform locations
     const uTextureLoc = gl.getUniformLocation(program, 'u_texture');
     assert.ok(uTextureLoc !== null, 'u_texture uniform location should be found');
-    
+
     const uSamplerLoc = gl.getUniformLocation(program, 'u_sampler');
     assert.ok(uSamplerLoc !== null, 'u_sampler uniform location should be found');
-    
+
     // Set uniform values
     gl.uniform1i(uTextureLoc, 0);
     gl.uniform1i(uSamplerLoc, 0);
@@ -471,7 +471,7 @@ test('Cube Test 10: Texture data validation (16x16 RGBA pattern)', async () => {
   try {
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    
+
     // Create 16x16 checkerboard pattern
     const texData = new Uint8Array(16 * 16 * 4);
     for (let y = 0; y < 16; y++) {
@@ -485,18 +485,18 @@ test('Cube Test 10: Texture data validation (16x16 RGBA pattern)', async () => {
         }
       }
     }
-    
+
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 16, 16, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData);
-    
+
     // Verify texture dimensions
     assert.strictEqual(texData.length, 16 * 16 * 4, 'Texture data should be 16x16 RGBA');
-    
+
     // Verify gold color at a known position (e.g., x=0, y=0 should be blue, x=4, y=0 should be gold)
     const blueIdx = (0 * 16 + 0) * 4;
     assert.strictEqual(texData[blueIdx], COLORS.CORNFLOWER_BLUE.r, 'Blue pixel R component');
     assert.strictEqual(texData[blueIdx + 1], COLORS.CORNFLOWER_BLUE.g, 'Blue pixel G component');
     assert.strictEqual(texData[blueIdx + 2], COLORS.CORNFLOWER_BLUE.b, 'Blue pixel B component');
-    
+
     const goldIdx = (0 * 16 + 4) * 4;
     assert.strictEqual(texData[goldIdx], COLORS.GOLD.r, 'Gold pixel R component');
     assert.strictEqual(texData[goldIdx + 1], COLORS.GOLD.g, 'Gold pixel G component');
@@ -512,10 +512,10 @@ test('Cube Test 10: Texture data validation (16x16 RGBA pattern)', async () => {
 
 test('Cube Test 11: Perspective projection matrix calculation', async () => {
   const matrix = perspective(Math.PI / 4, 640 / 480, 0.1, 100.0);
-  
+
   // Verify matrix has 16 elements
   assert.strictEqual(matrix.length, 16, 'Perspective matrix should have 16 elements');
-  
+
   // Verify some key values
   const aspect = 640 / 480;
   const f = 1.0 / Math.tan(Math.PI / 8);
@@ -526,7 +526,7 @@ test('Cube Test 11: Perspective projection matrix calculation', async () => {
 
 test('Cube Test 12: Translation matrix transformation', async () => {
   const translated = translate(identity, 0, 0, -3);
-  
+
   // Verify translation is applied
   assert.strictEqual(translated.length, 16, 'Translated matrix should have 16 elements');
   assert.strictEqual(translated[12], 0, 'X translation should be 0');
@@ -537,10 +537,10 @@ test('Cube Test 12: Translation matrix transformation', async () => {
 test('Cube Test 13: Rotation matrices (X and Y axis)', async () => {
   const rotatedX = rotateX(identity, 0.5);
   assert.strictEqual(rotatedX.length, 16, 'Rotated X matrix should have 16 elements');
-  
+
   const rotatedY = rotateY(identity, 0.8);
   assert.strictEqual(rotatedY.length, 16, 'Rotated Y matrix should have 16 elements');
-  
+
   // Verify rotation affects the correct elements
   const c = Math.cos(0.5);
   const s = Math.sin(0.5);
@@ -556,7 +556,7 @@ test('Cube Test 14: Combined MVP matrix multiplication', async () => {
   mvp = rotateY(mvp, 0.8);
 
   assert.strictEqual(mvp.length, 16, 'MVP matrix should have 16 elements');
-  
+
   // Verify matrix is not identity (transformations were applied)
   let isIdentity = true;
   for (let i = 0; i < 16; i++) {
@@ -576,15 +576,15 @@ test('Cube Test 15: Clear color and depth buffer', async () => {
   const gl = await webGL2();
   try {
     gl.viewport(0, 0, 640, 480);
-    
+
     // Clear to black
     gl.clearColor(0.0, 0.0, 0.0, 0.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    
+
     // Read a pixel to verify clear worked
     const pixels = new Uint8Array(4);
     gl.readPixels(320, 240, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    
+
     assert.strictEqual(pixels[0], 0, 'Red should be 0 after clear');
     assert.strictEqual(pixels[1], 0, 'Green should be 0 after clear');
     assert.strictEqual(pixels[2], 0, 'Blue should be 0 after clear');
@@ -647,7 +647,7 @@ test('Cube Test 16: Draw call with 36 vertices (6 faces × 2 triangles × 3 vert
 
     // Draw 36 vertices as triangles
     gl.drawArrays(gl.TRIANGLES, 0, 36);
-    
+
     // Verify draw completed without error
     const error = gl.getError();
     assert.strictEqual(error, gl.NO_ERROR, 'Draw call should complete without error');
@@ -729,7 +729,7 @@ test('Cube Test 18: Depth testing API availability', async () => {
     assert.ok(typeof gl.depthFunc === 'function', 'depthFunc should be a function');
     assert.ok(typeof gl.depthMask === 'function', 'depthMask should be a function');
     assert.ok(typeof gl.clearDepth === 'function', 'clearDepth should be a function');
-    
+
     // Test that depthFunc can be called without error
     // Note: Actual depth testing may not be available in headless mode
     gl.depthFunc(gl.LESS);
@@ -782,7 +782,7 @@ test('Cube Test 19: Non-primary color verification (gold and blue from texture)'
     // Create texture with specific colors
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    
+
     const texData = new Uint8Array([
       255, 215, 0, 255,   // Gold
       100, 149, 237, 255, // CornflowerBlue
@@ -827,7 +827,7 @@ test('Cube Test 19: Non-primary color verification (gold and blue from texture)'
     // Should see one of the texture colors
     const isGold = pixels[0] === 255 && pixels[1] === 215 && pixels[2] === 0;
     const isBlue = pixels[0] === 100 && pixels[1] === 149 && pixels[2] === 237;
-    
+
     assert.ok(isGold || isBlue, 'Should see either gold or blue color from texture');
   } finally {
     gl.destroy();
@@ -1164,8 +1164,8 @@ test('Cube Test 19f: Render gradient with interpolated non-primary colors', asyn
     const hasRed = pixels[0] > 50;
     const hasGreen = pixels[1] > 50;
     const hasBlue = pixels[2] > 50;
-    
-    assert.ok(hasRed && hasGreen && hasBlue, 
+
+    assert.ok(hasRed && hasGreen && hasBlue,
       'Center pixel should be interpolated non-primary color with R, G, and B components');
   } finally {
     gl.destroy();
@@ -1178,17 +1178,17 @@ test('Cube Test 19f: Render gradient with interpolated non-primary colors', asyn
 
 test('Cube Test 20: Time-based rotation angle calculation', async () => {
   // Test rotation calculation for different elapsed times
-  
+
   // At 0ms, rotation should be 0
   let elapsedTime = 0;
   let rotationAngle = (elapsedTime / 5000) * Math.PI * 2;
   assert.strictEqual(rotationAngle, 0, 'At 0ms, rotation should be 0');
-  
+
   // At 2500ms (2.5 seconds), rotation should be π (half rotation)
   elapsedTime = 2500;
   rotationAngle = (elapsedTime / 5000) * Math.PI * 2;
   assert.ok(Math.abs(rotationAngle - Math.PI) < 0.0001, 'At 2.5s, rotation should be π');
-  
+
   // At 5000ms (5 seconds), rotation should be 2π (full rotation)
   elapsedTime = 5000;
   rotationAngle = (elapsedTime / 5000) * Math.PI * 2;
@@ -1238,7 +1238,7 @@ test('Cube Test 22: Multiple frames with different rotation angles', async () =>
 
   // Verify all frames are unique
   assert.strictEqual(frames.length, 5, 'Should have 5 frames');
-  
+
   for (let i = 0; i < frames.length - 1; i++) {
     let isDifferent = false;
     for (let j = 0; j < 16; j++) {
@@ -1286,14 +1286,14 @@ test('Feature: Vec3 Attributes + Texture + Complex Matrix + Large Viewport', asy
     gl.shaderSource(vs, vsSource);
     gl.compileShader(vs);
     if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) {
-        throw new Error('VS compile failed: ' + gl.getShaderInfoLog(vs));
+      throw new Error('VS compile failed: ' + gl.getShaderInfoLog(vs));
     }
 
     const fs = gl.createShader(gl.FRAGMENT_SHADER);
     gl.shaderSource(fs, fsSource);
     gl.compileShader(fs);
     if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
-        throw new Error('FS compile failed: ' + gl.getShaderInfoLog(fs));
+      throw new Error('FS compile failed: ' + gl.getShaderInfoLog(fs));
     }
 
     const program = gl.createProgram();
@@ -1305,8 +1305,8 @@ test('Feature: Vec3 Attributes + Texture + Complex Matrix + Large Viewport', asy
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     const texData = new Uint8Array([
-        255, 0, 0, 255,   0, 255, 0, 255,
-        0, 0, 255, 255,   255, 255, 255, 255
+      255, 0, 0, 255, 0, 255, 0, 255,
+      0, 0, 255, 255, 255, 255, 255, 255
     ]);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
@@ -1314,8 +1314,8 @@ test('Feature: Vec3 Attributes + Texture + Complex Matrix + Large Viewport', asy
 
     const vertices = new Float32Array([
       -0.5, -0.5, 0.0, 0.0, 0.0,
-       0.5, -0.5, 0.0, 1.0, 0.0,
-       0.0,  0.5, 0.0, 0.5, 1.0,
+      0.5, -0.5, 0.0, 1.0, 0.0,
+      0.0, 0.5, 0.0, 0.5, 1.0,
     ]);
 
     const buffer = gl.createBuffer();
@@ -1324,44 +1324,44 @@ test('Feature: Vec3 Attributes + Texture + Complex Matrix + Large Viewport', asy
 
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 20, 0);
-    
+
     gl.enableVertexAttribArray(1);
     gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 20, 12);
 
     // Matrix functions from demo.js
     function perspective(fovy, aspect, near, far) {
-        const f = 1.0 / Math.tan(fovy / 2);
-        const nf = 1 / (near - far);
-        return [
-            f / aspect, 0, 0, 0,
-            0, f, 0, 0,
-            0, 0, (far + near) * nf, -1,
-            0, 0, (2 * far * near) * nf, 0
-        ];
+      const f = 1.0 / Math.tan(fovy / 2);
+      const nf = 1 / (near - far);
+      return [
+        f / aspect, 0, 0, 0,
+        0, f, 0, 0,
+        0, 0, (far + near) * nf, -1,
+        0, 0, (2 * far * near) * nf, 0
+      ];
     }
 
     function multiply(a, b) {
-        const out = new Float32Array(16);
-        for (let col = 0; col < 4; col++) {
-            for (let row = 0; row < 4; row++) {
-                let sum = 0;
-                for (let k = 0; k < 4; k++) {
-                    sum += a[k * 4 + row] * b[col * 4 + k];
-                }
-                out[col * 4 + row] = sum;
-            }
+      const out = new Float32Array(16);
+      for (let col = 0; col < 4; col++) {
+        for (let row = 0; row < 4; row++) {
+          let sum = 0;
+          for (let k = 0; k < 4; k++) {
+            sum += a[k * 4 + row] * b[col * 4 + k];
+          }
+          out[col * 4 + row] = sum;
         }
-        return out;
+      }
+      return out;
     }
 
     function translate(m, x, y, z) {
-        const t = [
-            1, 0, 0, 0,
-            0, 1, 0, 0,
-            0, 0, 1, 0,
-            x, y, z, 1
-        ];
-        return multiply(m, t);
+      const t = [
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        x, y, z, 1
+      ];
+      return multiply(m, t);
     }
 
     // Setup Matrix
@@ -1385,7 +1385,7 @@ test('Feature: Vec3 Attributes + Texture + Complex Matrix + Large Viewport', asy
     // Read pixel at center (320, 240)
     const pixels = new Uint8Array(4);
     gl.readPixels(320, 240, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    
+
     // Should be textured (not background)
     assert.ok(pixels[0] !== 51 || pixels[1] !== 51 || pixels[2] !== 51, 'Should draw something (not background color)');
 
@@ -1430,14 +1430,14 @@ test('Feature: Shader Function Calls (mimicking demo.js)', async () => {
     gl.shaderSource(vs, vsSource);
     gl.compileShader(vs);
     if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) {
-        throw new Error('VS compile failed: ' + gl.getShaderInfoLog(vs));
+      throw new Error('VS compile failed: ' + gl.getShaderInfoLog(vs));
     }
 
     const fs = gl.createShader(gl.FRAGMENT_SHADER);
     gl.shaderSource(fs, fsSource);
     gl.compileShader(fs);
     if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
-        throw new Error('FS compile failed: ' + gl.getShaderInfoLog(fs));
+      throw new Error('FS compile failed: ' + gl.getShaderInfoLog(fs));
     }
 
     const program = gl.createProgram();
@@ -1448,8 +1448,8 @@ test('Feature: Shader Function Calls (mimicking demo.js)', async () => {
 
     const vertices = new Float32Array([
       -0.5, -0.5, 0.0,
-       0.5, -0.5, 0.0,
-       0.0,  0.5, 0.0,
+      0.5, -0.5, 0.0,
+      0.0, 0.5, 0.0,
     ]);
 
     const buffer = gl.createBuffer();
@@ -1466,8 +1466,6 @@ test('Feature: Shader Function Calls (mimicking demo.js)', async () => {
 
     const pixels = new Uint8Array(4);
     gl.readPixels(32, 32, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    
-    console.log('Function Call Test Pixel:', pixels);
 
     // Should be Green (0, 255, 0, 255)
     assert.strictEqual(pixels[0], 0, 'Red should be 0');
@@ -1526,14 +1524,14 @@ test('Feature: Full Demo Reproduction', async () => {
     gl.shaderSource(vs, vsSource);
     gl.compileShader(vs);
     if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) {
-        throw new Error('VS compile failed: ' + gl.getShaderInfoLog(vs));
+      throw new Error('VS compile failed: ' + gl.getShaderInfoLog(vs));
     }
 
     const fs = gl.createShader(gl.FRAGMENT_SHADER);
     gl.shaderSource(fs, fsSource);
     gl.compileShader(fs);
     if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
-        throw new Error('FS compile failed: ' + gl.getShaderInfoLog(fs));
+      throw new Error('FS compile failed: ' + gl.getShaderInfoLog(fs));
     }
 
     const program = gl.createProgram();
@@ -1544,53 +1542,53 @@ test('Feature: Full Demo Reproduction', async () => {
 
     // Cube data from demo.js
     const vertices = new Float32Array([
-        // Front face
-        -0.5, -0.5, 0.5, 0.0, 0.0,
-        0.5, -0.5, 0.5, 1.0, 0.0,
-        0.5, 0.5, 0.5, 1.0, 1.0,
-        -0.5, -0.5, 0.5, 0.0, 0.0,
-        0.5, 0.5, 0.5, 1.0, 1.0,
-        -0.5, 0.5, 0.5, 0.0, 1.0,
+      // Front face
+      -0.5, -0.5, 0.5, 0.0, 0.0,
+      0.5, -0.5, 0.5, 1.0, 0.0,
+      0.5, 0.5, 0.5, 1.0, 1.0,
+      -0.5, -0.5, 0.5, 0.0, 0.0,
+      0.5, 0.5, 0.5, 1.0, 1.0,
+      -0.5, 0.5, 0.5, 0.0, 1.0,
 
-        // Back face
-        -0.5, -0.5, -0.5, 0.0, 0.0,
-        -0.5, 0.5, -0.5, 0.0, 1.0,
-        0.5, 0.5, -0.5, 1.0, 1.0,
-        -0.5, -0.5, -0.5, 0.0, 0.0,
-        0.5, 0.5, -0.5, 1.0, 1.0,
-        0.5, -0.5, -0.5, 1.0, 0.0,
+      // Back face
+      -0.5, -0.5, -0.5, 0.0, 0.0,
+      -0.5, 0.5, -0.5, 0.0, 1.0,
+      0.5, 0.5, -0.5, 1.0, 1.0,
+      -0.5, -0.5, -0.5, 0.0, 0.0,
+      0.5, 0.5, -0.5, 1.0, 1.0,
+      0.5, -0.5, -0.5, 1.0, 0.0,
 
-        // Top face
-        -0.5, 0.5, -0.5, 0.0, 0.0,
-        -0.5, 0.5, 0.5, 0.0, 1.0,
-        0.5, 0.5, 0.5, 1.0, 1.0,
-        -0.5, 0.5, -0.5, 0.0, 0.0,
-        0.5, 0.5, 0.5, 1.0, 1.0,
-        0.5, 0.5, -0.5, 1.0, 0.0,
+      // Top face
+      -0.5, 0.5, -0.5, 0.0, 0.0,
+      -0.5, 0.5, 0.5, 0.0, 1.0,
+      0.5, 0.5, 0.5, 1.0, 1.0,
+      -0.5, 0.5, -0.5, 0.0, 0.0,
+      0.5, 0.5, 0.5, 1.0, 1.0,
+      0.5, 0.5, -0.5, 1.0, 0.0,
 
-        // Bottom face
-        -0.5, -0.5, -0.5, 0.0, 0.0,
-        0.5, -0.5, -0.5, 1.0, 0.0,
-        0.5, -0.5, 0.5, 1.0, 1.0,
-        -0.5, -0.5, -0.5, 0.0, 0.0,
-        0.5, -0.5, 0.5, 1.0, 1.0,
-        -0.5, -0.5, 0.5, 0.0, 1.0,
+      // Bottom face
+      -0.5, -0.5, -0.5, 0.0, 0.0,
+      0.5, -0.5, -0.5, 1.0, 0.0,
+      0.5, -0.5, 0.5, 1.0, 1.0,
+      -0.5, -0.5, -0.5, 0.0, 0.0,
+      0.5, -0.5, 0.5, 1.0, 1.0,
+      -0.5, -0.5, 0.5, 0.0, 1.0,
 
-        // Right face
-        0.5, -0.5, -0.5, 0.0, 0.0,
-        0.5, 0.5, -0.5, 0.0, 1.0,
-        0.5, 0.5, 0.5, 1.0, 1.0,
-        0.5, -0.5, -0.5, 0.0, 0.0,
-        0.5, 0.5, 0.5, 1.0, 1.0,
-        0.5, -0.5, 0.5, 1.0, 0.0,
+      // Right face
+      0.5, -0.5, -0.5, 0.0, 0.0,
+      0.5, 0.5, -0.5, 0.0, 1.0,
+      0.5, 0.5, 0.5, 1.0, 1.0,
+      0.5, -0.5, -0.5, 0.0, 0.0,
+      0.5, 0.5, 0.5, 1.0, 1.0,
+      0.5, -0.5, 0.5, 1.0, 0.0,
 
-        // Left face
-        -0.5, -0.5, -0.5, 0.0, 0.0,
-        -0.5, -0.5, 0.5, 1.0, 0.0,
-        -0.5, 0.5, 0.5, 1.0, 1.0,
-        -0.5, -0.5, -0.5, 0.0, 0.0,
-        -0.5, 0.5, 0.5, 1.0, 1.0,
-        -0.5, 0.5, -0.5, 0.0, 1.0,
+      // Left face
+      -0.5, -0.5, -0.5, 0.0, 0.0,
+      -0.5, -0.5, 0.5, 1.0, 0.0,
+      -0.5, 0.5, 0.5, 1.0, 1.0,
+      -0.5, -0.5, -0.5, 0.0, 0.0,
+      -0.5, 0.5, 0.5, 1.0, 1.0,
+      -0.5, 0.5, -0.5, 0.0, 1.0,
     ]);
 
     const buffer = gl.createBuffer();
@@ -1607,15 +1605,15 @@ test('Feature: Full Demo Reproduction', async () => {
     gl.bindTexture(gl.TEXTURE_2D, tex);
     const texData = new Uint8Array(16 * 16 * 4);
     for (let y = 0; y < 16; y++) {
-        for (let x = 0; x < 16; x++) {
-            const idx = (y * 16 + x) * 4;
-            const isCheck = ((x >> 2) ^ (y >> 2)) & 1;
-            if (isCheck) {
-                texData[idx] = 255; texData[idx + 1] = 215; texData[idx + 2] = 0; texData[idx + 3] = 255; // Gold
-            } else {
-                texData[idx] = 100; texData[idx + 1] = 149; texData[idx + 2] = 237; texData[idx + 3] = 255; // CornflowerBlue
-            }
+      for (let x = 0; x < 16; x++) {
+        const idx = (y * 16 + x) * 4;
+        const isCheck = ((x >> 2) ^ (y >> 2)) & 1;
+        if (isCheck) {
+          texData[idx] = 255; texData[idx + 1] = 215; texData[idx + 2] = 0; texData[idx + 3] = 255; // Gold
+        } else {
+          texData[idx] = 100; texData[idx + 1] = 149; texData[idx + 2] = 237; texData[idx + 3] = 255; // CornflowerBlue
         }
+      }
     }
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 16, 16, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData);
 
@@ -1627,62 +1625,62 @@ test('Feature: Full Demo Reproduction', async () => {
 
     // Matrix functions from demo.js
     function perspective(fovy, aspect, near, far) {
-        const f = 1.0 / Math.tan(fovy / 2);
-        const nf = 1 / (near - far);
-        return [
-            f / aspect, 0, 0, 0,
-            0, f, 0, 0,
-            0, 0, (far + near) * nf, -1,
-            0, 0, (2 * far * near) * nf, 0
-        ];
+      const f = 1.0 / Math.tan(fovy / 2);
+      const nf = 1 / (near - far);
+      return [
+        f / aspect, 0, 0, 0,
+        0, f, 0, 0,
+        0, 0, (far + near) * nf, -1,
+        0, 0, (2 * far * near) * nf, 0
+      ];
     }
 
     function multiply(a, b) {
-        const out = new Float32Array(16);
-        for (let col = 0; col < 4; col++) {
-            for (let row = 0; row < 4; row++) {
-                let sum = 0;
-                for (let k = 0; k < 4; k++) {
-                    sum += a[k * 4 + row] * b[col * 4 + k];
-                }
-                out[col * 4 + row] = sum;
-            }
+      const out = new Float32Array(16);
+      for (let col = 0; col < 4; col++) {
+        for (let row = 0; row < 4; row++) {
+          let sum = 0;
+          for (let k = 0; k < 4; k++) {
+            sum += a[k * 4 + row] * b[col * 4 + k];
+          }
+          out[col * 4 + row] = sum;
         }
-        return out;
+      }
+      return out;
     }
 
     function rotateY(m, angle) {
-        const c = Math.cos(angle);
-        const s = Math.sin(angle);
-        const r = [
-            c, 0, -s, 0,
-            0, 1, 0, 0,
-            s, 0, c, 0,
-            0, 0, 0, 1
-        ];
-        return multiply(m, r);
+      const c = Math.cos(angle);
+      const s = Math.sin(angle);
+      const r = [
+        c, 0, -s, 0,
+        0, 1, 0, 0,
+        s, 0, c, 0,
+        0, 0, 0, 1
+      ];
+      return multiply(m, r);
     }
 
     function rotateX(m, angle) {
-        const c = Math.cos(angle);
-        const s = Math.sin(angle);
-        const r = [
-            1, 0, 0, 0,
-            0, c, s, 0,
-            0, -s, c, 0,
-            0, 0, 0, 1
-        ];
-        return multiply(m, r);
+      const c = Math.cos(angle);
+      const s = Math.sin(angle);
+      const r = [
+        1, 0, 0, 0,
+        0, c, s, 0,
+        0, -s, c, 0,
+        0, 0, 0, 1
+      ];
+      return multiply(m, r);
     }
 
     function translate(m, x, y, z) {
-        const t = [
-            1, 0, 0, 0,
-            0, 1, 0, 0,
-            0, 0, 1, 0,
-            x, y, z, 1
-        ];
-        return multiply(m, t);
+      const t = [
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        x, y, z, 1
+      ];
+      return multiply(m, t);
     }
 
     // Calculate initial MVP matrix
@@ -1706,12 +1704,12 @@ test('Feature: Full Demo Reproduction', async () => {
     // Check if any pixel is not transparent black
     let hasContent = false;
     for (let i = 0; i < pixels.length; i += 4) {
-        if (pixels[i+3] !== 0) { // Check alpha
-            hasContent = true;
-            break;
-        }
+      if (pixels[i + 3] !== 0) { // Check alpha
+        hasContent = true;
+        break;
+      }
     }
-    
+
     assert.ok(hasContent, 'Should render something (non-transparent pixels)');
 
   } finally {

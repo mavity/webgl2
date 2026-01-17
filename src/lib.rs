@@ -30,6 +30,7 @@ extern "C" {
     fn wasm_execute_shader(
         ctx: u32,
         type_: u32,
+        table_idx: u32,
         attr_ptr: i32,
         uniform_ptr: i32,
         varying_ptr: i32,
@@ -48,6 +49,7 @@ unsafe fn dispatch_uncaptured_error(_ptr: *const u8, _len: usize) {}
 unsafe fn wasm_execute_shader(
     _ctx: u32,
     _type_: u32,
+    _table_idx: u32,
     _attr_ptr: i32,
     _uniform_ptr: i32,
     _varying_ptr: i32,
@@ -85,6 +87,7 @@ pub fn js_log(level: u32, s: &str) {
 pub fn js_execute_shader(
     ctx: u32,
     type_: u32,
+    table_idx: u32,
     attr_ptr: u32,
     uniform_ptr: u32,
     varying_ptr: u32,
@@ -95,6 +98,7 @@ pub fn js_execute_shader(
         wasm_execute_shader(
             ctx,
             type_,
+            table_idx,
             attr_ptr as i32,
             uniform_ptr as i32,
             varying_ptr as i32,

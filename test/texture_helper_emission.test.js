@@ -25,7 +25,7 @@ test('Texture helper emission', async (t) => {
 
             const fsWat = getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER);
             assert.ok(fsWat, 'VAT should be returned');
-            assert.doesNotMatch(fsWat, /func \$__webgl_texture_sample/, 'Helper should NOT be present in non-texture FS');
+            assert.doesNotMatch(fsWat, /func \$__webgl_sampler_/, 'Helper should NOT be present in non-texture FS');
         } finally {
             gl.destroy();
         }
@@ -43,15 +43,14 @@ test('Texture helper emission', async (t) => {
             const fs = gl.createShader(gl.FRAGMENT_SHADER);
             gl.shaderSource(fs, `#version 300 es
             precision mediump float;
-            uniform texture2D u_tex;
-            uniform sampler u_samp;
+            uniform sampler2D u_tex;
             in vec2 v_uv;
             out vec4 color;
-            void main() { 
-                color = texture(sampler2D(u_tex, u_samp), v_uv); 
+            void main() {
+                color = texture(u_tex, v_uv);
             }`);
             gl.compileShader(fs);
-            
+
             if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
                 throw new Error("FS compile failed: " + gl.getShaderInfoLog(fs));
             }
@@ -60,14 +59,13 @@ test('Texture helper emission', async (t) => {
             gl.attachShader(program, vs);
             gl.attachShader(program, fs);
             gl.linkProgram(program);
-            
+
             if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
                 throw new Error("Link failed: " + gl.getProgramInfoLog(program));
             }
 
             const fsWat = getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER);
-            assert.match(fsWat, /func \$__webgl_texture_sample/, 'Helper should be present in texture FS');
-            
+            assert.match(fsWat, /func \$__webgl_sampler_2d/, 'Helper should be present in texture FS');
         } finally {
             gl.destroy();
         }

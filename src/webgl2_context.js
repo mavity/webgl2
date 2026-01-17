@@ -25,6 +25,7 @@ export class WasmWebGL2RenderingContext {
   FRAGMENT_SHADER = 0x8B30;
   VERTEX_SHADER = 0x8B31;
   TRIANGLES = 0x0004;
+  TRIANGLE_STRIP = 0x0005;
   COLOR_BUFFER_BIT = 0x00004000;
   DEPTH_BUFFER_BIT = 0x00000100;
   DEPTH_TEST = 0x0B71;
@@ -44,7 +45,6 @@ export class WasmWebGL2RenderingContext {
   INT = 0x1404;
   UNSIGNED_INT = 0x1405;
   FLOAT = 0x1406;
-  RGBA = 0x1908;
   FLOAT_VEC2 = 0x8B50;
   FLOAT_VEC3 = 0x8B51;
   FLOAT_VEC4 = 0x8B52;
@@ -59,6 +59,7 @@ export class WasmWebGL2RenderingContext {
   FLOAT_MAT3 = 0x8B5B;
   FLOAT_MAT4 = 0x8B5C;
   SAMPLER_2D = 0x8B5E;
+  SAMPLER_3D = 0x8B5F;
   SAMPLER_CUBE = 0x8B60;
   ACTIVE_UNIFORMS = 0x8B86;
   ACTIVE_ATTRIBUTES = 0x8B89;
@@ -145,6 +146,7 @@ export class WasmWebGL2RenderingContext {
   TEXTURE_2D_ARRAY = 0x8C1A;
   TEXTURE_WRAP_S = 0x2802;
   TEXTURE_WRAP_T = 0x2803;
+  TEXTURE_WRAP_R = 0x8072;
   TEXTURE_MAG_FILTER = 0x2800;
   TEXTURE_MIN_FILTER = 0x2801;
   RGBA = 0x1908;
@@ -219,14 +221,23 @@ export class WasmWebGL2RenderingContext {
   /** @type {Map<number, WasmWebGL2RenderingContext>} */
   static _contexts = new Map();
 
-  _executeShader(type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr) {
+  _executeShader(type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr) {
     if (!this._currentProgram) {
       return;
     }
+
+    if (tableIdx > 0 && this._sharedTable) {
+      const func = this._sharedTable.get(tableIdx);
+      if (func) {
+        func(this._ctxHandle, type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
+        return;
+      }
+    }
+
     const shaderInstance = type === this.VERTEX_SHADER ? this._currentProgram._vsInstance : this._currentProgram._fsInstance;
     if (shaderInstance && shaderInstance.exports.main) {
       // @ts-ignore
-      shaderInstance.exports.main(type, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
+      shaderInstance.exports.main(this._ctxHandle, type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
     }
   }
 
@@ -299,8 +310,13 @@ export class WasmWebGL2RenderingContext {
     }
 
     let data = pixels;
-    if (!data) data = new Uint8Array(width * height * 4);
-    else if (!(data instanceof Uint8Array)) data = new Uint8Array(data);
+    if (!data) {
+      data = new Uint8Array(width * height * 4);
+    } else if (ArrayBuffer.isView(data)) {
+      data = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    } else if (data instanceof ArrayBuffer) {
+      data = new Uint8Array(data);
+    }
 
     const len = data.length;
     const ptr = ex.wasm_alloc(len);
@@ -343,8 +359,13 @@ export class WasmWebGL2RenderingContext {
     }
 
     let data = pixels;
-    if (!data) data = new Uint8Array(width * height * depth * 4);
-    else if (!(data instanceof Uint8Array)) data = new Uint8Array(data);
+    if (!data) {
+      data = new Uint8Array(width * height * depth * 4);
+    } else if (ArrayBuffer.isView(data)) {
+      data = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    } else if (data instanceof ArrayBuffer) {
+      data = new Uint8Array(data);
+    }
 
     const len = data.length;
     const ptr = ex.wasm_alloc(len);
@@ -530,9 +551,18 @@ export class WasmWebGL2RenderingContext {
       throw new Error('wasm_ctx_read_pixels not found');
     }
 
-    const len = width * height * 4;
-    if (!out || out.length < len) {
-      throw new Error(`output buffer too small (need ${len}, have ${out ? out.length : 0})`);
+    let bpp = 4;
+    if (type_ === 0x1406) { // GL_FLOAT
+      if (format === 0x1908) bpp = 16;      // GL_RGBA
+      else if (format === 0x8227) bpp = 8;  // GL_RG
+      else if (format === 0x1903) bpp = 4;  // GL_RED
+    } else if (type_ === 0x1401) { // GL_UNSIGNED_BYTE
+      if (format === 0x1908) bpp = 4;
+    }
+
+    const len = width * height * bpp;
+    if (!out || out.byteLength < len) {
+      throw new Error(`output buffer too small (need ${len} bytes, have ${out ? out.byteLength : 0})`);
     }
 
     const ptr = ex.wasm_alloc(len);
@@ -541,8 +571,8 @@ export class WasmWebGL2RenderingContext {
     try {
       const code = ex.wasm_ctx_read_pixels(
         this._ctxHandle,
-        x >>> 0,
-        y >>> 0,
+        x | 0,
+        y | 0,
         width >>> 0,
         height >>> 0,
         format >>> 0,
@@ -554,7 +584,8 @@ export class WasmWebGL2RenderingContext {
 
       const mem = new Uint8Array(ex.memory.buffer);
       const src = mem.subarray(ptr, ptr + len);
-      out.set(src);
+      const out_bytes = new Uint8Array(out.buffer, out.byteOffset, len);
+      out_bytes.set(src);
     } finally {
       ex.wasm_free(ptr);
     }
@@ -760,9 +791,6 @@ export class WasmWebGL2RenderingContext {
     _checkErr(code, this._instance);
 
     // After linking, we need to instantiate the WASM modules on the host.
-    // According to the WebGL 2.0 Spec (https://registry.khronos.org/webgl/specs/latest/2.0/#3.7.6),
-    // linkProgram sets the LINK_STATUS parameter. If linking fails, no executable is generated.
-    // We must check LINK_STATUS before attempting to instantiate the WASM, as getProgramWasm will return null.
     if (program && typeof program === 'object') {
       const linkStatus = this.getProgramParameter(program, this.LINK_STATUS);
       if (linkStatus) {
@@ -774,6 +802,10 @@ export class WasmWebGL2RenderingContext {
   _instantiateProgramShaders(program) {
     const vsWasm = this.getProgramWasm(program, this.VERTEX_SHADER);
     const fsWasm = this.getProgramWasm(program, this.FRAGMENT_SHADER);
+
+    if (!vsWasm || !fsWasm) {
+      return;
+    }
 
     // Allocate table slots for both shaders
     const vsIdx = this._tableAllocator ? this._tableAllocator.allocate() : null;
@@ -801,7 +833,6 @@ export class WasmWebGL2RenderingContext {
       return {
         debug_step: (line, funcIdx, resultPtr) => {
           if (line === 999999) {
-            console.log(`DEBUG LOG: val=${funcIdx} (0x${(funcIdx >>> 0).toString(16)})`);
             return;
           }
           const func = stubFuncs[line - 1];
@@ -951,7 +982,7 @@ export class WasmWebGL2RenderingContext {
       throw new Error('wasm_ctx_delete_program not found');
     }
     const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
-    
+
     // Free table indices
     if (program && typeof program === 'object') {
       if (program._vsTableIndex !== undefined && this._tableAllocator) {
@@ -961,7 +992,7 @@ export class WasmWebGL2RenderingContext {
         this._tableAllocator.free(program._fsTableIndex);
       }
     }
-    
+
     const code = ex.wasm_ctx_delete_program(this._ctxHandle, programHandle);
     _checkErr(code, this._instance);
     if (program && typeof program === 'object') {

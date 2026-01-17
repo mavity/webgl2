@@ -58,8 +58,9 @@ struct Compiler<'a> {
     function_registry: &'a super::functions::FunctionRegistry,
     global_offsets: HashMap<naga::Handle<naga::GlobalVariable>, (u32, u32)>,
     debug_step_idx: Option<u32>,
-    /// Index of the emitted module-local helper function `__webgl_texture_sample`
-    webgl_texture_sample_idx: Option<u32>,
+    /// Specialized samplers
+    webgl_sampler_2d_idx: Option<u32>,
+    webgl_sampler_3d_idx: Option<u32>,
     /// Index of the emitted module-local helper function `__webgl_image_load`
     webgl_image_load_idx: Option<u32>,
     /// Mapping of Naga math functions to their imported WASM function indices
@@ -105,29 +106,28 @@ impl<'a> Compiler<'a> {
             function_registry,
             global_offsets: HashMap::new(),
             debug_step_idx: None,
-            webgl_texture_sample_idx: None,
+            webgl_sampler_2d_idx: None,
+            webgl_sampler_3d_idx: None,
             webgl_image_load_idx: None,
             math_import_map: HashMap::new(),
             debug_generator,
         }
     }
 
-    fn has_image_sampling(&self) -> bool {
-        let check_expressions = |func: &naga::Function| {
-            func.expressions
-                .iter()
-                .any(|(_, expr)| matches!(expr, naga::Expression::ImageSample { .. }))
-        };
-
-        self.module
-            .functions
-            .iter()
-            .any(|(_, f)| check_expressions(f))
-            || self
-                .module
-                .entry_points
-                .iter()
-                .any(|ep| check_expressions(&ep.function))
+    fn has_image_sampling(&self) -> (bool, bool) {
+        let mut has_2d = false;
+        let mut has_3d = false;
+        // Check all types in the module for images
+        for (_, ty) in self.module.types.iter() {
+            if let naga::TypeInner::Image { dim, .. } = ty.inner {
+                match dim {
+                    naga::ImageDimension::D2 => has_2d = true,
+                    naga::ImageDimension::D3 => has_3d = true,
+                    _ => {}
+                }
+            }
+        }
+        (has_2d, has_3d)
     }
 
     fn has_image_load(&self) -> bool {
@@ -267,21 +267,47 @@ impl<'a> Compiler<'a> {
         self.code.function(&func);
     }
 
-    fn emit_texture_sample_helper(&mut self) {
+    fn emit_sampler(&mut self, dim: naga::ImageDimension) -> u32 {
+        let is_3d = dim == naga::ImageDimension::D3;
+        let mut params = vec![ValType::I32, ValType::I32, ValType::F32, ValType::F32];
+        if is_3d {
+            params.push(ValType::F32);
+        }
+
         let type_index = self.types.len();
         self.types.ty().function(
-            vec![ValType::I32, ValType::I32, ValType::F32, ValType::F32],
+            params,
             vec![ValType::F32, ValType::F32, ValType::F32, ValType::F32],
         );
 
         let func_idx = self.function_count;
         self.functions.function(type_index);
         self.function_count += 1;
-        self.webgl_texture_sample_idx = Some(func_idx);
 
+        let p_count = if is_3d { 5 } else { 4 };
         let mut func = Function::new(vec![
-            (6, ValType::I32), // locals 4..9: desc_addr, width, height, data_ptr, texel_x, texel_y
+            (14, ValType::I32), // locals: desc_addr, width, height, data_ptr, depth, format, bpp, tx, ty, tz, addr, ws, wt, wr
+            (4, ValType::F32),  // locals: res_r, res_g, res_b, res_a
         ]);
+
+        let l_desc_addr = p_count;
+        let l_width = p_count + 1;
+        let l_height = p_count + 2;
+        let l_ptr = p_count + 3;
+        let l_depth = p_count + 4;
+        let l_format = p_count + 5;
+        let l_bpp = p_count + 6;
+        let l_tx = p_count + 7;
+        let l_ty = p_count + 8;
+        let l_tz = p_count + 9;
+        let l_addr = p_count + 10;
+        let l_wrap_s = p_count + 11;
+        let l_wrap_t = p_count + 12;
+        let l_wrap_r = p_count + 13;
+        let l_res_r = p_count + 14;
+        let l_res_g = p_count + 15;
+        let l_res_b = p_count + 16;
+        let l_res_a = p_count + 17;
 
         // 1. Compute descriptor address: ptr + unit * 32
         func.instruction(&Instruction::LocalGet(0));
@@ -289,109 +315,135 @@ impl<'a> Compiler<'a> {
         func.instruction(&Instruction::I32Const(32));
         func.instruction(&Instruction::I32Mul);
         func.instruction(&Instruction::I32Add);
-        func.instruction(&Instruction::LocalSet(4));
+        func.instruction(&Instruction::LocalSet(l_desc_addr));
 
-        // 2. Load descriptor fields
-        func.instruction(&Instruction::LocalGet(4));
+        // 2. Load metadata
+        {
+            let mut load_metadata = |offset: u64, local: u32| {
+                func.instruction(&Instruction::LocalGet(l_desc_addr));
+                func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                    offset,
+                    align: 2,
+                    memory_index: 0,
+                }));
+                func.instruction(&Instruction::LocalSet(local));
+            };
+
+            load_metadata(0, l_width);
+            load_metadata(4, l_height);
+            load_metadata(8, l_ptr);
+            load_metadata(12, l_depth);
+            load_metadata(16, l_format);
+            load_metadata(20, l_bpp);
+        }
+
+        // Load packed wrap_s/t from offset 24
+        func.instruction(&Instruction::LocalGet(l_desc_addr));
         func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-            offset: 0,
+            offset: 24,
             align: 2,
             memory_index: 0,
         }));
-        func.instruction(&Instruction::LocalSet(5)); // width
+        func.instruction(&Instruction::LocalSet(l_wrap_s));
 
-        func.instruction(&Instruction::LocalGet(4));
+        // Unpack wrap_t from l_wrap_s high bits
+        func.instruction(&Instruction::LocalGet(l_wrap_s));
+        func.instruction(&Instruction::I32Const(16));
+        func.instruction(&Instruction::I32ShrU);
+        func.instruction(&Instruction::LocalSet(l_wrap_t));
+
+        // Mask wrap_s
+        func.instruction(&Instruction::LocalGet(l_wrap_s));
+        func.instruction(&Instruction::I32Const(0xFFFF));
+        func.instruction(&Instruction::I32And);
+        func.instruction(&Instruction::LocalSet(l_wrap_s));
+
+        // Load wrap_r
+        func.instruction(&Instruction::LocalGet(l_desc_addr));
         func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-            offset: 4,
+            offset: 28,
             align: 2,
             memory_index: 0,
         }));
-        func.instruction(&Instruction::LocalSet(6)); // height
+        func.instruction(&Instruction::LocalSet(l_wrap_r));
 
-        func.instruction(&Instruction::LocalGet(4));
-        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-            offset: 8,
-            align: 2,
-            memory_index: 0,
-        }));
-        func.instruction(&Instruction::LocalSet(7)); // data_ptr
+        // 3. Compute texel coords with clamping
+        let mut compute_coord = |coord_param: u32, size_local: u32, res_local: u32| {
+            func.instruction(&Instruction::LocalGet(coord_param));
+            func.instruction(&Instruction::LocalGet(size_local));
+            func.instruction(&Instruction::F32ConvertI32S);
+            func.instruction(&Instruction::F32Mul);
+            func.instruction(&Instruction::F32Floor);
+            func.instruction(&Instruction::I32TruncF32S);
+            func.instruction(&Instruction::LocalSet(res_local));
 
-        // 3. Compute texel coords
-        // texel_x = clamp(floor(u * width), 0, width - 1)
-        func.instruction(&Instruction::LocalGet(2));
-        func.instruction(&Instruction::LocalGet(5));
-        func.instruction(&Instruction::F32ConvertI32S);
-        func.instruction(&Instruction::F32Mul);
-        func.instruction(&Instruction::F32Floor);
-        func.instruction(&Instruction::I32TruncF32S);
-        func.instruction(&Instruction::LocalSet(8));
+            // Clamp 0
+            func.instruction(&Instruction::LocalGet(res_local));
+            func.instruction(&Instruction::I32Const(0));
+            func.instruction(&Instruction::LocalGet(res_local));
+            func.instruction(&Instruction::I32Const(0));
+            func.instruction(&Instruction::I32GtS);
+            func.instruction(&Instruction::Select);
+            func.instruction(&Instruction::LocalSet(res_local));
 
-        // Clamp x
-        func.instruction(&Instruction::LocalGet(8));
-        func.instruction(&Instruction::I32Const(0));
-        func.instruction(&Instruction::LocalGet(8));
-        func.instruction(&Instruction::I32Const(0));
-        func.instruction(&Instruction::I32GtS);
-        func.instruction(&Instruction::Select);
-        func.instruction(&Instruction::LocalSet(8));
+            // Clamp size-1
+            func.instruction(&Instruction::LocalGet(res_local));
+            func.instruction(&Instruction::LocalGet(size_local));
+            func.instruction(&Instruction::I32Const(1));
+            func.instruction(&Instruction::I32Sub);
+            func.instruction(&Instruction::LocalGet(res_local));
+            func.instruction(&Instruction::LocalGet(size_local));
+            func.instruction(&Instruction::I32Const(1));
+            func.instruction(&Instruction::I32Sub);
+            func.instruction(&Instruction::I32LtS);
+            func.instruction(&Instruction::Select);
+            func.instruction(&Instruction::LocalSet(res_local));
+        };
 
-        func.instruction(&Instruction::LocalGet(8));
-        func.instruction(&Instruction::LocalGet(5));
-        func.instruction(&Instruction::I32Const(1));
-        func.instruction(&Instruction::I32Sub);
-        func.instruction(&Instruction::LocalGet(8));
-        func.instruction(&Instruction::LocalGet(5));
-        func.instruction(&Instruction::I32Const(1));
-        func.instruction(&Instruction::I32Sub);
-        func.instruction(&Instruction::I32LtS);
-        func.instruction(&Instruction::Select);
-        func.instruction(&Instruction::LocalSet(8));
+        compute_coord(2, l_width, l_tx);
+        compute_coord(3, l_height, l_ty);
+        if is_3d {
+            compute_coord(4, l_depth, l_tz);
+        }
 
-        // texel_y = clamp(floor(v * height), 0, height - 1)
-        func.instruction(&Instruction::LocalGet(3));
-        func.instruction(&Instruction::LocalGet(6));
-        func.instruction(&Instruction::F32ConvertI32S);
-        func.instruction(&Instruction::F32Mul);
-        func.instruction(&Instruction::F32Floor);
-        func.instruction(&Instruction::I32TruncF32S);
-        func.instruction(&Instruction::LocalSet(9));
+        // 4. Compute byte address
+        // offset = (tz * height + ty) * width + tx
+        if is_3d {
+            func.instruction(&Instruction::LocalGet(l_tz));
+            func.instruction(&Instruction::LocalGet(l_height));
+            func.instruction(&Instruction::I32Mul);
+            func.instruction(&Instruction::LocalGet(l_ty));
+            func.instruction(&Instruction::I32Add);
+            func.instruction(&Instruction::LocalGet(l_width));
+            func.instruction(&Instruction::I32Mul);
+            func.instruction(&Instruction::LocalGet(l_tx));
+            func.instruction(&Instruction::I32Add);
+        } else {
+            func.instruction(&Instruction::LocalGet(l_ty));
+            func.instruction(&Instruction::LocalGet(l_width));
+            func.instruction(&Instruction::I32Mul);
+            func.instruction(&Instruction::LocalGet(l_tx));
+            func.instruction(&Instruction::I32Add);
+        }
 
-        // Clamp y
-        func.instruction(&Instruction::LocalGet(9));
-        func.instruction(&Instruction::I32Const(0));
-        func.instruction(&Instruction::LocalGet(9));
-        func.instruction(&Instruction::I32Const(0));
-        func.instruction(&Instruction::I32GtS);
-        func.instruction(&Instruction::Select);
-        func.instruction(&Instruction::LocalSet(9));
-
-        func.instruction(&Instruction::LocalGet(9));
-        func.instruction(&Instruction::LocalGet(6));
-        func.instruction(&Instruction::I32Const(1));
-        func.instruction(&Instruction::I32Sub);
-        func.instruction(&Instruction::LocalGet(9));
-        func.instruction(&Instruction::LocalGet(6));
-        func.instruction(&Instruction::I32Const(1));
-        func.instruction(&Instruction::I32Sub);
-        func.instruction(&Instruction::I32LtS);
-        func.instruction(&Instruction::Select);
-        func.instruction(&Instruction::LocalSet(9));
-
-        // 4. Compute byte offset: (texel_y * width + texel_x) * 4
-        func.instruction(&Instruction::LocalGet(9));
-        func.instruction(&Instruction::LocalGet(5));
+        func.instruction(&Instruction::LocalGet(l_bpp));
         func.instruction(&Instruction::I32Mul);
-        func.instruction(&Instruction::LocalGet(8));
+        func.instruction(&Instruction::LocalGet(l_ptr));
         func.instruction(&Instruction::I32Add);
-        func.instruction(&Instruction::I32Const(4));
-        func.instruction(&Instruction::I32Mul);
-        func.instruction(&Instruction::LocalGet(7));
-        func.instruction(&Instruction::I32Add);
-        func.instruction(&Instruction::LocalSet(4)); // Reuse 4 as address
+        func.instruction(&Instruction::LocalSet(l_addr));
 
-        // 5. Load RGBA and normalize
+        // 5. Load and branch on format
+        // RGBA8 (0x8058 or 0x1908)
+        func.instruction(&Instruction::LocalGet(l_format));
+        func.instruction(&Instruction::I32Const(0x8058));
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::LocalGet(l_format));
+        func.instruction(&Instruction::I32Const(0x1908)); // GL_RGBA
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::I32Or);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
         for i in 0..4 {
-            func.instruction(&Instruction::LocalGet(4));
+            func.instruction(&Instruction::LocalGet(l_addr));
             func.instruction(&Instruction::I32Load8U(wasm_encoder::MemArg {
                 offset: i as u64,
                 align: 0,
@@ -400,10 +452,96 @@ impl<'a> Compiler<'a> {
             func.instruction(&Instruction::F32ConvertI32U);
             func.instruction(&Instruction::F32Const(255.0));
             func.instruction(&Instruction::F32Div);
+            func.instruction(&Instruction::LocalSet(l_res_r + i as u32));
         }
+        func.instruction(&Instruction::Else);
+
+        // RGBA32F (0x8814)
+        func.instruction(&Instruction::LocalGet(l_format));
+        func.instruction(&Instruction::I32Const(0x8814));
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+        for i in 0..4 {
+            func.instruction(&Instruction::LocalGet(l_addr));
+            func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+                offset: (i * 4) as u64,
+                align: 2,
+                memory_index: 0,
+            }));
+            func.instruction(&Instruction::LocalSet(l_res_r + i as u32));
+        }
+        func.instruction(&Instruction::Else);
+
+        // R32F (0x822E)
+        func.instruction(&Instruction::LocalGet(l_format));
+        func.instruction(&Instruction::I32Const(0x822E));
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+        func.instruction(&Instruction::LocalGet(l_addr));
+        func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+            offset: 0,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::LocalSet(l_res_r));
+        func.instruction(&Instruction::F32Const(0.0));
+        func.instruction(&Instruction::LocalSet(l_res_g));
+        func.instruction(&Instruction::F32Const(0.0));
+        func.instruction(&Instruction::LocalSet(l_res_b));
+        func.instruction(&Instruction::F32Const(1.0));
+        func.instruction(&Instruction::LocalSet(l_res_a));
+        func.instruction(&Instruction::Else);
+
+        // RG32F (0x8230)
+        func.instruction(&Instruction::LocalGet(l_format));
+        func.instruction(&Instruction::I32Const(0x8230));
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+        func.instruction(&Instruction::LocalGet(l_addr));
+        func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+            offset: 0,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::LocalSet(l_res_r));
+        func.instruction(&Instruction::LocalGet(l_addr));
+        func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+            offset: 4,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::LocalSet(l_res_g));
+        func.instruction(&Instruction::F32Const(0.0));
+        func.instruction(&Instruction::LocalSet(l_res_b));
+        func.instruction(&Instruction::F32Const(1.0));
+        func.instruction(&Instruction::LocalSet(l_res_a));
+        func.instruction(&Instruction::Else);
+
+        // Default: Red (to signal unknown format)
+        func.instruction(&Instruction::F32Const(1.0));
+        func.instruction(&Instruction::LocalSet(l_res_r));
+        func.instruction(&Instruction::F32Const(0.0));
+        func.instruction(&Instruction::LocalSet(l_res_g));
+        func.instruction(&Instruction::F32Const(1.0));
+        func.instruction(&Instruction::LocalSet(l_res_b));
+        func.instruction(&Instruction::F32Const(1.0));
+        func.instruction(&Instruction::LocalSet(l_res_a));
+
+        func.instruction(&Instruction::End); // RG32F
+        func.instruction(&Instruction::End); // R32F
+        func.instruction(&Instruction::End); // RGBA32F
+        func.instruction(&Instruction::End); // RGBA8
+
+        // Push result to stack
+        func.instruction(&Instruction::LocalGet(l_res_r));
+        func.instruction(&Instruction::LocalGet(l_res_g));
+        func.instruction(&Instruction::LocalGet(l_res_b));
+        func.instruction(&Instruction::LocalGet(l_res_a));
 
         func.instruction(&Instruction::End);
         self.code.function(&func);
+
+        func_idx
     }
 
     fn compile(&mut self) -> Result<(), BackendError> {
@@ -469,9 +607,13 @@ impl<'a> Compiler<'a> {
             self.function_count += 1;
         }
 
-        // Emit the module-local texture sampling helper
-        if self.has_image_sampling() {
-            self.emit_texture_sample_helper();
+        // Emit the module-local texture sampling helpers
+        let (need_2d, need_3d) = self.has_image_sampling();
+        if need_2d {
+            self.webgl_sampler_2d_idx = Some(self.emit_sampler(naga::ImageDimension::D2));
+        }
+        if need_3d {
+            self.webgl_sampler_3d_idx = Some(self.emit_sampler(naga::ImageDimension::D3));
         }
 
         if self.has_image_load() {
@@ -559,47 +701,43 @@ impl<'a> Compiler<'a> {
                     if is_output {
                         (0, output_layout::PRIVATE_PTR_GLOBAL)
                     } else if let Some(name) = &var.name {
-                        if let Some(&loc) = self.attribute_locations.get(name) {
+                        if name == "gl_Position" || name == "gl_Position_1" {
+                            (0, output_layout::VARYING_PTR_GLOBAL)
+                        } else if let Some(&loc) = self.attribute_locations.get(name) {
                             output_layout::compute_input_offset(loc, naga::ShaderStage::Vertex)
                         } else if let Some(&loc) = self.varying_locations.get(name) {
                             output_layout::compute_input_offset(loc, naga::ShaderStage::Fragment)
                         } else {
-                            return Err(BackendError::InternalError(format!(
-                                "Varying '{}' has no assigned location",
-                                name
-                            )));
+                            if self.stage == naga::ShaderStage::Vertex {
+                                let o = varying_offset;
+                                varying_offset += size;
+                                varying_offset = (varying_offset + 3) & !3;
+                                (o, output_layout::VARYING_PTR_GLOBAL)
+                            } else {
+                                (0, output_layout::VARYING_PTR_GLOBAL)
+                            }
                         }
                     } else {
-                        return Err(BackendError::InternalError(
-                            "Unmapped anonymous global in Private/Function address space"
-                                .to_string(),
-                        ));
+                        if self.stage == naga::ShaderStage::Vertex {
+                            let o = varying_offset;
+                            varying_offset += size;
+                            varying_offset = (varying_offset + 3) & !3;
+                            (o, output_layout::VARYING_PTR_GLOBAL)
+                        } else {
+                            (0, output_layout::VARYING_PTR_GLOBAL)
+                        }
                     }
                 }
                 // Handle explicit In/Out address spaces (used in newer Naga versions)
-                // Note: We can't match directly on AddressSpace::In/Out if they don't exist in this version,
-                // but we can use a catch-all with a check if we knew the enum variants.
-                // Since we are in a match, we'll assume anything else that looks like an input/output
-                // falls here.
                 _ => {
                     // Check if it's an output in FS (AddressSpace::Out)
                     let is_fs_output = if self.stage == naga::ShaderStage::Fragment {
-                        // If it's AddressSpace::Out (which falls here), it's an output
-                        // We can't check the enum variant easily if it's not imported or available,
-                        // but we can infer from context or just assume non-uniform/private globals in FS are outputs?
-                        // Actually, let's rely on the fact that inputs in FS are varyings, and outputs are color.
-
-                        // If it has a location binding, it might be an output
-                        // Note: GlobalVariable binding is Option<ResourceBinding>, which doesn't have Location.
-                        // Location bindings are on FunctionArgument/FunctionResult.
-                        // So we can't check location here for globals.
-
-                        // Fallback to name check
                         if let Some(name) = &var.name {
                             let n = name.as_str();
                             n == "color"
                                 || n == "fragColor"
                                 || n == "gl_FragColor"
+                                || n == "outColor"
                                 || n.ends_with("Color")
                         } else {
                             false
@@ -609,13 +747,12 @@ impl<'a> Compiler<'a> {
                     };
 
                     if is_fs_output {
-                        (0, output_layout::PRIVATE_PTR_GLOBAL) // private_ptr for FS output
+                        (0, output_layout::PRIVATE_PTR_GLOBAL)
                     } else {
-                        // Otherwise assume varying (VS output or FS input)
                         let o = varying_offset;
                         varying_offset += size;
                         varying_offset = (varying_offset + 3) & !3;
-                        (o, 2)
+                        (o, output_layout::VARYING_PTR_GLOBAL)
                     }
                 }
             };
@@ -650,7 +787,7 @@ impl<'a> Compiler<'a> {
         let mut current_param_idx = 0;
 
         if entry_point.is_some() {
-            // Entry point signature: (type, attr_ptr, uniform_ptr, varying_ptr, private_ptr, texture_ptr) -> ()
+            // (ctx, type, table_idx, attr_ptr, uniform_ptr, varying_ptr, private_ptr, texture_ptr)
             params = vec![
                 ValType::I32,
                 ValType::I32,
@@ -658,8 +795,10 @@ impl<'a> Compiler<'a> {
                 ValType::I32,
                 ValType::I32,
                 ValType::I32,
+                ValType::I32,
+                ValType::I32,
             ];
-            current_param_idx = 6;
+            current_param_idx = 8;
         } else {
             // Internal function - use FunctionRegistry for signature
             let func_handle = func_handle.expect("Internal function call without handle");
@@ -703,7 +842,6 @@ impl<'a> Compiler<'a> {
             &func.arguments,
         );
         for (handle, _expr) in func.expressions.iter() {
-            // crate::js_print(&format!("DEBUG: Expr {:?}: {:?}", handle, expr));
             typifier
                 .grow(handle, &func.expressions, &resolve_ctx)
                 .map_err(|e| {
@@ -905,20 +1043,15 @@ impl<'a> Compiler<'a> {
             call_result_locals.insert(handle, decl_idx);
         }
 
-        eprintln!(
-            "[debug] flattened_local_types (first 64): {:?}",
-            &flattened_local_types[..std::cmp::min(flattened_local_types.len(), 64)]
-        );
-
         // Create function body
         let mut wasm_func = Function::new(locals_types);
 
         if entry_point.is_some() {
             // Set globals from arguments
             // 0: attr, 1: uniform, 2: varying, 3: private, 4: textures
-            // Arguments are (type, attr, uniform, varying, private, texture)
+            // Arguments are (ctx, type, table_idx, attr, uniform, varying, private, texture)
             for i in 0..5 {
-                wasm_func.instruction(&Instruction::LocalGet(i as u32 + 1));
+                wasm_func.instruction(&Instruction::LocalGet(i as u32 + 3));
                 wasm_func.instruction(&Instruction::GlobalSet(i as u32));
             }
 
@@ -984,7 +1117,8 @@ impl<'a> Compiler<'a> {
                             swap_f32_local_2,
                             local_types: &flattened_local_types,
                             param_count: current_param_idx,
-                            webgl_texture_sample_idx: self.webgl_texture_sample_idx,
+                            webgl_sampler_2d_idx: self.webgl_sampler_2d_idx,
+                            webgl_sampler_3d_idx: self.webgl_sampler_3d_idx,
                             webgl_image_load_idx: self.webgl_image_load_idx,
                             frame_temp_idx: Some(frame_temp_local),
                             sample_f32_locals,
@@ -1047,7 +1181,8 @@ impl<'a> Compiler<'a> {
             // Local types and parameter count for type-aware lowering
             local_types: &flattened_local_types,
             param_count: current_param_idx,
-            webgl_texture_sample_idx: self.webgl_texture_sample_idx,
+            webgl_sampler_2d_idx: self.webgl_sampler_2d_idx,
+            webgl_sampler_3d_idx: self.webgl_sampler_3d_idx,
             webgl_image_load_idx: self.webgl_image_load_idx,
             frame_temp_idx: Some(frame_temp_local),
             sample_f32_locals,
@@ -1109,8 +1244,13 @@ impl<'a> Compiler<'a> {
         let mut func_names = NameMap::new();
         let mut has_names = false;
 
-        if let Some(idx) = self.webgl_texture_sample_idx {
-            func_names.append(idx, "__webgl_texture_sample");
+        if let Some(idx) = self.webgl_sampler_2d_idx {
+            func_names.append(idx, "__webgl_sampler_2d");
+            has_names = true;
+        }
+
+        if let Some(idx) = self.webgl_sampler_3d_idx {
+            func_names.append(idx, "__webgl_sampler_3d");
             has_names = true;
         }
 

@@ -51,7 +51,7 @@ test('ABI: entrypoint vertex WAT exact', async () => {
   (type (;16;) (func (param f32) (result f32)))
   (type (;17;) (func (param f32) (result f32)))
   (type (;18;) (func))
-  (type (;19;) (func (param i32 i32 i32 i32 i32 i32)))
+  (type (;19;) (func (param i32 i32 i32 i32 i32 i32 i32 i32)))
   (import "env" "memory" (memory (;0;) 10))
   (import "env" "gl_sin" (func (;0;) (type 0)))
   (import "env" "gl_cos" (func (;1;) (type 1)))
@@ -101,17 +101,17 @@ test('ABI: entrypoint vertex WAT exact', async () => {
     f32.store offset=12
     return
   )
-  (func (;19;) (type 19) (param i32 i32 i32 i32 i32 i32)
+  (func (;19;) (type 19) (param i32 i32 i32 i32 i32 i32 i32 i32)
     (local i32 f32 i32)
-    local.get 1
-    global.set 0
-    local.get 2
-    global.set 1
     local.get 3
-    global.set 2
+    global.set 0
     local.get 4
-    global.set 3
+    global.set 1
     local.get 5
+    global.set 2
+    local.get 6
+    global.set 3
+    local.get 7
     global.set 4
     i32.const 524288
     global.set 5
@@ -148,21 +148,21 @@ test('ABI: entrypoint vertex WAT exact', async () => {
     i32.const 12
     i32.add
     f32.load
-    local.set 7
+    local.set 9
     global.get 2
-    local.get 7
+    local.get 9
     f32.store offset=12
-    local.set 7
+    local.set 9
     global.get 2
-    local.get 7
+    local.get 9
     f32.store offset=8
-    local.set 7
+    local.set 9
     global.get 2
-    local.get 7
+    local.get 9
     f32.store offset=4
-    local.set 7
+    local.set 9
     global.get 2
-    local.get 7
+    local.get 9
     f32.store
     return
   )
@@ -221,7 +221,7 @@ test('ABI: entrypoint fragment WAT exact', async () => {
   (type (;16;) (func (param f32) (result f32)))
   (type (;17;) (func (param f32) (result f32)))
   (type (;18;) (func))
-  (type (;19;) (func (param i32 i32 i32 i32 i32 i32)))
+  (type (;19;) (func (param i32 i32 i32 i32 i32 i32 i32 i32)))
   (import "env" "memory" (memory (;0;) 10))
   (import "env" "gl_sin" (func (;0;) (type 0)))
   (import "env" "gl_cos" (func (;1;) (type 1)))
@@ -264,17 +264,17 @@ test('ABI: entrypoint fragment WAT exact', async () => {
     f32.store offset=12
     return
   )
-  (func (;19;) (type 19) (param i32 i32 i32 i32 i32 i32)
+  (func (;19;) (type 19) (param i32 i32 i32 i32 i32 i32 i32 i32)
     (local i32 f32 i32)
-    local.get 1
-    global.set 0
-    local.get 2
-    global.set 1
     local.get 3
-    global.set 2
+    global.set 0
     local.get 4
-    global.set 3
+    global.set 1
     local.get 5
+    global.set 2
+    local.get 6
+    global.set 3
+    local.get 7
     global.set 4
     i32.const 524288
     global.set 5
@@ -293,21 +293,21 @@ test('ABI: entrypoint fragment WAT exact', async () => {
     i32.const 12
     i32.add
     f32.load
-    local.set 7
+    local.set 9
     global.get 3
-    local.get 7
+    local.get 9
     f32.store offset=12
-    local.set 7
+    local.set 9
     global.get 3
-    local.get 7
+    local.get 9
     f32.store offset=8
-    local.set 7
+    local.set 9
     global.get 3
-    local.get 7
+    local.get 9
     f32.store offset=4
-    local.set 7
+    local.set 9
     global.get 3
-    local.get 7
+    local.get 9
     f32.store
     return
   )

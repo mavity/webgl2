@@ -139,9 +139,9 @@ pub fn ctx_disable_vertex_attrib_array(ctx: u32, index: u32) -> u32 {
 /// Vertex attribute pointer.
 fn get_type_size(type_: u32) -> u32 {
     match type_ {
-        0x1400 | 0x1401 => 1,          // BYTE, UNSIGNED_BYTE
-        0x1402 | 0x1403 | 0x140B => 2, // SHORT, UNSIGNED_SHORT, HALF_FLOAT
-        0x1404 | 0x1405 | 0x1406 => 4, // INT, UNSIGNED_INT, FLOAT
+        GL_BYTE | GL_UNSIGNED_BYTE => 1,
+        GL_SHORT | GL_UNSIGNED_SHORT | GL_HALF_FLOAT => 2,
+        GL_INT | GL_UNSIGNED_INT | GL_FLOAT => 4,
         _ => 1,
     }
 }
@@ -241,7 +241,7 @@ pub fn ctx_vertex_attrib_ipointer(
 
     // Check type and alignment (IPointer specific)
     match type_ {
-        0x1400 | 0x1401 | 0x1402 | 0x1403 | 0x1404 | 0x1405 => {
+        GL_BYTE | GL_UNSIGNED_BYTE | GL_SHORT | GL_UNSIGNED_SHORT | GL_INT | GL_UNSIGNED_INT => {
             let type_size = get_type_size(type_);
             if offset % type_size != 0 {
                 set_last_error("offset must be a multiple of the type size");

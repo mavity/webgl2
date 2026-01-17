@@ -31,11 +31,12 @@ pub fn ctx_create_texture(ctx: u32) -> u32 {
         tex_id,
         Texture {
             levels: BTreeMap::new(),
-            internal_format: GL_RGBA8, // Default format
-            min_filter: 0x2705,        // GL_NEAREST_MIPMAP_LINEAR (default)
-            mag_filter: 0x2601,        // GL_LINEAR (default)
-            wrap_s: 0x2901,            // GL_REPEAT (default)
-            wrap_t: 0x2901,            // GL_REPEAT (default)
+            internal_format: GL_RGBA8,            // Default format
+            min_filter: GL_NEAREST_MIPMAP_LINEAR, // GL_NEAREST_MIPMAP_LINEAR (default)
+            mag_filter: GL_LINEAR,                // GL_LINEAR (default)
+            wrap_s: GL_REPEAT,                    // GL_REPEAT (default)
+            wrap_t: GL_REPEAT,                    // GL_REPEAT (default)
+            wrap_r: GL_REPEAT,                    // GL_REPEAT (default)
         },
     );
     tex_id
@@ -72,8 +73,7 @@ pub fn ctx_delete_texture(ctx: u32, tex: u32) -> u32 {
 /// Returns errno.
 pub fn ctx_tex_parameter_i(ctx: u32, target: u32, pname: u32, param: i32) -> u32 {
     clear_last_error();
-    // Only TEXTURE_2D (0x0DE1) is supported for now
-    if target != 0x0DE1 {
+    if target != GL_TEXTURE_2D && target != GL_TEXTURE_3D && target != GL_TEXTURE_2D_ARRAY {
         set_last_error("invalid texture target");
         return ERR_INVALID_ARGS;
     }
@@ -108,8 +108,9 @@ pub fn ctx_tex_parameter_i(ctx: u32, target: u32, pname: u32, param: i32) -> u32
         GL_TEXTURE_MAG_FILTER => tex.mag_filter = param as u32,
         GL_TEXTURE_WRAP_S => tex.wrap_s = param as u32,
         GL_TEXTURE_WRAP_T => tex.wrap_t = param as u32,
+        GL_TEXTURE_WRAP_R => tex.wrap_r = param as u32,
         _ => {
-            set_last_error("invalid texture parameter");
+            set_last_error(&format!("invalid texture parameter: 0x{:04X}", pname));
             return ERR_INVALID_ARGS;
         }
     }
@@ -192,15 +193,15 @@ pub fn ctx_tex_image_2d(
     // Determine storage internal format from the requested internalFormat and type
     let requested_internal = internal_format as u32;
     let storage_internal_format = match (requested_internal, _type_ as u32) {
-        (v, GL_FLOAT) if v == 0x1908 => GL_RGBA32F, // 0x1908 is GL_RGBA
-        (v, GL_FLOAT) if v == 0x1903 => GL_R32F,    // 0x1903 is GL_RED
-        (0x8227, GL_FLOAT) => 0x8230,               // GL_RG + FLOAT -> GL_RG32F
-        (v, GL_UNSIGNED_BYTE) if v == 0x1908 => GL_RGBA8,
+        (v, GL_FLOAT) if v == GL_RGBA => GL_RGBA32F,
+        (v, GL_FLOAT) if v == GL_RED => GL_R32F,
+        (GL_RG, GL_FLOAT) => GL_RG32F,
+        (v, GL_UNSIGNED_BYTE) if v == GL_RGBA => GL_RGBA8,
         (GL_RGBA8, _) => GL_RGBA8,
         (GL_R32F, _) => GL_R32F,
         (GL_RG32F, _) => GL_RG32F,
         (GL_RGBA32F, _) => GL_RGBA32F,
-        (v, _) if v == 0x1908 => GL_RGBA8,
+        (v, _) if v == GL_RGBA => GL_RGBA8,
         _ => GL_RGBA8,
     };
     let bytes_per_pixel = super::types::get_bytes_per_pixel(storage_internal_format);
