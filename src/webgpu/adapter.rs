@@ -261,3 +261,33 @@ pub fn destroy_device(ctx_handle: u32, device_handle: u32) -> u32 {
         }
     })
 }
+
+pub fn get_adapter_features(ctx_handle: u32, adapter_handle: u32) -> u64 {
+    WEBGPU_CONTEXTS.with(|contexts| {
+        let contexts = contexts.borrow();
+        let ctx = match contexts.get(&ctx_handle) {
+            Some(ctx) => ctx,
+            None => return 0,
+        };
+        let adapter_id = match ctx.adapters.get(&adapter_handle) {
+            Some(id) => *id,
+            None => return 0,
+        };
+        ctx.global.adapter_features(adapter_id).bits().0[0]
+    })
+}
+
+pub fn get_adapter_limits(ctx_handle: u32, adapter_handle: u32) -> wgt::Limits {
+    WEBGPU_CONTEXTS.with(|contexts| {
+        let contexts = contexts.borrow();
+        let ctx = match contexts.get(&ctx_handle) {
+            Some(ctx) => ctx,
+            None => return wgt::Limits::default(),
+        };
+        let adapter_id = match ctx.adapters.get(&adapter_handle) {
+            Some(id) => *id,
+            None => return wgt::Limits::default(),
+        };
+        ctx.global.adapter_limits(adapter_id)
+    })
+}

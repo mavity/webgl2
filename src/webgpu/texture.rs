@@ -30,8 +30,23 @@ pub fn create_texture(ctx_handle: u32, device_handle: u32, config: TextureConfig
         };
 
         // TODO: Map integer format to wgt::TextureFormat
-        // For now, assume Rgba8Unorm (17) if format is 17, else panic or default
-        let format = wgt::TextureFormat::Rgba8Unorm;
+        let format = match config.format {
+            0 => wgt::TextureFormat::R8Unorm,
+            1 => wgt::TextureFormat::R8Snorm,
+            2 => wgt::TextureFormat::R8Uint,
+            3 => wgt::TextureFormat::R8Sint,
+            12 => wgt::TextureFormat::R16Float,
+            17 => wgt::TextureFormat::Rgba8Unorm,
+            18 => wgt::TextureFormat::Rgba8UnormSrgb,
+            19 => wgt::TextureFormat::Bgra8Unorm,
+            20 => wgt::TextureFormat::Bgra8UnormSrgb,
+            24 => wgt::TextureFormat::Rgba16Float,
+            35 => wgt::TextureFormat::R32Float,
+            38 => wgt::TextureFormat::Depth32Float,
+            39 => wgt::TextureFormat::Depth24Plus,
+            40 => wgt::TextureFormat::Depth24PlusStencil8,
+            _ => wgt::TextureFormat::Rgba8Unorm, // Default
+        };
 
         let desc = wgt::TextureDescriptor {
             label: None,
@@ -75,6 +90,19 @@ pub struct TextureViewConfig {
     pub base_array_layer: u32,
     pub array_layer_count: u32,
     pub aspect: u32,
+}
+
+pub struct SamplerConfig {
+    pub address_mode_u: u32,
+    pub address_mode_v: u32,
+    pub address_mode_w: u32,
+    pub mag_filter: u32,
+    pub min_filter: u32,
+    pub mipmap_filter: u32,
+    pub lod_min_clamp: f32,
+    pub lod_max_clamp: f32,
+    pub compare: u32,
+    pub max_anisotropy: u16,
 }
 
 /// Create a texture view
@@ -149,27 +177,62 @@ pub fn create_texture_view(ctx_handle: u32, texture_handle: u32, config: Texture
 }
 
 /// Create a sampler
-pub fn create_sampler(ctx_handle: u32, device_handle: u32) -> u32 {
+pub fn create_sampler(ctx_handle: u32, device_handle: u32, config: SamplerConfig) -> u32 {
     with_context(ctx_handle, |ctx| {
         let device_id = match ctx.devices.get(&device_handle) {
             Some(id) => *id,
             None => return super::NULL_HANDLE,
         };
 
+        let address_mode = |mode| match mode {
+            0 => wgt::AddressMode::ClampToEdge,
+            1 => wgt::AddressMode::Repeat,
+            2 => wgt::AddressMode::MirrorRepeat,
+            _ => wgt::AddressMode::ClampToEdge,
+        };
+
+        let filter_mode = |mode| match mode {
+            0 => wgt::FilterMode::Nearest,
+            1 => wgt::FilterMode::Linear,
+            _ => wgt::FilterMode::Nearest,
+        };
+
+        let mip_filter_mode = |mode| match mode {
+            0 => wgt::MipmapFilterMode::Nearest,
+            1 => wgt::MipmapFilterMode::Linear,
+            _ => wgt::MipmapFilterMode::Nearest,
+        };
+
+        let compare = if config.compare == 0 {
+            None
+        } else {
+            Some(match config.compare - 1 {
+                0 => wgt::CompareFunction::Never,
+                1 => wgt::CompareFunction::Less,
+                2 => wgt::CompareFunction::Equal,
+                3 => wgt::CompareFunction::LessEqual,
+                4 => wgt::CompareFunction::Greater,
+                5 => wgt::CompareFunction::NotEqual,
+                6 => wgt::CompareFunction::GreaterEqual,
+                7 => wgt::CompareFunction::Always,
+                _ => wgt::CompareFunction::Never,
+            })
+        };
+
         let desc = wgpu_core::resource::SamplerDescriptor {
             label: None,
             address_modes: [
-                wgt::AddressMode::ClampToEdge,
-                wgt::AddressMode::ClampToEdge,
-                wgt::AddressMode::ClampToEdge,
+                address_mode(config.address_mode_u),
+                address_mode(config.address_mode_v),
+                address_mode(config.address_mode_w),
             ],
-            mag_filter: wgt::FilterMode::Linear,
-            min_filter: wgt::FilterMode::Linear,
-            mipmap_filter: wgt::MipmapFilterMode::Linear,
-            lod_min_clamp: 0.0,
-            lod_max_clamp: 32.0,
-            compare: None,
-            anisotropy_clamp: 1,
+            mag_filter: filter_mode(config.mag_filter),
+            min_filter: filter_mode(config.min_filter),
+            mipmap_filter: mip_filter_mode(config.mipmap_filter),
+            lod_min_clamp: config.lod_min_clamp,
+            lod_max_clamp: config.lod_max_clamp,
+            compare,
+            anisotropy_clamp: config.max_anisotropy,
             border_color: None,
         };
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { webGPU } from '../index.js';
-import { GPUBufferUsage } from '../src/webgpu_context.js';
+import { webGPU } from '../../index.js';
+import { GPUBufferUsage } from '../../src/webgpu_context.js';
 
 test('WebGPU Error Handling', async (t) => {
     const gpu = await webGPU();

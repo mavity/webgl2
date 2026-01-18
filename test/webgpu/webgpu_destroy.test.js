@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { webGPU } from '../index.js';
+import { webGPU } from '../../index.js';
 
 test('WebGPU device.destroy() does not throw', async () => {
   const gpu = await webGPU();

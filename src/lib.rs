@@ -1455,6 +1455,64 @@ pub extern "C" fn wasm_webgpu_destroy_device(ctx_handle: u32, device_handle: u32
 }
 
 #[no_mangle]
+pub extern "C" fn wasm_webgpu_get_adapter_features(ctx_handle: u32, adapter_handle: u32) -> u64 {
+    webgpu::adapter::get_adapter_features(ctx_handle, adapter_handle)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_get_preferred_canvas_format() -> u32 {
+    // 17: rgba8unorm, 19: bgra8unorm
+    17
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_get_adapter_limits(
+    ctx_handle: u32,
+    adapter_handle: u32,
+    ptr: *mut u32,
+) {
+    let limits = webgpu::adapter::get_adapter_limits(ctx_handle, adapter_handle);
+    unsafe {
+        *ptr.offset(0) = limits.max_texture_dimension_1d;
+        *ptr.offset(1) = limits.max_texture_dimension_2d;
+        *ptr.offset(2) = limits.max_texture_dimension_3d;
+        *ptr.offset(3) = limits.max_texture_array_layers;
+        *ptr.offset(4) = limits.max_bind_groups;
+        *ptr.offset(5) = 0; // Padding
+        *ptr.offset(6) = limits.max_bindings_per_bind_group;
+        *ptr.offset(7) = limits.max_dynamic_uniform_buffers_per_pipeline_layout;
+        *ptr.offset(8) = limits.max_dynamic_storage_buffers_per_pipeline_layout;
+        *ptr.offset(9) = limits.max_sampled_textures_per_shader_stage;
+        *ptr.offset(10) = limits.max_samplers_per_shader_stage;
+        *ptr.offset(11) = limits.max_storage_buffers_per_shader_stage;
+        *ptr.offset(12) = limits.max_storage_textures_per_shader_stage;
+        *ptr.offset(13) = limits.max_uniform_buffers_per_shader_stage;
+        *ptr.offset(14) = limits.max_uniform_buffer_binding_size;
+        *ptr.offset(15) = limits.max_storage_buffer_binding_size;
+        *ptr.offset(16) = limits.max_vertex_buffers;
+        *ptr.offset(17) = limits.max_vertex_attributes;
+        *ptr.offset(18) = limits.max_vertex_buffer_array_stride;
+        *ptr.offset(19) = limits.max_immediate_size;
+        *ptr.offset(20) = limits.min_uniform_buffer_offset_alignment;
+        *ptr.offset(21) = limits.min_storage_buffer_offset_alignment;
+        *ptr.offset(22) = 0; // Padding
+        *ptr.offset(23) = limits.max_inter_stage_shader_variables;
+        *ptr.offset(24) = limits.max_color_attachments;
+        *ptr.offset(25) = limits.max_color_attachment_bytes_per_sample;
+        *ptr.offset(26) = limits.max_compute_workgroup_storage_size;
+        *ptr.offset(27) = limits.max_compute_invocations_per_workgroup;
+        *ptr.offset(28) = limits.max_compute_workgroup_size_x;
+        *ptr.offset(29) = limits.max_compute_workgroup_size_y;
+        *ptr.offset(30) = limits.max_compute_workgroup_size_z;
+        *ptr.offset(31) = limits.max_compute_workgroups_per_dimension;
+        *ptr.offset(32) = limits.min_uniform_buffer_offset_alignment;
+        *ptr.offset(33) = limits.min_storage_buffer_offset_alignment;
+        let mbs_ptr = ptr.offset(34) as *mut u64;
+        *mbs_ptr = limits.max_buffer_size;
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn wasm_webgpu_push_error_scope(filter: u32) {
     let filter_enum = match filter {
         0 => crate::error::WebGPUErrorFilter::Validation,
@@ -1567,8 +1625,33 @@ pub extern "C" fn wasm_webgpu_create_texture_view(
 }
 
 #[no_mangle]
-pub extern "C" fn wasm_webgpu_create_sampler(ctx_handle: u32, device_handle: u32) -> u32 {
-    webgpu::texture::create_sampler(ctx_handle, device_handle)
+pub extern "C" fn wasm_webgpu_create_sampler(
+    ctx_handle: u32,
+    device_handle: u32,
+    address_mode_u: u32,
+    address_mode_v: u32,
+    address_mode_w: u32,
+    mag_filter: u32,
+    min_filter: u32,
+    mipmap_filter: u32,
+    lod_min_clamp: f32,
+    lod_max_clamp: f32,
+    compare: u32,
+    max_anisotropy: u16,
+) -> u32 {
+    let config = webgpu::texture::SamplerConfig {
+        address_mode_u,
+        address_mode_v,
+        address_mode_w,
+        mag_filter,
+        min_filter,
+        mipmap_filter,
+        lod_min_clamp,
+        lod_max_clamp,
+        compare,
+        max_anisotropy,
+    };
+    webgpu::texture::create_sampler(ctx_handle, device_handle, config)
 }
 
 #[no_mangle]

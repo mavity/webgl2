@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import { webGPU, GPUBufferUsage, GPUTextureUsage } from '../index.js';
+import { webGPU, GPUBufferUsage, GPUTextureUsage } from '../../index.js';
 
 test('WebGPU Rendering Pipeline', async (t) => {
   const gpu = await webGPU();

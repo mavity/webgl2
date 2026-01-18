@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { webGPU, GPUBufferUsage, GPUMapMode, GPUTextureUsage } from '../index.js';
+import { webGPU, GPUBufferUsage, GPUMapMode, GPUTextureUsage } from '../../index.js';
 
 test('WebGPU: Clear texture and copy to buffer', async () => {
   const gpu = await webGPU();

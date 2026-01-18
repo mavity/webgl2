@@ -171,6 +171,34 @@ pub extern "C" fn wasm_get_webgpu_error_msg_ptr() -> *const c_char {
 }
 
 #[no_mangle]
+pub extern "C" fn wasm_webgpu_has_error_scope() -> u32 {
+    STATE.with(|s| {
+        if s.borrow().webgpu_scope_stack.is_empty() {
+            0
+        } else {
+            1
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_get_webgpu_error_filter() -> i32 {
+    STATE.with(|s| {
+        let state = s.borrow();
+        if let Some(err) = &state.webgpu_popped_error {
+            match err.source {
+                ErrorSource::WebGPU(WebGPUErrorFilter::Validation) => 0,
+                ErrorSource::WebGPU(WebGPUErrorFilter::OutOfMemory) => 1,
+                ErrorSource::WebGPU(WebGPUErrorFilter::Internal) => 2,
+                _ => -1,
+            }
+        } else {
+            -1
+        }
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn wasm_get_last_error_msg_ptr() -> *const c_char {
     STATE.with(|s| {
         let mut state = s.borrow_mut();
