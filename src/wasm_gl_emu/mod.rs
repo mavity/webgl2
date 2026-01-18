@@ -4,9 +4,6 @@
 //! compiled WASM shaders in a CPU-based rasterizer, enabling full debugging
 //! capabilities.
 
-// Runtime selection: wasmi (for wasm32 and native)
-mod runtime_wasmi;
-
 pub mod device;
 pub mod transfer;
 mod framebuffer;
@@ -14,9 +11,6 @@ mod pipeline;
 pub mod rasterizer;
 mod state;
 mod texture;
-
-pub use runtime_wasmi::RuntimeError;
-pub use runtime_wasmi::ShaderRuntime;
 
 pub use device::{GpuBuffer, GpuHandle, GpuKernel, StorageLayout};
 pub use transfer::{IndexType, TransferEngine, TransferRequest};
@@ -29,7 +23,7 @@ pub use state::WebGLState;
 pub use texture::Texture;
 
 /// Initialize the emulator with default configuration
-pub fn init() -> Result<WebGLState, RuntimeError> {
+pub fn init() -> WebGLState {
     tracing::info!("Initializing WebGL2 emulator");
     WebGLState::new()
 }

@@ -299,38 +299,10 @@ pub extern "C" fn gl_smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-// Texture sampling used to be implemented in Rust as `texture_sample` returning a `F32x4`.
-// That high-level Rust implementation has been intentionally removed in favor of a
-// WASM-local sampling primitive (`__webgl_texture_sample`) emitted by the compiler and a
-// small host import `env.texture_texel_fetch` that returns a texel as 4 f32 values.
-//
-// Rationale: keep sampling semantics local to shader modules (multivalue returns),
-// avoid pointer-based out parameters across module boundaries, and eliminate the
-// previous Rust `texture_sample` implementation completely.
-
-// NOTE: The old `texture_sample` implementation was removed and must not be
-// reintroduced (see tests that assert absence of `texture_sample` exports).
-
 // Re-export commonly used types
 pub use glsl_introspection::ResourceManifest;
 pub use js_codegen::generate_harness;
 pub use naga_wasm_backend::{BackendError, WasmBackend, WasmBackendConfig, WasmModule};
-pub use wasm_gl_emu::RuntimeError;
-#[cfg(feature = "cli")]
-pub use wasm_gl_emu::ShaderRuntime;
-
-// Legacy WebGL2 convenience helpers removed.
-// The implementation now lives in the `webgl2_context` module and is
-// exposed via the `wasm_ctx_*/wasm_*` exports defined below.
-//
-// Old, unsafe `static mut` helpers (framebuffer, texture arrays, etc.)
-// were intentionally removed to centralize the implementation in
-// `src/webgl2_context.rs` which provides a safe, handle-based API.
-
-// ============================================================================
-// NEW: WebGL2 Prototype Exports (Schema v2)
-// Follows docs/1.1.1-webgl2-prototype.md
-// ============================================================================
 
 // ---- Context Lifecycle ----
 

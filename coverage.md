@@ -8,17 +8,17 @@
 | src/decompiler/emitter.rs | 17 | 8 | 25 | 68.00% 🟡 |
 | src/decompiler/lifter.rs | 17 | 21 | 38 | 44.74% 🟠 |
 | src/decompiler/mod.rs | 8 | 6 | 14 | 57.14% 🟡 |
-| src/decompiler/module.rs | 1 | 1 | 2 | 50.00% 🟡 |
-| src/decompiler/parser.rs | 16 | 2 | 18 | 88.89% 🟢 |
+| src/decompiler/module.rs | 3 | 1 | 4 | 75.00% 🟡 |
+| src/decompiler/parser.rs | 15 | 2 | 17 | 88.24% 🟢 |
 | src/decompiler/simplifier.rs | 55 | 17 | 72 | 76.39% 🟡 |
 | src/error.rs | 8 | 15 | 23 | 34.78% 🟠 |
-| src/lib.rs | 319 | 218 | 537 | 59.40% 🟡 |
+| src/lib.rs | 323 | 216 | 539 | 59.93% 🟡 |
 | src/naga_wasm_backend/backend.rs | 62 | 2 | 64 | 96.88% 🟢 |
 | src/naga_wasm_backend/call_lowering.rs | 18 | 0 | 18 | 100.00% 🟢 |
 | src/naga_wasm_backend/control_flow.rs | 54 | 16 | 70 | 77.14% 🟡 |
 | src/naga_wasm_backend/debug/stub.rs | 20 | 0 | 20 | 100.00% 🟢 |
 | src/naga_wasm_backend/expressions.rs | 67 | 107 | 174 | 38.51% 🟠 |
-| src/naga_wasm_backend/function_abi.rs | 24 | 0 | 24 | 100.00% 🟢 |
+| src/naga_wasm_backend/function_abi.rs | 25 | 0 | 25 | 100.00% 🟢 |
 | src/naga_wasm_backend/functions/prep.rs | 4 | 0 | 4 | 100.00% 🟢 |
 | src/naga_wasm_backend/functions/registry.rs | 4 | 0 | 4 | 100.00% 🟢 |
 | src/naga_wasm_backend/memory_layout.rs | 9 | 0 | 9 | 100.00% 🟢 |
@@ -35,19 +35,19 @@
 | src/webgl2_context/registry.rs | 7 | 0 | 7 | 100.00% 🟢 |
 | src/webgl2_context/renderbuffers.rs | 10 | 0 | 10 | 100.00% 🟢 |
 | src/webgl2_context/shaders.rs | 111 | 12 | 123 | 90.24% 🟢 |
-| src/webgl2_context/state.rs | 18 | 2 | 20 | 90.00% 🟢 |
+| src/webgl2_context/state.rs | 17 | 3 | 20 | 85.00% 🟢 |
 | src/webgl2_context/textures.rs | 25 | 9 | 34 | 73.53% 🟡 |
 | src/webgl2_context/types.rs | 16 | 0 | 16 | 100.00% 🟢 |
 | src/webgl2_context/vaos.rs | 35 | 0 | 35 | 100.00% 🟢 |
 | src/webgpu/adapter.rs | 2 | 0 | 2 | 100.00% 🟢 |
 | src/webgpu/backend.rs | 51 | 21 | 72 | 70.83% 🟡 |
-| **Total** | **1121** | **488** | **1609** | **69.67% 🟡** |
+| **Total** | **1126** | **487** | **1613** | **69.81% 🟡** |
 
 ## Top Missed Files
 
 | File | Lines Missed | Illustrative Line | Coverage |
 |---|---|---|---:|
-| src/lib.rs | 218/537 | [1047] `) -> u32 {` | 59.40% 🟡 |
+| src/lib.rs | 216/539 | [1039] `) -> u32 {` | 59.93% 🟡 |
 | src/naga_wasm_backend/expressions.rs | 107/174 | [1504] `for j in 0..count {` | 38.51% 🟠 |
 | src/decompiler/lifter.rs | 21/38 | [455] `fn unary_op(&mut self, op: UnaryOp) {` | 44.74% 🟠 |
 | src/webgpu/backend.rs | 21/72 | [835] `state.blend.src_rgb = map_factor(blend.color.src_factor);` | 70.83% 🟡 |

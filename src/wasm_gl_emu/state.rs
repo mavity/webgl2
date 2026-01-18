@@ -1,7 +1,3 @@
-//! WebGL2 state machine
-
-use super::RuntimeError;
-
 /// WebGL2 rendering context state
 pub struct WebGLState {
     pub viewport: Viewport,
@@ -19,8 +15,8 @@ pub struct Viewport {
 }
 
 impl WebGLState {
-    pub fn new() -> Result<Self, RuntimeError> {
-        Ok(Self {
+    pub fn new() -> Self {
+        Self {
             viewport: Viewport {
                 x: 0,
                 y: 0,
@@ -30,7 +26,7 @@ impl WebGLState {
             clear_color: [0.0, 0.0, 0.0, 1.0],
             depth_test_enabled: false,
             blend_enabled: false,
-        })
+        }
     }
 
     pub fn set_viewport(&mut self, x: i32, y: i32, width: u32, height: u32) {
