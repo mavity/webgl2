@@ -51,7 +51,7 @@ pub struct WasmFeatures {
 }
 
 /// Output of WASM compilation
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WasmModule {
     /// WASM bytecode
     pub wasm_bytes: Vec<u8>,
@@ -63,6 +63,8 @@ pub struct WasmModule {
     pub entry_points: HashMap<String, u32>,
     /// Memory layout information
     pub memory_layout: MemoryLayout,
+    /// Allocated index in the host's shared function table
+    pub table_index: u32,
 }
 
 /// Memory layout for shader execution

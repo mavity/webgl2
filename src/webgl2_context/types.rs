@@ -1,7 +1,7 @@
-use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
 pub(crate) use crate::wasm_gl_emu::device::GpuHandle;
 pub(crate) use crate::wasm_gl_emu::device::GpuKernel;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 // Errno constants (must match JS constants if exposed)
 pub const ERR_OK: u32 = 0;
@@ -380,7 +380,8 @@ impl Context {
         vertex_arrays.insert(0, VertexArray::default());
 
         let mut kernel = GpuKernel::default();
-        let default_framebuffer = crate::wasm_gl_emu::OwnedFramebuffer::new(&mut kernel, width, height);
+        let default_framebuffer =
+            crate::wasm_gl_emu::OwnedFramebuffer::new(&mut kernel, width, height);
 
         Context {
             textures: HashMap::new(),
@@ -521,7 +522,9 @@ impl Context {
         );
     }
 
-    pub(crate) fn get_attribute_bindings(&self) -> Vec<crate::wasm_gl_emu::transfer::AttributeBinding> {
+    pub(crate) fn get_attribute_bindings(
+        &self,
+    ) -> Vec<crate::wasm_gl_emu::transfer::AttributeBinding> {
         let vao = &self.vertex_arrays[&self.bound_vertex_array];
         vao.attributes
             .iter()
@@ -674,14 +677,23 @@ impl Context {
     }
 
     pub(crate) fn get_color_attachment_info(&self, read: bool) -> (GpuHandle, u32, u32, u32) {
-        let fb_handle = if read { self.bound_read_framebuffer } else { self.bound_draw_framebuffer };
+        let fb_handle = if read {
+            self.bound_read_framebuffer
+        } else {
+            self.bound_draw_framebuffer
+        };
         if let Some(fb_handle) = fb_handle {
             if let Some(fb) = self.framebuffers.get(&fb_handle) {
                 match fb.color_attachment {
                     Some(Attachment::Texture(tex_handle)) => {
                         if let Some(tex) = self.textures.get(&tex_handle) {
                             if let Some(level0) = tex.levels.get(&0) {
-                                return (level0.gpu_handle, level0.width, level0.height, level0.internal_format);
+                                return (
+                                    level0.gpu_handle,
+                                    level0.width,
+                                    level0.height,
+                                    level0.internal_format,
+                                );
                             }
                         }
                     }

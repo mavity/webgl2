@@ -18,17 +18,22 @@ impl OwnedFramebuffer {
         Self::new_with_format(kernel, width, height, 0x8058) // GL_RGBA8
     }
 
-    pub fn new_with_format(kernel: &mut GpuKernel, width: u32, height: u32, internal_format: u32) -> Self {
+    pub fn new_with_format(
+        kernel: &mut GpuKernel,
+        width: u32,
+        height: u32,
+        internal_format: u32,
+    ) -> Self {
         let format = match internal_format {
-            0x822E => wgt::TextureFormat::R32Float,  // GL_R32F
-            0x8230 => wgt::TextureFormat::Rg32Float, // GL_RG32F
+            0x822E => wgt::TextureFormat::R32Float,    // GL_R32F
+            0x8230 => wgt::TextureFormat::Rg32Float,   // GL_RG32F
             0x8814 => wgt::TextureFormat::Rgba32Float, // GL_RGBA32F
-            _ => wgt::TextureFormat::Rgba8Unorm,     // GL_RGBA8
+            _ => wgt::TextureFormat::Rgba8Unorm,       // GL_RGBA8
         };
-        
+
         let layout = StorageLayout::Tiled8x8;
         let gpu_handle = kernel.create_buffer(width, height, 1, format, layout);
-        
+
         Self {
             width,
             height,
@@ -109,15 +114,6 @@ impl<'a> Framebuffer<'a> {
             0x8814 => wgt::TextureFormat::Rgba32Float,
             _ => wgt::TextureFormat::Rgba8Unorm,
         };
-        GpuBuffer::offset_for_layout(
-            x,
-            y,
-            z,
-            self.width,
-            self.height,
-            1,
-            format,
-            self.layout,
-        )
+        GpuBuffer::offset_for_layout(x, y, z, self.width, self.height, 1, format, self.layout)
     }
 }

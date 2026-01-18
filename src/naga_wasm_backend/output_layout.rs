@@ -260,6 +260,50 @@ pub fn compute_uniform_offset(location: u32) -> (u32, u32) {
     (location * 64, UNIFORM_PTR_GLOBAL)
 }
 
+/// Description of the data layout within a uniform slot
+#[derive(Debug, Clone, Copy)]
+pub enum UniformLayout {
+    Scalar,
+    Vector(u32),
+    Matrix(u32),
+    Struct,
+}
+
+/// Build a map of resource (group, binding) to its memory offset and layout
+pub fn get_uniform_map(
+    module: &naga::Module,
+    _info: &naga::valid::ModuleInfo,
+    _stage: naga::ShaderStage,
+) -> std::collections::HashMap<(u32, u32), (u32, UniformLayout)> {
+    use std::collections::HashMap;
+    let mut map = HashMap::new();
+    let mut next_loc = 0;
+
+    for (_, var) in module.global_variables.iter() {
+        if let Some(rb) = &var.binding {
+            let group = rb.group;
+            let binding = rb.binding;
+            if var.space == naga::AddressSpace::Uniform {
+                let loc = next_loc;
+                next_loc += 1;
+                let offset = compute_uniform_offset(loc).0;
+
+                let layout = match &module.types[var.ty].inner {
+                    naga::TypeInner::Scalar { .. } => UniformLayout::Scalar,
+                    naga::TypeInner::Vector { size, .. } => UniformLayout::Vector(*size as u32),
+                    naga::TypeInner::Matrix { columns, .. } => {
+                        UniformLayout::Matrix(*columns as u32)
+                    }
+                    _ => UniformLayout::Struct,
+                };
+
+                map.insert((group, binding), (offset, layout));
+            }
+        }
+    }
+    map
+}
+
 /// Validate that a binding is supported for the given shader stage.
 ///
 /// # Returns

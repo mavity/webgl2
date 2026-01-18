@@ -1,6 +1,6 @@
 //! WebGPU Command Encoder and Queue management
 
-use super::adapter::with_context;
+use super::adapter::{with_context, with_context_val};
 use std::num::NonZero;
 use wgpu_types as wgt;
 
@@ -145,10 +145,10 @@ pub fn command_encoder_copy_buffer_to_buffer(
 
 /// Submit command buffers to the queue
 pub fn queue_submit(ctx_handle: u32, device_handle: u32, cb_handles: &[u32]) -> u32 {
-    with_context(ctx_handle, |ctx| {
+    let result = super::adapter::with_context_val(ctx_handle, None, |ctx| {
         let device_id = match ctx.devices.get(&device_handle) {
             Some(id) => *id,
-            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+            None => return None,
         };
 
         let mut cb_ids = Vec::with_capacity(cb_handles.len());
@@ -156,37 +156,44 @@ pub fn queue_submit(ctx_handle: u32, device_handle: u32, cb_handles: &[u32]) -> 
             if let Some(id) = ctx.command_buffers.remove(&h) {
                 cb_ids.push(id);
             } else {
-                return super::WEBGPU_ERROR_INVALID_HANDLE;
+                return None;
             }
         }
 
         let queue_id = match ctx.queues.get(&device_handle) {
             Some(id) => *id,
-            None => return super::WEBGPU_ERROR_OPERATION_FAILED,
+            None => return None,
         };
 
-        match ctx.global.queue_submit(queue_id, &cb_ids) {
-            Ok(_) => {
-                // Synchronous execution model: poll immediately
-                let _ = ctx.global.device_poll(
-                    device_id,
-                    wgt::PollType::Wait {
-                        submission_index: None,
-                        timeout: None,
-                    },
-                );
-                super::WEBGPU_SUCCESS
-            }
-            Err(e) => {
-                crate::error::set_error(
-                    crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                    super::WEBGPU_ERROR_OPERATION_FAILED,
-                    format!("Submission index {}: {}", e.0, e.1),
-                );
-                super::WEBGPU_ERROR_OPERATION_FAILED
-            }
+        Some((ctx.global.clone(), device_id, queue_id, cb_ids))
+    });
+
+    let (global, device_id, queue_id, cb_ids) = match result {
+        Some(res) => res,
+        None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+    };
+
+    match global.queue_submit(queue_id, &cb_ids) {
+        Ok(_) => {
+            // Synchronous execution model: poll immediately
+            let _ = global.device_poll(
+                device_id,
+                wgt::PollType::Wait {
+                    submission_index: None,
+                    timeout: None,
+                },
+            );
+            super::WEBGPU_SUCCESS
         }
-    })
+        Err(e) => {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_OPERATION_FAILED,
+                format!("Submission index {}: {}", e.0, e.1),
+            );
+            super::WEBGPU_ERROR_OPERATION_FAILED
+        }
+    }
 }
 
 pub struct CopyTextureToBufferConfig {
@@ -509,9 +516,9 @@ pub fn command_encoder_run_render_pass(
                     let max_depth = f32::from_bits(commands[cursor + 5]);
                     cursor += 6;
 
-                    let _ = ctx.global.render_pass_set_viewport(
-                        &mut pass, x, y, w, h, min_depth, max_depth,
-                    );
+                    let _ = ctx
+                        .global
+                        .render_pass_set_viewport(&mut pass, x, y, w, h, min_depth, max_depth);
                 }
                 8 => {
                     // SetScissorRect
@@ -524,7 +531,9 @@ pub fn command_encoder_run_render_pass(
                     let h = commands[cursor + 3];
                     cursor += 4;
 
-                    let _ = ctx.global.render_pass_set_scissor_rect(&mut pass, x, y, w, h);
+                    let _ = ctx
+                        .global
+                        .render_pass_set_scissor_rect(&mut pass, x, y, w, h);
                 }
                 _ => {
                     // TODO: handle properly, propagate error
@@ -565,7 +574,10 @@ pub fn queue_write_buffer(
             None => return super::WEBGPU_ERROR_OPERATION_FAILED,
         };
 
-        match ctx.global.queue_write_buffer(queue_id, buffer_id, offset, data) {
+        match ctx
+            .global
+            .queue_write_buffer(queue_id, buffer_id, offset, data)
+        {
             Ok(_) => super::WEBGPU_SUCCESS,
             Err(e) => {
                 crate::error::set_error(
@@ -611,8 +623,16 @@ pub fn queue_write_texture(
 
         let data_layout = wgt::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: if bytes_per_row > 0 { Some(bytes_per_row) } else { None },
-            rows_per_image: if rows_per_image > 0 { Some(rows_per_image) } else { None },
+            bytes_per_row: if bytes_per_row > 0 {
+                Some(bytes_per_row)
+            } else {
+                None
+            },
+            rows_per_image: if rows_per_image > 0 {
+                Some(rows_per_image)
+            } else {
+                None
+            },
         };
 
         let size = wgt::Extent3d {
@@ -621,7 +641,10 @@ pub fn queue_write_texture(
             depth_or_array_layers: depth,
         };
 
-        match ctx.global.queue_write_texture(queue_id, &destination, data, &data_layout, &size) {
+        match ctx
+            .global
+            .queue_write_texture(queue_id, &destination, data, &data_layout, &size)
+        {
             Ok(_) => super::WEBGPU_SUCCESS,
             Err(e) => {
                 crate::error::set_error(

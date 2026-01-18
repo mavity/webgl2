@@ -50,7 +50,13 @@ pub struct GpuBuffer {
 }
 
 impl GpuBuffer {
-    pub fn new(width: u32, height: u32, depth: u32, format: wgt::TextureFormat, layout: StorageLayout) -> Self {
+    pub fn new(
+        width: u32,
+        height: u32,
+        depth: u32,
+        format: wgt::TextureFormat,
+        layout: StorageLayout,
+    ) -> Self {
         let bpp = format.block_copy_size(None).unwrap_or(4) as u64;
         let size = match layout {
             StorageLayout::Linear => (width as u64) * (height as u64) * (depth as u64) * bpp,
@@ -218,7 +224,19 @@ impl GpuKernel {
         width: u32,
         height: u32,
     ) {
-        self.blit(src_handle, dst_handle, src_x as i32, src_y as i32, (src_x + width) as i32, (src_y + height) as i32, dst_x as i32, dst_y as i32, (dst_x + width) as i32, (dst_y + height) as i32, 0x2600 /* GL_NEAREST */);
+        self.blit(
+            src_handle,
+            dst_handle,
+            src_x as i32,
+            src_y as i32,
+            (src_x + width) as i32,
+            (src_y + height) as i32,
+            dst_x as i32,
+            dst_y as i32,
+            (dst_x + width) as i32,
+            (dst_y + height) as i32,
+            0x2600, /* GL_NEAREST */
+        );
     }
 
     /// Blit a region from one buffer to another with scaling
@@ -236,18 +254,19 @@ impl GpuKernel {
         dst_y1: i32,
         _filter: u32, // TODO: support linear?
     ) {
-        let (src_data, src_w, src_h, src_d, src_format, src_layout) = if let Some(buf) = self.get_buffer(src_handle) {
-            (
-                buf.data.clone(),
-                buf.width,
-                buf.height,
-                buf.depth,
-                buf.format,
-                buf.layout,
-            )
-        } else {
-            return;
-        };
+        let (src_data, src_w, src_h, src_d, src_format, src_layout) =
+            if let Some(buf) = self.get_buffer(src_handle) {
+                (
+                    buf.data.clone(),
+                    buf.width,
+                    buf.height,
+                    buf.depth,
+                    buf.format,
+                    buf.layout,
+                )
+            } else {
+                return;
+            };
 
         if let Some(dst_buf) = self.get_buffer_mut(dst_handle) {
             let src_bpp = src_format.block_copy_size(None).unwrap_or(4) as usize;
@@ -289,14 +308,7 @@ impl GpuKernel {
                     }
 
                     let src_off = GpuBuffer::offset_for_layout(
-                        sx as u32,
-                        sy as u32,
-                        0,
-                        src_w,
-                        src_h,
-                        src_d,
-                        src_format,
-                        src_layout,
+                        sx as u32, sy as u32, 0, src_w, src_h, src_d, src_format, src_layout,
                     );
                     let dst_off = dst_buf.get_pixel_offset(dx as u32, dy as u32, 0);
 
@@ -319,7 +331,15 @@ impl GpuKernel {
     }
 
     /// Clear a sub-region of a buffer
-    pub fn clear_rect(&mut self, handle: GpuHandle, color: [f32; 4], x: i32, y: i32, width: u32, height: u32) {
+    pub fn clear_rect(
+        &mut self,
+        handle: GpuHandle,
+        color: [f32; 4],
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    ) {
         if let Some(buf) = self.get_buffer_mut(handle) {
             let bpp = buf.format.block_copy_size(None).unwrap_or(4) as usize;
             let mut pixel_bytes = vec![0u8; bpp];
@@ -394,7 +414,8 @@ impl GpuKernel {
                         *base.offset(3) = b.depth as i32;
                         *base.offset(4) = b.format as i32;
                         *base.offset(5) = b.bytes_per_pixel as i32;
-                        *base.offset(6) = ((b.wrap_s & 0xFFFF) | ((b.wrap_t & 0xFFFF) << 16)) as i32;
+                        *base.offset(6) =
+                            ((b.wrap_s & 0xFFFF) | ((b.wrap_t & 0xFFFF) << 16)) as i32;
                         *base.offset(7) = (b.wrap_r & 0xFFFF) as i32 | ((buf.layout as i32) << 16);
                     }
                 }

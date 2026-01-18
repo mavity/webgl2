@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Arc;
 use wgpu_core::global::Global;
 use wgpu_core::id::{
     AdapterId, BindGroupId, BindGroupLayoutId, BufferId, CommandBufferId, CommandEncoderId,
@@ -9,6 +10,7 @@ use wgpu_core::id::{
     ShaderModuleId, TextureId, TextureViewId,
 };
 use wgpu_types as wgt;
+use wgt::Backend;
 
 thread_local! {
     // Thread-local storage for WebGPU contexts
@@ -20,7 +22,7 @@ thread_local! {
 /// WebGPU context state
 pub struct WebGpuContext {
     pub id: u32,
-    pub global: Global,
+    pub global: Arc<Global>,
     pub adapters: HashMap<u32, AdapterId>,
     pub devices: HashMap<u32, DeviceId>,
     pub queues: HashMap<u32, QueueId>,
@@ -69,7 +71,7 @@ impl WebGpuContext {
 
         WebGpuContext {
             id,
-            global,
+            global: Arc::new(global),
             adapters: HashMap::new(),
             devices: HashMap::new(),
             queues: HashMap::new(),

@@ -600,8 +600,9 @@ impl Rasterizer {
         let (vx, vy, vw, vh) = state.viewport;
 
         // Scissor limit
-        let (mut limit_x0, mut limit_y0, mut limit_x1, mut limit_y1) = (0, 0, fb.width as i32 - 1, fb.height as i32 - 1);
-        
+        let (mut limit_x0, mut limit_y0, mut limit_x1, mut limit_y1) =
+            (0, 0, fb.width as i32 - 1, fb.height as i32 - 1);
+
         if state.scissor_enabled {
             let (sx, sy, sw, sh) = state.scissor;
             limit_x0 = limit_x0.max(sx);
@@ -1077,9 +1078,12 @@ impl Rasterizer {
                 };
 
                 // Fetch attributes
-                config
-                    .vertex_fetcher
-                    .fetch(kernel, vertex_id, actual_instance_id as u32, &mut attr_buffer);
+                config.vertex_fetcher.fetch(
+                    kernel,
+                    vertex_id,
+                    actual_instance_id as u32,
+                    &mut attr_buffer,
+                );
 
                 // Copy attributes to shader memory
                 unsafe {
@@ -1196,16 +1200,14 @@ impl Rasterizer {
             // GL_POINTS
             for v in vertices {
                 let (_vx, _vy, _vw, _vh) = state.viewport;
-                let screen_x = _vx as f32 + (v.position[0] / v.position[3] + 1.0) * 0.5 * _vw as f32;
-                let screen_y = _vy as f32 + (v.position[1] / v.position[3] + 1.0) * 0.5 * _vh as f32;
+                let screen_x =
+                    _vx as f32 + (v.position[0] / v.position[3] + 1.0) * 0.5 * _vw as f32;
+                let screen_y =
+                    _vy as f32 + (v.position[1] / v.position[3] + 1.0) * 0.5 * _vh as f32;
 
                 // Run FS
-                let color = self.execute_fragment_shader(
-                    &v.varyings,
-                    pipeline,
-                    state,
-                    fb.internal_format,
-                );
+                let color =
+                    self.execute_fragment_shader(&v.varyings, pipeline, state, fb.internal_format);
                 self.draw_point(fb, screen_x, screen_y, &color, state);
             }
         } else if mode == GL_TRIANGLES {

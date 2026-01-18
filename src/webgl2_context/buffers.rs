@@ -102,7 +102,7 @@ pub fn ctx_delete_buffer(ctx: u32, buf: u32) -> u32 {
     if let Some(b) = ctx_obj.buffers.remove(&buf) {
         ctx_obj.kernel.destroy_buffer(b.gpu_handle);
     }
-    
+
     // Unbind from all targets
     for val in ctx_obj.buffer_bindings.values_mut() {
         if *val == Some(buf) {
@@ -275,7 +275,8 @@ pub fn ctx_buffer_sub_data(ctx: u32, target: u32, offset: u32, ptr: u32, len: u3
                 set_last_error("buffer overflow");
                 return ERR_INVALID_ARGS;
             }
-            gpu_buf.data[offset as usize..offset as usize + len as usize].copy_from_slice(src_slice);
+            gpu_buf.data[offset as usize..offset as usize + len as usize]
+                .copy_from_slice(src_slice);
             ERR_OK
         } else {
             set_last_error("internal resource lost");

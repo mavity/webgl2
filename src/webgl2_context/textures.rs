@@ -496,7 +496,7 @@ pub fn ctx_generate_mipmap(ctx: u32, target: u32) -> u32 {
         let internal_format = base.internal_format;
         let bytes_per_pixel = super::types::get_bytes_per_pixel(internal_format);
         let mut current_level_idx = 0;
-        
+
         let mut prev_data = if let Some(buf) = ctx_obj.kernel.get_buffer(base.gpu_handle) {
             buf.data.clone()
         } else {
@@ -526,7 +526,7 @@ pub fn ctx_generate_mipmap(ctx: u32, target: u32) -> u32 {
                 gl_to_wgt_format(internal_format),
                 crate::wasm_gl_emu::device::StorageLayout::Tiled8x8,
             );
-            
+
             crate::wasm_gl_emu::TransferEngine::write_pixels(
                 &mut ctx_obj.kernel,
                 next_handle,

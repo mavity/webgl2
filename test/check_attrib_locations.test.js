@@ -24,12 +24,13 @@ test('Check Attribute Locations', async (t) => {
                 console.log(new TextDecoder('utf-8').decode(bytes));
             },
             wasm_execute_shader: () => {},
+            wasm_register_shader: () => { return 0; },
             dispatch_uncaptured_error: () => {},
             // Required by egg crate for timing measurements
             now: () => {
                 return performance.now();
             },
-            __indirect_function_table: new WebAssembly.Table({ initial: 2048, element: 'anyfunc' })
+            __indirect_function_table: new WebAssembly.Table({ initial: 4096, element: 'anyfunc' })
         },
         math: {
             sin: Math.sin,

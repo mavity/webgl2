@@ -37,6 +37,7 @@ extern "C" {
         private_ptr: i32,
         texture_ptr: i32,
     );
+    fn wasm_register_shader(ptr: *const u8, len: usize) -> u32;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -44,6 +45,11 @@ unsafe fn print(_ptr: *const u8, _len: usize) {}
 
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn dispatch_uncaptured_error(_ptr: *const u8, _len: usize) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn wasm_register_shader(_ptr: *const u8, _len: usize) -> u32 {
+    0
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn wasm_execute_shader(
@@ -106,6 +112,10 @@ pub fn js_execute_shader(
             texture_ptr as i32,
         );
     }
+}
+
+pub fn js_register_shader(bytes: &[u8]) -> u32 {
+    unsafe { wasm_register_shader(bytes.as_ptr(), bytes.len()) }
 }
 
 // ============================================================================

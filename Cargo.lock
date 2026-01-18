@@ -842,7 +842,6 @@ dependencies = [
  "once_cell",
  "pp-rs",
  "rustc-hash",
- "spirv",
  "thiserror 2.0.17",
  "unicode-ident",
 ]
@@ -1295,14 +1294,6 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
-
-[[package]]
-name = "spirv"
-version = "0.3.0+sdk-1.4.309.0"
-source = "git+https://github.com/gfx-rs/rspirv?rev=89ce4d0e64c91b0635f617409dc57cb031749a39#89ce4d0e64c91b0635f617409dc57cb031749a39"
-dependencies = [
- "bitflags",
-]
 
 [[package]]
 name = "stable_deref_trait"

@@ -8,7 +8,9 @@ fn ctx_get_program_flat_varyings_mask(ctx: &Context) -> u64 {
     if let Some(program_id) = ctx.current_program {
         if let Some(program) = ctx.programs.get(&program_id) {
             if let Some(ref fs_module) = program.fs_module {
-                return crate::wasm_gl_emu::rasterizer::RasterPipeline::compute_flat_varyings_mask(fs_module);
+                return crate::wasm_gl_emu::rasterizer::RasterPipeline::compute_flat_varyings_mask(
+                    fs_module,
+                );
             }
         }
     }
@@ -134,9 +136,9 @@ pub fn ctx_draw_arrays_instanced(
 
     let (target_handle, target_w, target_h, target_fmt) = ctx_obj.get_color_attachment_info(false);
 
-    ctx_obj
-        .rasterizer
-        .draw(&mut ctx_obj.kernel, crate::wasm_gl_emu::rasterizer::DrawConfig {
+    ctx_obj.rasterizer.draw(
+        &mut ctx_obj.kernel,
+        crate::wasm_gl_emu::rasterizer::DrawConfig {
             color_target: crate::wasm_gl_emu::rasterizer::ColorTarget::Handle(target_handle),
             width: target_w,
             height: target_h,
@@ -152,7 +154,8 @@ pub fn ctx_draw_arrays_instanced(
             first_instance: 0,
             indices: None,
             mode,
-        });
+        },
+    );
 
     ERR_OK
 }
@@ -242,33 +245,39 @@ pub fn ctx_draw_elements_instanced(
     let (target_handle, target_w, target_h, target_fmt) = ctx_obj.get_color_attachment_info(false);
 
     // Prepare indices lazily if EBO is bound
-    let lazy_indices = ebo_handle.and_then(|h| ctx_obj.buffers.get(&h)).and_then(|buf| ctx_obj.kernel.get_buffer(buf.gpu_handle)).map(|gpu_buf| {
-        crate::wasm_gl_emu::transfer::LazyIndexBuffer {
+    let lazy_indices = ebo_handle
+        .and_then(|h| ctx_obj.buffers.get(&h))
+        .and_then(|buf| ctx_obj.kernel.get_buffer(buf.gpu_handle))
+        .map(|gpu_buf| crate::wasm_gl_emu::transfer::LazyIndexBuffer {
             src_ptr: gpu_buf.data.as_ptr(),
             src_len: gpu_buf.data.len(),
             index_type: itype,
             offset,
             count: count as u32,
-        }
-    });
+        });
 
-    ctx_obj.rasterizer.draw(&mut ctx_obj.kernel, crate::wasm_gl_emu::rasterizer::DrawConfig {
-        color_target: crate::wasm_gl_emu::rasterizer::ColorTarget::Handle(target_handle),
-        width: target_w,
-        height: target_h,
-        internal_format: target_fmt,
-        depth: &mut ctx_obj.default_framebuffer.depth,
-        stencil: &mut ctx_obj.default_framebuffer.stencil,
-        pipeline: &pipeline,
-        state: &state,
-        vertex_fetcher: &fetcher,
-        vertex_count: count as usize,
-        instance_count: instance_count as usize,
-        first_vertex: 0,
-        first_instance: 0,
-        indices: lazy_indices.as_ref().map(|l| l as &dyn crate::wasm_gl_emu::rasterizer::IndexBuffer),
-        mode,
-    });
+    ctx_obj.rasterizer.draw(
+        &mut ctx_obj.kernel,
+        crate::wasm_gl_emu::rasterizer::DrawConfig {
+            color_target: crate::wasm_gl_emu::rasterizer::ColorTarget::Handle(target_handle),
+            width: target_w,
+            height: target_h,
+            internal_format: target_fmt,
+            depth: &mut ctx_obj.default_framebuffer.depth,
+            stencil: &mut ctx_obj.default_framebuffer.stencil,
+            pipeline: &pipeline,
+            state: &state,
+            vertex_fetcher: &fetcher,
+            vertex_count: count as usize,
+            instance_count: instance_count as usize,
+            first_vertex: 0,
+            first_instance: 0,
+            indices: lazy_indices
+                .as_ref()
+                .map(|l| l as &dyn crate::wasm_gl_emu::rasterizer::IndexBuffer),
+            mode,
+        },
+    );
 
     ERR_OK
 }

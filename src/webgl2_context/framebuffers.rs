@@ -102,9 +102,9 @@ pub fn ctx_bind_framebuffer(ctx: u32, target: u32, fb: u32) -> u32 {
             return ERR_INVALID_HANDLE;
         }
     };
-    
+
     let fb_opt = if fb == 0 { None } else { Some(fb) };
-    
+
     if target == GL_READ_FRAMEBUFFER {
         ctx_obj.bound_read_framebuffer = fb_opt;
     } else if target == GL_DRAW_FRAMEBUFFER {

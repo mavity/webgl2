@@ -55,12 +55,7 @@ impl crate::wasm_gl_emu::rasterizer::IndexBuffer for LazyIndexBuffer {
             IndexType::U32 => {
                 let off = (self.offset as usize) + i * 4;
                 if off + 4 <= data.len() {
-                    u32::from_ne_bytes([
-                        data[off],
-                        data[off + 1],
-                        data[off + 2],
-                        data[off + 3],
-                    ])
+                    u32::from_ne_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]])
                 } else {
                     0
                 }
@@ -124,12 +119,7 @@ impl TransferEngine {
                 IndexType::U32 => {
                     let off = (offset as usize) + (i as usize) * 4;
                     if off + 4 <= data.len() {
-                        u32::from_ne_bytes([
-                            data[off],
-                            data[off + 1],
-                            data[off + 2],
-                            data[off + 3],
-                        ])
+                        u32::from_ne_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]])
                     } else {
                         0
                     }
@@ -160,11 +150,7 @@ impl TransferEngine {
             };
 
             let mut comp_dest = [0u32; 4];
-            Self::fetch_vertex_attribute(
-                attr,
-                effective_index,
-                &mut comp_dest,
-            );
+            Self::fetch_vertex_attribute(attr, effective_index, &mut comp_dest);
 
             dest[base_idx..base_idx + 4].copy_from_slice(&comp_dest);
         }
@@ -191,13 +177,13 @@ impl TransferEngine {
         }
 
         let base_offset = binding.offset + vertex_index * binding.stride;
-        
+
         for i in 0..(binding.size as usize).min(4) {
             let component_offset = base_offset + i * binding.type_size;
-            
+
             unsafe {
                 let ptr = binding.buffer_ptr.add(component_offset);
-                
+
                 match binding.type_ {
                     0x1406 /* FLOAT */ => {
                         let mut bytes = [0u8; 4];
@@ -352,7 +338,8 @@ impl TransferEngine {
                         }
                         wgt::TextureFormat::R16Uint => {
                             // RGB565
-                            let val = u16::from_ne_bytes([src.data[src_off], src.data[src_off + 1]]);
+                            let val =
+                                u16::from_ne_bytes([src.data[src_off], src.data[src_off + 1]]);
                             let b5 = ((val >> 11) & 0x1F) as u8;
                             let g6 = ((val >> 5) & 0x3F) as u8;
                             let r5 = (val & 0x1F) as u8;
@@ -366,7 +353,8 @@ impl TransferEngine {
                         }
                         wgt::TextureFormat::Rg8Uint => {
                             // RGBA4
-                            let val = u16::from_ne_bytes([src.data[src_off], src.data[src_off + 1]]);
+                            let val =
+                                u16::from_ne_bytes([src.data[src_off], src.data[src_off + 1]]);
                             let r4 = ((val >> 12) & 0xF) as u8;
                             let g4 = ((val >> 8) & 0xF) as u8;
                             let b4 = ((val >> 4) & 0xF) as u8;
@@ -381,7 +369,8 @@ impl TransferEngine {
                         }
                         wgt::TextureFormat::R16Sint => {
                             // RGB5_A1
-                            let val = u16::from_ne_bytes([src.data[src_off], src.data[src_off + 1]]);
+                            let val =
+                                u16::from_ne_bytes([src.data[src_off], src.data[src_off + 1]]);
                             let r5 = ((val >> 11) & 0x1F) as u8;
                             let g5 = ((val >> 6) & 0x1F) as u8;
                             let b5 = ((val >> 1) & 0x1F) as u8;
@@ -438,10 +427,13 @@ impl TransferEngine {
 
                         if dx < buf.width && dy < buf.height && dz < buf.depth {
                             let dst_off = buf.get_pixel_offset(dx, dy, dz);
-                            let src_off = (d as usize * layer_size) + (row as usize * src_stride) + (col as usize * bpp);
+                            let src_off = (d as usize * layer_size)
+                                + (row as usize * src_stride)
+                                + (col as usize * bpp);
 
                             if dst_off + bpp <= buf.data.len() && src_off + bpp <= src.len() {
-                                buf.data[dst_off..dst_off + bpp].copy_from_slice(&src[src_off..src_off + bpp]);
+                                buf.data[dst_off..dst_off + bpp]
+                                    .copy_from_slice(&src[src_off..src_off + bpp]);
                             }
                         }
                     }

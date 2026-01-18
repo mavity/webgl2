@@ -207,8 +207,8 @@ async function initWASM({ debug } = {}) {
 
   // Create shared function table for direct shader calls
   const sharedTable = new WebAssembly.Table({
-    initial: 4096,   // WASM module requires at least 1982
-    maximum: 4096,   // Prevent unbounded growth
+    initial: 4096,   // Increased from 4096 to handle larger modules
+    maximum: 8192,   // Prevent unbounded growth
     element: "anyfunc"
   });
   const tableAllocator = new TableAllocator();
@@ -226,8 +226,44 @@ async function initWASM({ debug } = {}) {
         if (gl) {
           gl._executeShader(type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
         } else {
-          // console.log(`DEBUG: wasm_execute_shader: ctx ${ctx} not found in _contexts`);
+            // General device execution (WebGPU)
+            if (tableIdx > 0 && sharedTable) {
+                const func = sharedTable.get(tableIdx);
+                if (func) {
+                    func(ctx, type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
+                }
+            }
         }
+      },
+      wasm_register_shader: (ptr, len) => {
+        const mem = new Uint8Array(instance.exports.memory.buffer);
+        const bytes = mem.slice(ptr, ptr + len);
+        const shaderModule = new WebAssembly.Module(bytes);
+        const index = tableAllocator.allocate();
+        
+        const env = {
+          memory: instance.exports.memory,
+          __indirect_function_table: sharedTable,
+        };
+        
+        // Copy math functions
+        const mathFuncs = [
+          'gl_cos', 'gl_sin', 'gl_tan', 'gl_acos', 'gl_asin', 'gl_atan', 'gl_atan2',
+          'gl_exp', 'gl_exp2', 'gl_log', 'gl_log2', 'gl_pow', 'gl_floor', 'gl_ceil',
+          'gl_fract', 'gl_mod', 'gl_min', 'gl_max', 'gl_abs', 'gl_sign', 'gl_sqrt',
+          'gl_inversesqrt', 'gl_sinh', 'gl_cosh', 'gl_tanh', 'gl_asinh', 'gl_acosh', 'gl_atanh'
+        ];
+        for (const name of mathFuncs) {
+          if (instance.exports[name]) {
+            env[name] = instance.exports[name];
+          }
+        }
+
+        const shaderInstance = new WebAssembly.Instance(shaderModule, { env });
+        if (shaderInstance.exports.main) {
+          sharedTable.set(index, shaderInstance.exports.main);
+        }
+        return index;
       },
       dispatch_uncaptured_error: (ptr, len) => {
         const mem = new Uint8Array(instance.exports.memory.buffer);

@@ -5,15 +5,14 @@
 //! capabilities.
 
 pub mod device;
-pub mod transfer;
 mod framebuffer;
 mod pipeline;
 pub mod rasterizer;
 mod state;
 mod texture;
+pub mod transfer;
 
 pub use device::{GpuBuffer, GpuHandle, GpuKernel, StorageLayout};
-pub use transfer::{IndexType, TransferEngine, TransferRequest};
 pub use framebuffer::{Framebuffer, OwnedFramebuffer};
 pub use pipeline::{Pipeline, VertexOutput};
 pub use rasterizer::{
@@ -21,6 +20,7 @@ pub use rasterizer::{
 };
 pub use state::WebGLState;
 pub use texture::Texture;
+pub use transfer::{IndexType, TransferEngine, TransferRequest};
 
 /// Initialize the emulator with default configuration
 pub fn init() -> WebGLState {

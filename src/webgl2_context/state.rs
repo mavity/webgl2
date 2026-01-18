@@ -45,7 +45,9 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
         if handle.is_valid() {
             if ctx_obj.scissor_test_enabled {
                 let (sx, sy, sw, sh) = ctx_obj.scissor_box;
-                ctx_obj.kernel.clear_rect(handle, ctx_obj.clear_color, sx, sy, sw, sh);
+                ctx_obj
+                    .kernel
+                    .clear_rect(handle, ctx_obj.clear_color, sx, sy, sw, sh);
             } else {
                 ctx_obj.kernel.clear(handle, ctx_obj.clear_color);
             }
@@ -55,7 +57,9 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
     if (mask & 0x00000100) != 0 {
         // GL_DEPTH_BUFFER_BIT
         if ctx_obj.bound_draw_framebuffer.is_none() {
-            ctx_obj.default_framebuffer.clear_depth(1.0, ctx_obj.depth_state.mask);
+            ctx_obj
+                .default_framebuffer
+                .clear_depth(1.0, ctx_obj.depth_state.mask);
         }
     }
 
@@ -64,7 +68,9 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
         if ctx_obj.bound_draw_framebuffer.is_none() {
             let write_mask = ctx_obj.stencil_state.front.write_mask;
             let clear_val = 0; // TODO: get from state
-            ctx_obj.default_framebuffer.clear_stencil(clear_val as u8, write_mask as u8);
+            ctx_obj
+                .default_framebuffer
+                .clear_stencil(clear_val as u8, write_mask as u8);
         }
     }
 
@@ -96,7 +102,8 @@ pub fn ctx_resize(ctx: u32, width: u32, height: u32) -> u32 {
             return ERR_INVALID_HANDLE;
         }
     };
-    ctx_obj.default_framebuffer = crate::wasm_gl_emu::OwnedFramebuffer::new(&mut ctx_obj.kernel, width, height);
+    ctx_obj.default_framebuffer =
+        crate::wasm_gl_emu::OwnedFramebuffer::new(&mut ctx_obj.kernel, width, height);
     ERR_OK
 }
 

@@ -16,7 +16,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Core shader infrastructure
-naga = { version = "28.0.0", path = "wgpu-fork/naga", features = ["glsl-in", "wgsl-in", "wgsl-out", "spv-out"] }
+naga = { version = "28.0.0", path = "wgpu-fork/naga", features = ["glsl-in", "wgsl-in"] }
 
 # WebGPU infrastructure (wasm32-compatible)
 wgpu-core = { version = "28.0.0", path = "wgpu-fork/wgpu-core", default-features = false, features = ["noop", "std", "wgsl"] }
