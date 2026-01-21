@@ -1461,7 +1461,6 @@ impl hal::Queue for SoftQueue {
                                                         wgt::PrimitiveTopology::TriangleStrip => {
                                                             GL_TRIANGLE_STRIP
                                                         }
-                                                        _ => GL_TRIANGLES,
                                                     },
                                                 },
                                             );
@@ -1881,7 +1880,6 @@ impl hal::Queue for SoftQueue {
                                                     wgt::PrimitiveTopology::LineStrip => GL_LINE_STRIP,
                                                     wgt::PrimitiveTopology::TriangleList => GL_TRIANGLES,
                                                     wgt::PrimitiveTopology::TriangleStrip => GL_TRIANGLE_STRIP,
-                                                    _ => GL_TRIANGLES,
                                                 },
                                             });
                                         }

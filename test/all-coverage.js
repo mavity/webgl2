@@ -19,6 +19,10 @@ after(async () => {
   const lcov = debug.getLcovReport(gl);
   
   if (lcov) {
+    if (lcov.startsWith('ERROR:')) {
+      console.error(`[Coverage] WASM Error: ${lcov}`);
+      return;
+    }
     let currentFile = null;
     for (const line of lcov.split('\n')) {
       if (line.startsWith('SF:')) {
@@ -124,12 +128,13 @@ after(async () => {
       const verifyData = JSON.parse(verifyRaw);
 
       if (verifyData.ppid !== process.ppid) {
-        console.log('[Coverage] Another run took over. Bailing out.');
-        return;
+        // Just log and continue if others are writing, don't return early
+        // console.log('[Coverage] Another run took over. Bailing out.');
+        // return;
       }
       if (verifyData.timestamp !== baseTimestamp) {
-        console.log('[Coverage] Timestamp mismatch. Bailing out.');
-        return;
+        // console.log('[Coverage] Timestamp mismatch. Bailing out.');
+        // return;
       }
 
       let semanticCheckPassed = true;

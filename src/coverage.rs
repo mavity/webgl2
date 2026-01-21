@@ -59,31 +59,34 @@ static LCOV_REPORT: Mutex<Option<String>> = Mutex::new(None);
 #[no_mangle]
 pub extern "C" fn wasm_get_lcov_report_ptr() -> *const u8 {
     unsafe {
-        if COV_MAP_PTR.is_null() || COV_HITS_PTR.is_null() {
+        if COV_MAP_PTR.is_null() || COV_HITS_PTR.is_null() || COV_MAP_LEN < 8 {
             return std::ptr::null();
         }
 
         // Mapping data is in COV_MAP_PTR with length COV_MAP_LEN
         let mapping_data = std::slice::from_raw_parts(COV_MAP_PTR, COV_MAP_LEN);
 
-        // Hits data is in COV_HITS_PTR.
-        // We need to know the size. It should match the number of entries in mapping.
-        // But for now, let's assume the mapping header tells us enough?
-        // The mapping header has `num_entries`.
-        if mapping_data.len() < 8 {
-            return std::ptr::null();
-        }
-
-        let num_entries = u32::from_le_bytes([
-            mapping_data[0],
-            mapping_data[1],
-            mapping_data[2],
-            mapping_data[3],
+        let total_len = u32::from_le_bytes([
+            mapping_data[4],
+            mapping_data[5],
+            mapping_data[6],
+            mapping_data[7],
         ]) as usize;
-        let hit_data = std::slice::from_raw_parts(COV_HITS_PTR, num_entries);
+
+        // Verify total size matches what's on disk (or in memory)
+        let actual_mapping_data = if total_len > 8 && total_len <= COV_MAP_LEN {
+            &mapping_data[0..total_len]
+        } else {
+            mapping_data
+        };
+
+        // The hits buffer has total_count entries, but we only use the first num_entries
+        // for mapping interpretation in this basic report generator.
+        // Actually, we should probably pass the full hits buffer and allow sparse mapping.
+        let hit_data = std::slice::from_raw_parts(COV_HITS_PTR, COV_HITS_LEN);
 
         // Generate LCOV report
-        let lcov = generate_lcov_report(mapping_data, hit_data);
+        let lcov = generate_lcov_report(actual_mapping_data, hit_data);
 
         // Store in static variable
         let mut report = LCOV_REPORT.lock().unwrap();
@@ -108,27 +111,34 @@ fn generate_lcov_report(mapping_data: &[u8], hit_data: &[u8]) -> String {
     let mut report = String::new();
     let mut file_coverage: HashMap<String, Vec<(u32, u32, bool)>> = HashMap::new();
 
-    // Parse mapping entries
-    // Header: [ num_entries (4 bytes) | mapping_size (4 bytes) ]
-    // Entries start at offset 8
-    let mut offset = 8;
-    let mut id = 0u32;
+    // Header: [ num_entries (4 bytes) | total_len (4 bytes) ]
+    if mapping_data.len() < 8 {
+        return "ERROR: Mapping data header too small".to_string();
+    }
 
-    while offset < mapping_data.len() {
-        if offset + 10 > mapping_data.len() {
+    let num_entries = u32::from_le_bytes([
+        mapping_data[0],
+        mapping_data[1],
+        mapping_data[2],
+        mapping_data[3],
+    ]) as usize;
+
+    let mut offset = 8;
+    for _ in 0..num_entries {
+        if offset + 16 > mapping_data.len() {
             break;
         }
 
-        // Read id (4 bytes)
-        let _entry_id = u32::from_le_bytes([
+        // Read id (4 bytes) - used as index into hit_data
+        let id = u32::from_le_bytes([
             mapping_data[offset],
             mapping_data[offset + 1],
             mapping_data[offset + 2],
             mapping_data[offset + 3],
-        ]);
+        ]) as usize;
         offset += 4;
 
-        // Read line number (4 bytes)
+        // Read line (4 bytes)
         let line = u32::from_le_bytes([
             mapping_data[offset],
             mapping_data[offset + 1],
@@ -137,7 +147,7 @@ fn generate_lcov_report(mapping_data: &[u8], hit_data: &[u8]) -> String {
         ]);
         offset += 4;
 
-        // Read column number (4 bytes)
+        // Read col (4 bytes)
         let col = u32::from_le_bytes([
             mapping_data[offset],
             mapping_data[offset + 1],
@@ -146,8 +156,8 @@ fn generate_lcov_report(mapping_data: &[u8], hit_data: &[u8]) -> String {
         ]);
         offset += 4;
 
-        // Read file_len (4 bytes)
-        let file_len = u32::from_le_bytes([
+        // Read path_len (4 bytes)
+        let path_len = u32::from_le_bytes([
             mapping_data[offset],
             mapping_data[offset + 1],
             mapping_data[offset + 2],
@@ -155,18 +165,17 @@ fn generate_lcov_report(mapping_data: &[u8], hit_data: &[u8]) -> String {
         ]) as usize;
         offset += 4;
 
-        if offset + file_len > mapping_data.len() {
+        if offset + path_len > mapping_data.len() {
             break;
         }
 
-        // Read file string
-        let file_bytes = &mapping_data[offset..offset + file_len];
+        let file_bytes = &mapping_data[offset..offset + path_len];
         let file = String::from_utf8_lossy(file_bytes).to_string();
-        offset += file_len;
+        offset += path_len;
 
-        // Check hit status
-        let hit = if (id as usize) < hit_data.len() {
-            hit_data[id as usize] > 0
+        // Hit data is a byte array where each byte is 1 if hit, 0 if not.
+        let hit = if id < hit_data.len() {
+            hit_data[id] > 0
         } else {
             false
         };
@@ -175,8 +184,6 @@ fn generate_lcov_report(mapping_data: &[u8], hit_data: &[u8]) -> String {
             .entry(file)
             .or_default()
             .push((line, col, hit));
-
-        id += 1;
     }
 
     // Format LCOV

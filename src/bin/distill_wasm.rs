@@ -60,10 +60,10 @@ fn main() -> Result<()> {
 
     // Step 1: Analyze DWARF and build mapping
     let (func_to_probes, probe_to_loc) = build_coverage_mapping(&wasm_bytes, &module)?;
-    tracing::info!("Found {} instrumentation points", probe_to_loc.len());
+    tracing::info!("Found {} locations tied to probes", probe_to_loc.len());
 
-    // Step 2: Serialize mapping
-    let (mapping_data, _hit_size) = create_coverage_data(&probe_to_loc)?;
+    let (mapping_data, total_probes) = create_coverage_data(&probe_to_loc)?;
+    tracing::info!("Total probe IDs tracked: {}", total_probes);
 
     // Emit custom section for external tools/tests
     module.customs.add(walrus::RawCustomSection {
@@ -103,7 +103,7 @@ fn main() -> Result<()> {
 
     // Step 3b: Allocate hits segment (read-write)
     // We allocate this statically so it's available immediately.
-    let hits_size = probe_to_loc.len();
+    let hits_size = total_probes;
     let hits_data = vec![0u8; hits_size];
     let hits_offset = allocate_data_segment(&mut module, &hits_data)?;
     tracing::info!("Allocated hits segment at offset {}", hits_offset);
@@ -136,6 +136,20 @@ fn main() -> Result<()> {
                 offset: ConstExpr::Value(ir::Value::I32(addr as i32)),
             },
             (mapping_data.len() as u32).to_le_bytes().to_vec(),
+        );
+    }
+
+    let hits_len_id = find_exported_global(&module, "COV_HITS_LEN")
+        .context("COV_HITS_LEN global not found. Build with --features coverage")?;
+
+    // Patch COV_HITS_LEN in memory
+    if let Some(addr) = get_global_val(&module, hits_len_id) {
+        module.data.add(
+            walrus::DataKind::Active {
+                memory: module.memories.iter().next().unwrap().id(),
+                offset: ConstExpr::Value(ir::Value::I32(addr as i32)),
+            },
+            (total_probes * 1).to_le_bytes().to_vec(),
         );
     }
     // Do NOT patch the global export for MAP_LEN
@@ -187,7 +201,7 @@ fn build_coverage_mapping(
     wasm_bytes: &[u8],
     module: &Module,
 ) -> Result<(
-    HashMap<walrus::FunctionId, Vec<u32>>,
+    HashMap<walrus::FunctionId, Vec<Option<u32>>>,
     HashMap<u32, (String, u32, u32)>,
 )> {
     let mut func_to_probes = HashMap::new();
@@ -229,8 +243,27 @@ fn build_coverage_mapping(
 
     let mut probe_id = 0;
 
-    for (i, (id, _)) in module.funcs.iter_local().enumerate() {
-        let func = module.funcs.get(id);
+    // Build a sorted list of local functions by their entry block ID or name
+    // to ensure deterministic ordering.
+    let mut local_funcs: Vec<_> = module.funcs.iter_local().collect();
+    local_funcs.sort_by_key(|(id, _)| {
+        let f = module.funcs.get(*id);
+        let raw_name = f.name.as_deref().unwrap_or("unknown");
+        let demangled = demangle(raw_name).to_string();
+
+        // Secondary sort key to ensure deterministic order if demangled names collide
+        (demangled, id.index())
+    });
+
+    let local_funcs_map: HashMap<_, _> = module
+        .funcs
+        .iter_local()
+        .enumerate()
+        .map(|(idx, (id, _))| (id, idx))
+        .collect();
+
+    for (func_id, local_func) in local_funcs {
+        let func = module.funcs.get(func_id);
         let raw_name = func.name.as_deref().unwrap_or("unknown");
 
         // Filter out known system functions
@@ -244,38 +277,43 @@ fn build_coverage_mapping(
             continue;
         }
 
+        // We still need the original WASM body to get the debug locations
+        // Since we can't easily get offsets from Walrus, we use a trick:
+        // Match the LocalFunction to its index in the module's sub-list
+        // and find the corresponding function_body.
+        let local_index = local_funcs_map.get(&func_id).copied();
+
+        if local_index.is_none() || local_index.unwrap() >= function_bodies.len() {
+            continue;
+        }
+        let body = &function_bodies[local_index.unwrap()];
+        let code_section_offset = code_section_start;
+
         let mut path = String::new();
-        let mut line = 0;
-        let mut col = 0;
         let mut should_skip_function = false;
 
-        if let Some(ref lookup) = dwarf_lookup {
-            if i < function_bodies.len() {
-                let body = &function_bodies[i];
-                let func_offset = body.range().start;
-                let addr = (func_offset - code_section_start) as u64;
+        let lookup = dwarf_lookup.as_ref().unwrap();
+        let func_offset = body.range().start;
+        let addr = (func_offset - code_section_offset) as u64;
 
-                let (p, l, c) = lookup.lookup(addr, "unknown.rs", 1);
+        if let Some((p, _l, _c)) = lookup.lookup(addr) {
+            path = p;
+        }
 
-                if p != "unknown.rs" {
-                    path = p;
-                    line = l;
-                    col = c;
-
-                    // Filter by path - BLOCKLIST
-                    if path.contains("library/std")
-                        || path.contains("dlmalloc")
-                        || path.contains("coverage.rs")
-                    {
-                        should_skip_function = true;
-                    }
-                } else {
-                    should_skip_function = true;
-                }
-            } else {
-                should_skip_function = true;
+        if path.is_empty() {
+            // Check if it's a math builtin or other lib.rs function
+            if demangled.starts_with("gl_") || demangled.starts_with("wasm_") {
+                path = "src/lib.rs".to_string();
+            } else if demangled.contains("::") {
+                // Probable rust function, keep searching or mark as unknown
             }
-        } else {
+        }
+
+        if path.contains("library/std") || path.contains("dlmalloc") || path.contains("coverage") {
+            should_skip_function = true;
+        }
+
+        if path.is_empty() {
             should_skip_function = true;
         }
 
@@ -283,98 +321,140 @@ fn build_coverage_mapping(
             continue;
         }
 
-        // ALLOWLIST CHECK
-        let is_whitelisted = true;
+        // if demangled.contains("coverage") {
+        //    continue;
+        // }
 
-        if !is_whitelisted {
-            continue;
-        }
-
-        if path.contains("coverage.rs") || demangled.contains("coverage") {
-            continue;
-        }
-
-        // Now collect all blocks for this function
         let mut probes = Vec::new();
-        if i < function_bodies.len() {
-            let body = &function_bodies[i];
-            let mut reader = body.get_operators_reader()?;
 
-            // 1. Entry block
-            let entry_offset = body.range().start;
-            let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup(
-                (entry_offset - code_section_start) as u64,
-                &path,
-                line,
-            );
-            probe_to_loc.insert(probe_id, (p, l, c));
-            probes.push(probe_id);
-            probe_id += 1;
+        // 2. Other blocks (RECURSIVE TRAVERSAL)
+        collect_probes_recursive(
+            local_func,
+            local_func.entry_block(),
+            &mut probes,
+            &mut probe_id,
+            &mut probe_to_loc,
+            dwarf_lookup.as_ref().unwrap(),
+            body,
+            code_section_offset,
+        )?;
 
-            // 2. Other blocks
-            let mut stack = VecDeque::new();
-            while !reader.eof() {
-                let (op, offset) = reader.read_with_offset()?;
-                match op {
-                    wasmparser::Operator::Block { .. } | wasmparser::Operator::Loop { .. } => {
-                        let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup(
-                            (offset - code_section_start) as u64,
-                            &path,
-                            line,
-                        );
-                        probe_to_loc.insert(probe_id, (p, l, c));
-                        probes.push(probe_id);
-                        probe_id += 1;
-                        stack.push_back(false);
-                    }
-                    wasmparser::Operator::If { .. } => {
-                        let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup(
-                            (offset - code_section_start) as u64,
-                            &path,
-                            line,
-                        );
-                        probe_to_loc.insert(probe_id, (p, l, c));
-                        probes.push(probe_id);
-                        probe_id += 1;
-                        stack.push_back(true); // is_if
-                    }
-                    wasmparser::Operator::Else => {
-                        let (p, l, c) = dwarf_lookup.as_ref().unwrap().lookup(
-                            (offset - code_section_start) as u64,
-                            &path,
-                            line,
-                        );
-                        probe_to_loc.insert(probe_id, (p, l, c));
-                        probes.push(probe_id);
-                        probe_id += 1;
-                        if let Some(is_if) = stack.back_mut() {
-                            *is_if = false; // marked as having explicit else
-                        }
-                    }
-                    wasmparser::Operator::End => {
-                        if let Some(is_if) = stack.pop_back() {
-                            if is_if {
-                                // Implicit else branch in walrus
-                                probe_to_loc.insert(probe_id, (path.clone(), line, col));
-                                probes.push(probe_id);
-                                probe_id += 1;
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        } else {
-            // Fallback for functions without bodies (shouldn't happen for local funcs)
-            probe_to_loc.insert(probe_id, (path, line, col));
-            probes.push(probe_id);
-            probe_id += 1;
-        }
-
-        func_to_probes.insert(id, probes);
+        func_to_probes.insert(func_id, probes);
     }
 
     Ok((func_to_probes, probe_to_loc))
+}
+
+fn collect_probes_recursive(
+    func: &walrus::LocalFunction,
+    seq_id: walrus::ir::InstrSeqId,
+    probes: &mut Vec<Option<u32>>,
+    next_probe_id: &mut u32,
+    probe_to_loc: &mut HashMap<u32, (String, u32, u32)>,
+    lookup: &DwarfLookup,
+    body: &wasmparser::FunctionBody,
+    _code_section_offset: usize,
+) -> Result<()> {
+    // 1. Current sequence (always assigned an ID/None)
+    // We only assign a probe if we have a valid source location.
+    // However, we MUST push a ProbeId to the vector to maintain alignment with instrumentation.
+    // The convention is: push None if no location, push Some(id) if location.
+
+    let mut current_probe_id = None;
+
+    // TRY TO FIND ACTUAL SOURCE LOCATION
+    let mut path = String::new();
+    let mut line = 0;
+    let mut col = 0;
+    let mut found_loc = false;
+
+    let seq = func.block(seq_id);
+
+    // Filter out sequences with no instructions as they might not have valid locations
+    if !seq.instrs.is_empty() {
+        'find_loc: {
+            for (_instr, loc) in seq.instrs.iter() {
+                // Attempt to look up location via DWARF
+                // In walrus 0.24.4, InstrLocId is just a wrapper around u32
+                let raw_id = unsafe { std::mem::transmute::<walrus::ir::InstrLocId, u32>(*loc) };
+                if raw_id != u32::MAX {
+                    if let Some(file_loc) = lookup.lookup(raw_id as u64) {
+                        path = file_loc.0;
+                        line = file_loc.1;
+                        col = file_loc.2;
+                        found_loc = true;
+                        break 'find_loc;
+                    }
+                }
+            }
+        }
+    }
+
+    if found_loc {
+        let id = *next_probe_id;
+        *next_probe_id += 1;
+        current_probe_id = Some(id);
+        probe_to_loc.insert(id, (path, line, col));
+    }
+
+    probes.push(current_probe_id);
+
+    // 2. Traverse instructions
+    let seq = func.block(seq_id);
+    let instrs: Vec<_> = seq.instrs.iter().map(|(i, _)| i.clone()).collect();
+    for instr in instrs {
+        match instr {
+            walrus::ir::Instr::Block(b) => {
+                collect_probes_recursive(
+                    func,
+                    b.seq,
+                    probes,
+                    next_probe_id,
+                    probe_to_loc,
+                    lookup,
+                    body,
+                    _code_section_offset,
+                )?;
+            }
+            walrus::ir::Instr::Loop(l) => {
+                collect_probes_recursive(
+                    func,
+                    l.seq,
+                    probes,
+                    next_probe_id,
+                    probe_to_loc,
+                    lookup,
+                    body,
+                    _code_section_offset,
+                )?;
+            }
+            walrus::ir::Instr::IfElse(i) => {
+                collect_probes_recursive(
+                    func,
+                    i.consequent,
+                    probes,
+                    next_probe_id,
+                    probe_to_loc,
+                    lookup,
+                    body,
+                    _code_section_offset,
+                )?;
+                collect_probes_recursive(
+                    func,
+                    i.alternative,
+                    probes,
+                    next_probe_id,
+                    probe_to_loc,
+                    lookup,
+                    body,
+                    _code_section_offset,
+                )?;
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
 }
 
 struct DwarfLookup {
@@ -442,9 +522,9 @@ impl DwarfLookup {
                                     }
 
                                     // Filter out files that don't exist locally
-                                    if !std::path::Path::new(&final_path).exists() {
-                                        continue;
-                                    }
+                                    // if !std::path::Path::new(&final_path).exists() {
+                                    //     continue;
+                                    // }
 
                                     let line = row.line().map(|l| l.get() as u32).unwrap_or(0);
                                     let col = match row.column() {
@@ -464,21 +544,26 @@ impl DwarfLookup {
         Self { rows }
     }
 
-    fn lookup(&self, addr: u64, default_path: &str, default_line: u32) -> (String, u32, u32) {
+    fn lookup(&self, addr: u64) -> Option<(String, u32, u32)> {
         match self.rows.binary_search_by_key(&addr, |r| r.0) {
             Ok(idx) => {
                 let r = &self.rows[idx];
-                (r.1.clone(), r.2, r.3)
+                if r.2 == 0 {
+                    None
+                } else {
+                    Some((r.1.clone(), r.2, r.3))
+                }
             }
             Err(idx) => {
                 if idx > 0 {
                     let r = &self.rows[idx - 1];
-                    // Check if the address is "close enough" or if we should just take the previous row.
-                    // DWARF line info is usually "address -> line", so any address between row[i] and row[i+1]
-                    // belongs to row[i].
-                    (r.1.clone(), r.2, r.3)
+                    if r.2 == 0 {
+                        None
+                    } else {
+                        Some((r.1.clone(), r.2, r.3))
+                    }
                 } else {
-                    (default_path.to_string(), default_line, 0)
+                    None
                 }
             }
         }
@@ -487,33 +572,33 @@ impl DwarfLookup {
 
 /// Serialize mapping and create coverage data
 fn create_coverage_data(mapping: &HashMap<u32, (String, u32, u32)>) -> Result<(Vec<u8>, usize)> {
-    // Serialize mapping entries
-    let mut ids: Vec<u32> = mapping.keys().copied().collect();
+    let num_probes = mapping.len();
+    let mut entries_data = Vec::with_capacity(num_probes * 64);
+
+    // Sort IDs to ensure the mapping is ordered and we can't miss any in the hits buffer
+    let mut ids: Vec<_> = mapping.keys().collect();
     ids.sort();
 
-    let num_entries = ids.len() as u32;
-
-    let mut entries_data = Vec::new();
-    for id in ids {
-        let (file, line, col) = mapping.get(&id).unwrap();
-
-        entries_data.extend_from_slice(&id.to_le_bytes());
-        entries_data.extend_from_slice(&line.to_le_bytes());
-        entries_data.extend_from_slice(&col.to_le_bytes());
-
+    for &id in ids {
+        let (file, line, col) = &mapping[&id];
         let file_bytes = file.as_bytes();
+
+        // Header: [ID: u32 | LINE: u32 | COL: u32 | PATH_LEN: u32] = 16 bytes
+        entries_data.extend_from_slice(&(id as u32).to_le_bytes());
+        entries_data.extend_from_slice(&(*line as u32).to_le_bytes());
+        entries_data.extend_from_slice(&(*col as u32).to_le_bytes());
         entries_data.extend_from_slice(&(file_bytes.len() as u32).to_le_bytes());
+
+        // Payload: [PATH_BYTES]
         entries_data.extend_from_slice(file_bytes);
     }
 
-    let mapping_size = 8 + entries_data.len(); // 8 bytes for header
-    let mut mapping_data = Vec::with_capacity(mapping_size);
-
-    mapping_data.extend_from_slice(&num_entries.to_le_bytes());
-    mapping_data.extend_from_slice(&(mapping_size as u32).to_le_bytes());
+    let mut mapping_data = Vec::with_capacity(entries_data.len() + 8);
+    mapping_data.extend_from_slice(&(num_probes as u32).to_le_bytes());
+    mapping_data.extend_from_slice(&((8 + entries_data.len()) as u32).to_le_bytes());
     mapping_data.extend_from_slice(&entries_data);
 
-    Ok((mapping_data, mapping.len()))
+    Ok((mapping_data, num_probes))
 }
 
 fn find_exported_global(module: &Module, name: &str) -> Option<walrus::GlobalId> {
@@ -561,7 +646,7 @@ fn patch_global_ptr(module: &mut Module, global_id: walrus::GlobalId, value: u32
 /// Instrument functions with coverage probes
 fn instrument_functions(
     module: &mut Module,
-    func_to_probes: &HashMap<walrus::FunctionId, Vec<u32>>,
+    func_to_probes: &HashMap<walrus::FunctionId, Vec<Option<u32>>>,
     hits_offset: u32,
 ) -> Result<()> {
     let memory_id = module
@@ -573,8 +658,17 @@ fn instrument_functions(
 
     let mut probes_injected = 0;
 
-    for (func_id, probes) in func_to_probes {
-        let func = module.funcs.get_mut(*func_id);
+    let mut func_ids: Vec<_> = func_to_probes.keys().copied().collect();
+    func_ids.sort_by_key(|id| {
+        let f = module.funcs.get(*id);
+        let raw_name = f.name.as_deref().unwrap_or("unknown");
+        let demangled = demangle(raw_name).to_string();
+        (demangled, id.index())
+    });
+
+    for func_id in func_ids {
+        let probes = &func_to_probes[&func_id];
+        let func = module.funcs.get_mut(func_id);
         let local_func = match &mut func.kind {
             walrus::FunctionKind::Local(lf) => lf,
             _ => continue,
@@ -600,36 +694,49 @@ fn instrument_functions(
 fn instrument_instr_seq(
     func: &mut walrus::LocalFunction,
     seq_id: walrus::ir::InstrSeqId,
-    probes: &mut VecDeque<u32>,
+    probes: &mut VecDeque<Option<u32>>,
     hits_offset: u32,
     memory_id: walrus::MemoryId,
     probes_injected: &mut u32,
 ) {
-    let probe_id = match probes.pop_front() {
-        Some(id) => id,
-        None => return,
-    };
+    let probe_id = probes.pop_front().flatten();
 
-    {
+    if let Some(id) = probe_id {
         let builder = func.builder_mut();
         let mut seq = builder.instr_seq(seq_id);
 
         // Insert probe at start
-        seq.i32_const(hits_offset as i32);
-        seq.i32_const(probe_id as i32);
-        seq.binop(walrus::ir::BinaryOp::I32Add);
-        seq.i32_const(1);
-        seq.store(
-            memory_id,
-            walrus::ir::StoreKind::I32_8 { atomic: false },
-            walrus::ir::MemArg {
-                offset: 0,
-                align: 1,
-            },
-        );
+        let instrs = seq.instrs_mut();
 
-        // Move the 5 injected instructions to the beginning of the block
-        seq.instrs_mut().rotate_right(5);
+        let mut new_instrs = Vec::with_capacity(instrs.len() + 5);
+        new_instrs.push((
+            walrus::ir::Instr::Const(walrus::ir::Const {
+                value: walrus::ir::Value::I32(hits_offset as i32 + id as i32),
+            }),
+            Default::default(),
+        ));
+        new_instrs.push((
+            walrus::ir::Instr::Const(walrus::ir::Const {
+                value: walrus::ir::Value::I32(1),
+            }),
+            Default::default(),
+        ));
+        new_instrs.push((
+            walrus::ir::Instr::Store(walrus::ir::Store {
+                memory: memory_id,
+                kind: walrus::ir::StoreKind::I32_8 { atomic: false },
+                arg: walrus::ir::MemArg {
+                    offset: 0,
+                    align: 1,
+                },
+            }),
+            Default::default(),
+        ));
+
+        // Add original instructions
+        new_instrs.extend(instrs.drain(..));
+        *instrs = new_instrs;
+
         *probes_injected += 1;
     }
 

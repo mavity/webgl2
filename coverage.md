@@ -4,53 +4,47 @@
 
 | File | Lines Covered | Lines Missed | Total Lines | Coverage |
 |---|---|---|---|---:|
-| src/decompiler/ast.rs | 0 | 1 | 1 | 0.00% 🟡 |
-| src/decompiler/emitter.rs | 0 | 25 | 25 | 0.00% 🔴 |
-| src/decompiler/lifter.rs | 0 | 38 | 38 | 0.00% 🔴 |
-| src/decompiler/mod.rs | 0 | 14 | 14 | 0.00% 🔴 |
-| src/decompiler/module.rs | 0 | 4 | 4 | 0.00% 🟡 |
-| src/decompiler/parser.rs | 0 | 17 | 17 | 0.00% 🔴 |
-| src/decompiler/simplifier.rs | 0 | 72 | 72 | 0.00% 🔴 |
-| src/error.rs | 8 | 17 | 25 | 32.00% 🟠 |
-| src/lib.rs | 273 | 279 | 552 | 49.46% 🟠 |
-| src/naga_wasm_backend/backend.rs | 75 | 5 | 80 | 93.75% 🟢 |
-| src/naga_wasm_backend/call_lowering.rs | 18 | 0 | 18 | 100.00% 🟢 |
-| src/naga_wasm_backend/control_flow.rs | 22 | 46 | 68 | 32.35% 🟠 |
-| src/naga_wasm_backend/debug/stub.rs | 20 | 0 | 20 | 100.00% 🟢 |
-| src/naga_wasm_backend/expressions.rs | 52 | 137 | 189 | 27.51% 🟠 |
-| src/naga_wasm_backend/function_abi.rs | 24 | 0 | 24 | 100.00% 🟢 |
-| src/naga_wasm_backend/functions/prep.rs | 4 | 1 | 5 | 80.00% 🟢 |
-| src/naga_wasm_backend/functions/registry.rs | 4 | 0 | 4 | 100.00% 🟢 |
-| src/naga_wasm_backend/memory_layout.rs | 9 | 0 | 9 | 100.00% 🟢 |
-| src/naga_wasm_backend/mod.rs | 0 | 1 | 1 | 0.00% 🟡 |
-| src/naga_wasm_backend/output_layout.rs | 3 | 1 | 4 | 75.00% 🟡 |
-| src/naga_wasm_backend/types.rs | 11 | 0 | 11 | 100.00% 🟢 |
-| src/wasm_gl_emu/device.rs | 17 | 8 | 25 | 68.00% 🟡 |
-| src/wasm_gl_emu/framebuffer.rs | 3 | 2 | 5 | 60.00% 🟡 |
-| src/wasm_gl_emu/rasterizer.rs | 0 | 51 | 51 | 0.00% 🔴 |
-| src/wasm_gl_emu/transfer.rs | 10 | 17 | 27 | 37.04% 🟠 |
-| src/webgl2_context/blend.rs | 0 | 3 | 3 | 0.00% 🟡 |
-| src/webgl2_context/buffers.rs | 8 | 15 | 23 | 34.78% 🟠 |
-| src/webgl2_context/drawing.rs | 3 | 12 | 15 | 20.00% 🟠 |
-| src/webgl2_context/framebuffers.rs | 11 | 1 | 12 | 91.67% 🟢 |
-| src/webgl2_context/registry.rs | 6 | 0 | 6 | 100.00% 🟢 |
-| src/webgl2_context/renderbuffers.rs | 10 | 0 | 10 | 100.00% 🟢 |
-| src/webgl2_context/shaders.rs | 106 | 28 | 134 | 79.10% 🟡 |
-| src/webgl2_context/state.rs | 14 | 6 | 20 | 70.00% 🟡 |
-| src/webgl2_context/textures.rs | 17 | 16 | 33 | 51.52% 🟡 |
-| src/webgl2_context/types.rs | 14 | 11 | 25 | 56.00% 🟡 |
-| src/webgl2_context/vaos.rs | 27 | 8 | 35 | 77.14% 🟡 |
-| src/webgpu/adapter.rs | 2 | 0 | 2 | 100.00% 🟢 |
-| src/webgpu/backend.rs | 34 | 88 | 122 | 27.87% 🟠 |
-| src/webgpu/buffer.rs | 3 | 0 | 3 | 100.00% 🟢 |
-| src/webgpu/command.rs | 7 | 0 | 7 | 100.00% 🟢 |
-| **Total** | **815** | **924** | **1739** | **46.87% 🟠** |
+| src/decompiler/ast.rs | 5 | 1 | 6 | 83.33% 🟢 |
+| src/decompiler/emitter.rs | 41 | 7 | 48 | 85.42% 🟢 |
+| src/decompiler/lifter.rs | 31 | 27 | 58 | 53.45% 🟡 |
+| src/decompiler/module.rs | 1 | 1 | 2 | 50.00% 🟡 |
+| src/decompiler/parser.rs | 12 | 1 | 13 | 92.31% 🟢 |
+| src/decompiler/simplifier.rs | 42 | 4 | 46 | 91.30% 🟢 |
+| src/error.rs | 28 | 3 | 31 | 90.32% 🟢 |
+| src/lib.rs | 100 | 329 | 429 | 23.31% 🟠 |
+| src/naga_wasm_backend/backend.rs | 106 | 76 | 182 | 58.24% 🟡 |
+| src/naga_wasm_backend/control_flow.rs | 24 | 60 | 84 | 28.57% 🟠 |
+| src/naga_wasm_backend/debug/stub.rs | 26 | 1 | 27 | 96.30% 🟢 |
+| src/naga_wasm_backend/expressions.rs | 78 | 131 | 209 | 37.32% 🟠 |
+| src/naga_wasm_backend/function_abi.rs | 32 | 7 | 39 | 82.05% 🟢 |
+| src/naga_wasm_backend/functions/prep.rs | 1 | 0 | 1 | 100.00% 🟢 |
+| src/naga_wasm_backend/functions/registry.rs | 3 | 0 | 3 | 100.00% 🟢 |
+| src/naga_wasm_backend/mod.rs | 6 | 0 | 6 | 100.00% 🟢 |
+| src/naga_wasm_backend/output_layout.rs | 5 | 2 | 7 | 71.43% 🟡 |
+| src/naga_wasm_backend/types.rs | 17 | 3 | 20 | 85.00% 🟢 |
+| src/wasm_gl_emu/device.rs | 0 | 2 | 2 | 0.00% 🟡 |
+| src/wasm_gl_emu/framebuffer.rs | 1 | 0 | 1 | 100.00% 🟢 |
+| src/wasm_gl_emu/transfer.rs | 1 | 2 | 3 | 33.33% 🟡 |
+| src/webgl2_context/blend.rs | 4 | 0 | 4 | 100.00% 🟢 |
+| src/webgl2_context/buffers.rs | 28 | 0 | 28 | 100.00% 🟢 |
+| src/webgl2_context/drawing.rs | 32 | 5 | 37 | 86.49% 🟢 |
+| src/webgl2_context/registry.rs | 6 | 4 | 10 | 60.00% 🟡 |
+| src/webgl2_context/shaders.rs | 176 | 21 | 197 | 89.34% 🟢 |
+| src/webgl2_context/state.rs | 1 | 0 | 1 | 100.00% 🟢 |
+| src/webgl2_context/textures.rs | 12 | 0 | 12 | 100.00% 🟢 |
+| src/webgl2_context/types.rs | 12 | 0 | 12 | 100.00% 🟢 |
+| src/webgl2_context/vaos.rs | 12 | 0 | 12 | 100.00% 🟢 |
+| src/webgpu/adapter.rs | 5 | 2 | 7 | 71.43% 🟡 |
+| src/webgpu/backend.rs | 62 | 60 | 122 | 50.82% 🟡 |
+| src/webgpu/command.rs | 4 | 0 | 4 | 100.00% 🟢 |
+| src/webgpu/pipeline.rs | 1 | 0 | 1 | 100.00% 🟢 |
+| **Total** | **915** | **749** | **1664** | **54.99% 🟡** |
 
 ## Top Missed Files
 
 | File | Lines Missed | Illustrative Line | Coverage |
 |---|---|---|---:|
-| src/lib.rs | 279/552 | [1045] `) -> u32 {` | 49.46% 🟠 |
-| src/naga_wasm_backend/expressions.rs | 137/189 | [1399] `translate_expression_component(*arg, component_idx, ctx)?;` | 27.51% 🟠 |
-| src/webgpu/backend.rs | 88/122 | [225] `let info = validator.validate(module).map_err(|e| {` | 27.87% 🟠 |
-| src/decompiler/simplifier.rs | 72/72 | [235] `rewrite!("and-self"; "(& ?a ?a)" => "?a"),` | 0.00% 🔴 |
+| src/lib.rs | 329/429 | [2004] `) -> u32 {` | 23.31% 🟠 |
+| src/naga_wasm_backend/expressions.rs | 131/209 | [927] `if let Some(handle) = found_global {` | 37.32% 🟠 |
+| src/naga_wasm_backend/backend.rs | 76/182 | [262] `func.instruction(&Instruction::I32Add); // total_idx` | 58.24% 🟡 |
+| src/naga_wasm_backend/control_flow.rs | 60/84 | [233] `if let Some(break_cond) = break_if {` | 28.57% 🟠 |

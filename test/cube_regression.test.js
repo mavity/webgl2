@@ -170,6 +170,8 @@ test('Cube regression: rendered pixels match output.png color stats', async () =
       }
     }
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 16, 16, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
     const uTextureLoc = gl.getUniformLocation(program, 'u_texture');
     gl.uniform1i(uTextureLoc, 0);
