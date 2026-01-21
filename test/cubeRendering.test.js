@@ -824,11 +824,11 @@ test('Cube Test 19: Non-primary color verification (gold and blue from texture)'
     const pixels = new Uint8Array(4);
     gl.readPixels(16, 16, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
 
-    // Should see one of the texture colors
-    const isGold = pixels[0] === 255 && pixels[1] === 215 && pixels[2] === 0;
-    const isBlue = pixels[0] === 100 && pixels[1] === 149 && pixels[2] === 237;
+    // Should see one of the texture colors (allow for slight interpolation)
+    const isGold = Math.abs(pixels[0] - 255) < 10 && Math.abs(pixels[1] - 215) < 10 && Math.abs(pixels[2] - 0) < 10;
+    const isBlue = Math.abs(pixels[0] - 100) < 10 && Math.abs(pixels[1] - 149) < 10 && Math.abs(pixels[2] - 237) < 10;
 
-    assert.ok(isGold || isBlue, 'Should see either gold or blue color from texture');
+    assert.ok(isGold || isBlue, `Should see either gold or blue color from texture, got [${pixels}]`);
   } finally {
     gl.destroy();
   }
@@ -1468,10 +1468,7 @@ test('Feature: Shader Function Calls (mimicking demo.js)', async () => {
     gl.readPixels(32, 32, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
 
     // Should be Green (0, 255, 0, 255)
-    assert.strictEqual(pixels[0], 0, 'Red should be 0');
-    assert.strictEqual(pixels[1], 255, 'Green should be 255');
-    assert.strictEqual(pixels[2], 0, 'Blue should be 0');
-
+    assert.deepEqual([...pixels], [0, 255, 0, 255], 'Pixel should be green');
   } finally {
     gl.destroy();
   }

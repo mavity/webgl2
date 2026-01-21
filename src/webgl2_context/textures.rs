@@ -32,8 +32,8 @@ pub fn ctx_create_texture(ctx: u32) -> u32 {
         Texture {
             levels: BTreeMap::new(),
             internal_format: GL_RGBA8,            // Default format
-            min_filter: GL_NEAREST_MIPMAP_LINEAR, // GL_NEAREST_MIPMAP_LINEAR (default)
-            mag_filter: GL_LINEAR,                // GL_LINEAR (default)
+            min_filter: GL_NEAREST_MIPMAP_LINEAR, // Default GL filter
+            mag_filter: GL_LINEAR,                // Default GL filter
             wrap_s: GL_REPEAT,                    // GL_REPEAT (default)
             wrap_t: GL_REPEAT,                    // GL_REPEAT (default)
             wrap_r: GL_REPEAT,                    // GL_REPEAT (default)
@@ -243,10 +243,10 @@ pub fn ctx_tex_image_2d(
             height,
             1,
             super::types::gl_to_wgt_format(storage_internal_format),
-            crate::wasm_gl_emu::device::StorageLayout::Tiled8x8,
+            crate::wasm_gl_emu::device::StorageLayout::Linear,
         );
 
-        // Copy pixels using TransferEngine to handle tiling
+        // Copy pixels using TransferEngine to handle tiling/linear
         crate::wasm_gl_emu::transfer::TransferEngine::write_pixels(
             &mut ctx_obj.kernel,
             gpu_handle,

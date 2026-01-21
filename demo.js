@@ -19,7 +19,8 @@ const animationState = {
 // Global rendering context (lazy initialized)
 let renderContext = null;
 
-async function initializeRenderContext() {
+/** @param {{ useBilinear?: boolean }} [options] */
+async function initializeRenderContext({ useBilinear } = {}) {
     if (renderContext) return renderContext;
 
     let loadLocal =
@@ -35,6 +36,7 @@ async function initializeRenderContext() {
 
     const gl = await webGL2({ debug: true });
     gl.viewport(0, 0, 640, 480);
+    gl.enable(gl.DEPTH_TEST);
 
     // Shaders
     const vsSource = /* glsl */`#version 300 es
@@ -164,6 +166,10 @@ async function initializeRenderContext() {
         }
     }
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 16, 16, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData);
+    if (!useBilinear) {
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    }
 
     const uTextureLoc = gl.getUniformLocation(program, "u_texture");
     gl.uniform1i(uTextureLoc, 0);
@@ -254,8 +260,10 @@ async function initializeRenderContext() {
     return renderContext;
 }
 
-async function renderCube(elapsedTime = 0) {
-    const ctx = await initializeRenderContext();
+async function renderCube({ elapsedTime, useBilinear } = {}) {
+    if (!elapsedTime) elapsedTime = 0;
+
+    const ctx = await initializeRenderContext({ useBilinear });
     const { gl, program, mvpLoc, perspective, translate, rotateX, rotateY, multiply } = ctx;
 
     // Calculate rotation angle: 1 full rotation (2π) in 5 seconds
@@ -549,7 +557,7 @@ async function animate() {
     if (!animationState.running) return;
 
     const elapsedTime = Date.now() - animationState.startTime;
-    const result = await renderCube(elapsedTime);
+    const result = await renderCube({ elapsedTime });
     const { pixels, width, height } = result;
 
     await displayFrame(pixels, width, height);
@@ -599,7 +607,7 @@ async function runTerminalAnimation(width, height, duration = 20000) {
         const avgFps = elapsedTime > 0 ? Math.round((frameCount * 1000) / elapsedTime) : 0;
 
         // Render cube with current rotation
-        const result = await renderCube(elapsedTime);
+        const result = await renderCube({ elapsedTime, useBilinear: true });
         const { pixels } = result;
 
         // Generate ASCII art

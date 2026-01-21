@@ -179,8 +179,11 @@ export class WasmWebGL2RenderingContext {
    * @param {number} width
    * @param {number} height
    * @param {boolean} [debugShaders]
+   * @param {any} [sharedTable]
+   * @param {any} [tableAllocator]
+   * @param {any} [scratchLayout]
    */
-  constructor({ instance, ctxHandle, width, height, debugShaders = false, sharedTable = null, tableAllocator = null }) {
+  constructor({ instance, ctxHandle, width, height, debugShaders = false, sharedTable = null, tableAllocator = null, scratchLayout = null }) {
     this._instance = instance;
     this._ctxHandle = ctxHandle;
     this._destroyed = false;
@@ -192,6 +195,7 @@ export class WasmWebGL2RenderingContext {
     this._drawingBufferHeight = height;
     this._sharedTable = sharedTable;
     this._tableAllocator = tableAllocator;
+    this._scratchLayout = scratchLayout;
 
     WasmWebGL2RenderingContext._contexts.set(this._ctxHandle, this);
   }
@@ -353,7 +357,9 @@ export class WasmWebGL2RenderingContext {
       // Mirror texture data in JS for fast texel fetches by shader imports
       this._textureData = this._textureData || new Map();
       const handle = this._boundTexture || 0;
-      const copy = new Uint8Array(mem.slice(ptr, ptr + len));
+      // Re-fetch memory in case it grew during the call (detaching the old buffer)
+      const currentMem = new Uint8Array(ex.memory.buffer);
+      const copy = new Uint8Array(currentMem.slice(ptr, ptr + len));
       this._textureData.set(handle, { width: width >>> 0, height: height >>> 0, data: copy });
     } finally {
       ex.wasm_free(ptr);
@@ -400,10 +406,13 @@ export class WasmWebGL2RenderingContext {
       );
       _checkErr(code, this._instance);
 
+      // TODO: why texel fetches back in JS?????
       // Mirror texture data in JS for fast texel fetches by shader imports
       this._textureData = this._textureData || new Map();
       const handle = this._boundTexture || 0;
-      const copy = new Uint8Array(mem.slice(ptr, ptr + len));
+      // Re-fetch memory in case it grew during the call (detaching the old buffer)
+      const currentMem = new Uint8Array(ex.memory.buffer);
+      const copy = new Uint8Array(currentMem.slice(ptr, ptr + len));
       this._textureData.set(handle, { width: width >>> 0, height: height >>> 0, depth: depth >>> 0, data: copy });
     } finally {
       ex.wasm_free(ptr);

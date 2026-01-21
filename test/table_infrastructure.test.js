@@ -6,7 +6,7 @@ test('Shared function table exists', async () => {
   const gl = await webGL2();
   assert.ok(gl._sharedTable, 'Context should have _sharedTable');
   assert.ok(gl._tableAllocator, 'Context should have _tableAllocator');
-  assert.strictEqual(gl._sharedTable.length, 4096, 'Table should have initial size 4096');
+  assert.strictEqual(gl._sharedTable.length, 8192, 'Table should have initial size 8192');
   gl.destroy();
 });
 

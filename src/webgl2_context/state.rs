@@ -285,6 +285,7 @@ pub fn ctx_enable(ctx: u32, cap: u32) -> u32 {
         0x0B71 /* DEPTH_TEST */ => ctx_obj.depth_state.enabled = true,
         0x0BE2 /* BLEND */ => ctx_obj.blend_state.enabled = true,
         0x0B90 /* STENCIL_TEST */ => ctx_obj.stencil_state.enabled = true,
+        0x0B44 /* CULL_FACE */ => ctx_obj.cull_face_enabled = true,
         _ => {
             set_last_error("unsupported capability");
             return ERR_NOT_IMPLEMENTED;
@@ -308,11 +309,40 @@ pub fn ctx_disable(ctx: u32, cap: u32) -> u32 {
         0x0B71 /* DEPTH_TEST */ => ctx_obj.depth_state.enabled = false,
         0x0BE2 /* BLEND */ => ctx_obj.blend_state.enabled = false,
         0x0B90 /* STENCIL_TEST */ => ctx_obj.stencil_state.enabled = false,
+        0x0B44 /* CULL_FACE */ => ctx_obj.cull_face_enabled = false,
         _ => {
             set_last_error("unsupported capability");
             return ERR_NOT_IMPLEMENTED;
         }
     }
+    ERR_OK
+}
+
+pub fn ctx_cull_face(ctx: u32, mode: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+    ctx_obj.cull_face_mode = mode;
+    ERR_OK
+}
+
+pub fn ctx_front_face(ctx: u32, mode: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+    ctx_obj.front_face = mode;
     ERR_OK
 }
 

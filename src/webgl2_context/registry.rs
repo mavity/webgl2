@@ -77,7 +77,7 @@ pub(crate) fn clear_last_error() {
 pub fn create_context_with_flags(flags: u32, width: u32, height: u32) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();
-    let mut ctx = Context::new(width, height);
+    let mut ctx = Context::new(width, height, crate::wasm_get_scratch_base());
 
     // Determine debug mode from flags: only shader debug is relevant here
     let shader = (flags & 0x1) != 0;

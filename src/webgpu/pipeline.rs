@@ -297,3 +297,29 @@ pub unsafe fn create_pipeline_layout(
         handle
     })
 }
+
+/// Get a bind group layout from a render pipeline
+pub fn get_render_pipeline_bind_group_layout(
+    ctx_handle: u32,
+    pipeline_handle: u32,
+    index: u32,
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let pipeline_id = match ctx.render_pipelines.get(&pipeline_handle) {
+            Some(id) => *id,
+            None => return super::NULL_HANDLE,
+        };
+
+        let (layout_id, error) =
+            ctx.global
+                .render_pipeline_get_bind_group_layout(pipeline_id, index, None);
+        if error.is_some() {
+            return super::NULL_HANDLE;
+        }
+
+        let handle = ctx.next_bind_group_layout_id;
+        ctx.next_bind_group_layout_id += 1;
+        ctx.bind_group_layouts.insert(handle, layout_id);
+        handle
+    })
+}

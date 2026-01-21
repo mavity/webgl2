@@ -59,7 +59,7 @@ void main(int p0, int p1, int p2, int p3, int p4, int p5, int p6, int p7) {
     g2 = p5;
     g3 = p6;
     g4 = p7;
-    g5 = 524288;
+    g5 = (p6 + 81920);
     v9 = /* unknown: __unsimplified__ */;
     memory[((g2) + 12) >> 2] = floatBitsToInt(v9);
     v9 = /* unknown: __unsimplified__ */;
@@ -129,7 +129,7 @@ void main(int p0, int p1, int p2, int p3, int p4, int p5, int p6, int p7) {
     g2 = p5;
     g3 = p6;
     g4 = p7;
-    g5 = 524288;
+    g5 = (p6 + 81920);
     v9 = /* unknown: __unsimplified__ */;
     memory[((g3) + 12) >> 2] = floatBitsToInt(v9);
     v9 = /* unknown: __unsimplified__ */;
@@ -213,7 +213,7 @@ void main(int p0, int p1, int p2, int p3, int p4, int p5, int p6, int p7) {
     g2 = p5;
     g3 = p6;
     g4 = p7;
-    g5 = 524288;
+    g5 = (p6 + 81920);
     v9 = /* unknown: __unsimplified__ */;
     memory[((g2) + 12) >> 2] = floatBitsToInt(v9);
     v9 = /* unknown: __unsimplified__ */;

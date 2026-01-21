@@ -34,15 +34,19 @@ pub struct ShaderMemoryLayout {
     pub texture_ptr: u32,
 }
 
-impl Default for ShaderMemoryLayout {
-    fn default() -> Self {
-        // Default WebGL-compatible memory layout
+impl ShaderMemoryLayout {
+    pub fn new(base: u32) -> Self {
+        use crate::naga_wasm_backend::output_layout::{
+            ATTR_PTR_OFFSET, PRIVATE_PTR_OFFSET, TEXTURE_PTR_OFFSET, UNIFORM_PTR_OFFSET,
+            VARYING_PTR_OFFSET,
+        };
+        // Use centralized offsets from output_layout
         Self {
-            attr_ptr: 0x2000,
-            uniform_ptr: 0x1000,
-            varying_ptr: 0x3000,
-            private_ptr: 0x4000,
-            texture_ptr: 0x5000,
+            attr_ptr: base + ATTR_PTR_OFFSET,
+            uniform_ptr: base + UNIFORM_PTR_OFFSET,
+            varying_ptr: base + VARYING_PTR_OFFSET,
+            private_ptr: base + PRIVATE_PTR_OFFSET,
+            texture_ptr: base + TEXTURE_PTR_OFFSET,
         }
     }
 }
@@ -62,7 +66,7 @@ pub struct RenderState<'a> {
     /// Uniform data buffer
     pub uniform_data: &'a [u8],
     /// Texture metadata preparation callback
-    pub prepare_textures: Option<Box<dyn Fn(u32) + 'a>>,
+    pub prepare_textures: Option<Box<dyn Fn(&ShaderMemoryLayout) + 'a>>,
     /// Blend state
     pub blend: BlendState,
     /// Color mask
@@ -71,6 +75,12 @@ pub struct RenderState<'a> {
     pub depth: DepthState,
     /// Stencil state
     pub stencil: StencilState,
+    /// Face culling enabled
+    pub cull_face_enabled: bool,
+    /// Cull mode (GL_FRONT, GL_BACK, GL_FRONT_AND_BACK)
+    pub cull_face_mode: u32,
+    /// Front face winding (GL_CW, GL_CCW)
+    pub front_face: u32,
 }
 
 /// Interface for fetching vertex attributes
@@ -86,6 +96,17 @@ pub enum ColorTarget<'a> {
     Handle(GpuHandle),
     /// Target is a raw byte slice (used by WebGPU backend)
     Raw(&'a mut [u8]),
+}
+
+/// Depth/Stencil target for rasterization
+pub enum DepthStencilTarget<'a> {
+    /// Target is a buffer managed by the kernel
+    Handle(GpuHandle),
+    /// Target is a raw F32/U8 slice (used by default framebuffer)
+    Raw {
+        depth: &'a mut [f32],
+        stencil: &'a mut [u8],
+    },
 }
 
 /// Pipeline configuration for rasterization
@@ -269,7 +290,7 @@ impl RasterPipeline {
                                 _ => 1,
                             };
 
-                            let start_bit = (loc + 1) * 4;
+                            let start_bit = (loc + 2) * 4;
                             for i in 0..components {
                                 let bit = start_bit + i;
                                 if bit < 64 {
@@ -285,12 +306,12 @@ impl RasterPipeline {
     }
 }
 
-impl Default for RasterPipeline {
-    fn default() -> Self {
+impl RasterPipeline {
+    pub fn new(base: u32) -> Self {
         Self {
             vertex_shader_type: GL_VERTEX_SHADER,
             fragment_shader_type: GL_FRAGMENT_SHADER,
-            memory: ShaderMemoryLayout::default(),
+            memory: ShaderMemoryLayout::new(base),
             flat_varyings_mask: 0,
             vs_table_idx: None,
             fs_table_idx: None,
@@ -445,8 +466,21 @@ fn blend_pixel_f32(src: [f32; 4], dst: [f32; 4], state: &BlendState) -> [f32; 4]
 }
 
 /// Software triangle rasterizer
-#[derive(Default)]
-pub struct Rasterizer {}
+pub struct Rasterizer {
+    pub shader_memory_base: u32,
+}
+
+impl Rasterizer {
+    pub fn new(shader_memory_base: u32) -> Self {
+        Self { shader_memory_base }
+    }
+}
+
+impl Default for Rasterizer {
+    fn default() -> Self {
+        Self::new(crate::wasm_get_scratch_base())
+    }
+}
 
 /// Interface for fetching indices
 pub trait IndexBuffer {
@@ -474,11 +508,10 @@ impl IndexBuffer for Vec<u32> {
 
 pub struct DrawConfig<'a> {
     pub color_target: ColorTarget<'a>,
+    pub depth_stencil_target: DepthStencilTarget<'a>,
     pub width: u32,
     pub height: u32,
     pub internal_format: u32,
-    pub depth: &'a mut [f32],
-    pub stencil: &'a mut [u8],
     pub pipeline: &'a RasterPipeline,
     pub state: &'a RenderState<'a>,
     pub vertex_fetcher: &'a dyn VertexFetcher,
@@ -601,14 +634,14 @@ impl Rasterizer {
 
         // Scissor limit
         let (mut limit_x0, mut limit_y0, mut limit_x1, mut limit_y1) =
-            (0, 0, fb.width as i32 - 1, fb.height as i32 - 1);
+            (0, 0, fb.width as i32, fb.height as i32);
 
         if state.scissor_enabled {
             let (sx, sy, sw, sh) = state.scissor;
             limit_x0 = limit_x0.max(sx);
             limit_y0 = limit_y0.max(sy);
-            limit_x1 = limit_x1.min(sx + sw as i32 - 1);
-            limit_y1 = limit_y1.min(sy + sh as i32 - 1);
+            limit_x1 = limit_x1.min(sx + sw as i32);
+            limit_y1 = limit_y1.min(sy + sh as i32);
         }
 
         // Screen coordinates (with perspective divide)
@@ -617,21 +650,41 @@ impl Rasterizer {
         let p2 = screen_position(&v2.position, vx, vy, vw, vh);
 
         // Bounding box
-        let min_x = p0.0.min(p1.0).min(p2.0).max(limit_x0 as f32).floor() as i32;
-        let max_x = p0.0.max(p1.0).max(p2.0).min(limit_x1 as f32).ceil() as i32;
-        let min_y = p0.1.min(p1.1).min(p2.1).max(limit_y0 as f32).floor() as i32;
-        let max_y = p0.1.max(p1.1).max(p2.1).min(limit_y1 as f32).ceil() as i32;
+        let min_x = (p0.0.min(p1.0).min(p2.0).floor() as i32).max(limit_x0);
+        let max_x = (p0.0.max(p1.0).max(p2.0).ceil() as i32).min(limit_x1 - 1);
+        let min_y = (p0.1.min(p1.1).min(p2.1).floor() as i32).max(limit_y0);
+        let max_y = (p0.1.max(p1.1).max(p2.1).ceil() as i32).min(limit_y1 - 1);
 
         if max_x < min_x || max_y < min_y {
             return;
         }
 
-        // Calculate triangle area to determine facing (Back-face culling support)
-        // Assuming Y-axis points down in viewport coordinates:
-        // Area > 0 implies CW screen winding, which matches CCW clip winding (Front)
-        // Area < 0 implies CCW screen winding, which matches CW clip winding (Back)
+        // Calculate triangle area to determine facing
         let tri_area = (p1.0 - p0.0) * (p2.1 - p0.1) - (p1.1 - p0.1) * (p2.0 - p0.0);
-        let is_front = tri_area > 0.0;
+
+        // Standard OpenGL: CCW is front by default.
+        // With Y-up in screen space, CCW area sign is positive.
+        let is_ccw = tri_area > 0.0;
+        let is_front = if state.front_face == crate::webgl2_context::types::GL_CCW {
+            is_ccw
+        } else {
+            !is_ccw
+        };
+
+        if state.cull_face_enabled {
+            let should_cull = if state.cull_face_mode == crate::webgl2_context::types::GL_FRONT {
+                is_front
+            } else if state.cull_face_mode == crate::webgl2_context::types::GL_BACK {
+                !is_front
+            } else if state.cull_face_mode == crate::webgl2_context::types::GL_FRONT_AND_BACK {
+                true
+            } else {
+                false
+            };
+            if should_cull {
+                return;
+            }
+        }
 
         // Perspective correction factors
         let w0_inv = 1.0 / v0.position[3];
@@ -649,10 +702,12 @@ impl Rasterizer {
 
         for y in min_y..=max_y {
             for x in min_x..=max_x {
-                let (u, v, w) = barycentric((x as f32 + 0.5, y as f32 + 0.5), p0, p1, p2);
+                let px = (x as f32) + 0.5;
+                let py = (y as f32) + 0.5;
+                let (u, v, w) = barycentric((px, py), p0, p1, p2);
 
                 if u >= 0.0 && v >= 0.0 && w >= 0.0 {
-                    let fb_idx = (y as u32 * fb.width + x as u32) as usize;
+                    let fb_idx = fb.get_pixel_index(x as u32, y as u32, 0);
 
                     // --- Stencil Test ---
                     if state.stencil.enabled {
@@ -683,8 +738,7 @@ impl Rasterizer {
                     }
 
                     // --- Depth Test ---
-                    // Depth is interpolated linearly in screen space (not perspective-correct!)
-                    // This is per OpenGL spec - depth interpolation is different from varying interpolation
+                    // Depth is interpolated linearly in screen space for GL
                     let z0 = v0.position[2] / v0.position[3];
                     let z1 = v1.position[2] / v1.position[3];
                     let z2 = v2.position[2] / v2.position[3];
@@ -698,15 +752,12 @@ impl Rasterizer {
                     }
 
                     // Determine depth comparison result
-                    let depth_compare_result = if state.depth.enabled {
+                    let depth_pass = if state.depth.enabled {
                         compare_depth(state.depth.func, depth, current_depth)
                     } else {
-                        // When depth test is disabled, use GL_LESS for write decision
-                        // This maintains compatibility with the implicit behavior
-                        depth < current_depth
+                        // When depth test is disabled, it always passes
+                        true
                     };
-
-                    let depth_pass = depth_compare_result;
 
                     // Handle Depth Fail / Pass for Stencil
                     if state.stencil.enabled {
@@ -742,8 +793,8 @@ impl Rasterizer {
                     }
 
                     // --- Write Depth ---
-                    // Write depth when mask is true (depth_pass already determined by comparison above)
-                    if state.depth.mask {
+                    // Write depth when mask is true AND depth test passed
+                    if state.depth.mask && depth_pass {
                         fb.depth[fb_idx] = depth;
                     }
 
@@ -1059,6 +1110,34 @@ impl Rasterizer {
         // This should match the size expected by the shader
         let mut attr_buffer = vec![0u8; 1024];
 
+        // 0. Preparation: Copy uniforms and fix up pointers ONCE per draw call.
+        // Doing this inside the vertex loop causes cumulative additions to relative offsets.
+        unsafe {
+            // Copy uniforms
+            let copy_len = config.state.uniform_data.len().min(4096);
+            let uniform_ptr = config.pipeline.memory.uniform_ptr;
+            std::ptr::copy_nonoverlapping(
+                config.state.uniform_data.as_ptr(),
+                uniform_ptr as *mut u8,
+                copy_len,
+            );
+
+            // Fix up context block pointers: add the base address to the relative offsets
+            let ctx_block = uniform_ptr as *mut u32;
+            for i in 0..64 {
+                let current_val = *ctx_block.add(i);
+                if current_val > 0 && current_val < 4096 {
+                    // It's a relative offset
+                    *ctx_block.add(i) = current_val + uniform_ptr;
+                }
+            }
+
+            // Prepare textures
+            if let Some(ref prepare) = config.state.prepare_textures {
+                prepare(&config.pipeline.memory);
+            }
+        }
+
         for instance_id in 0..config.instance_count {
             let actual_instance_id = config.first_instance + instance_id;
             let mut vertices = Vec::with_capacity(config.vertex_count);
@@ -1092,17 +1171,6 @@ impl Rasterizer {
                         config.pipeline.memory.attr_ptr as *mut u8,
                         attr_buffer.len(),
                     );
-                    // Copy uniforms
-                    std::ptr::copy_nonoverlapping(
-                        config.state.uniform_data.as_ptr(),
-                        config.pipeline.memory.uniform_ptr as *mut u8,
-                        config.state.uniform_data.len(),
-                    );
-
-                    // Prepare textures
-                    if let Some(ref prepare) = config.state.prepare_textures {
-                        prepare(config.pipeline.memory.texture_ptr);
-                    }
                 }
 
                 // Execute Vertex Shader
@@ -1145,46 +1213,60 @@ impl Rasterizer {
                 });
             }
 
-            // 2. Primitives Assembly and Rasterization
-            match config.color_target {
+            let (target_color, target_layout) = match &mut config.color_target {
                 ColorTarget::Handle(handle) => {
-                    let color_buffer = kernel.get_buffer_mut(handle).expect("color buffer lost");
-                    let mut fb = crate::wasm_gl_emu::Framebuffer {
-                        width: config.width,
-                        height: config.height,
-                        internal_format: config.internal_format,
-                        color: &mut color_buffer.data,
-                        depth: config.depth,
-                        stencil: config.stencil,
-                        layout: color_buffer.layout,
-                    };
-                    self.rasterize_all(
-                        &mut fb,
-                        &vertices,
-                        config.mode,
-                        config.pipeline,
-                        config.state,
-                    );
+                    let color_buffer = kernel.get_buffer_mut(*handle).expect("color buffer lost");
+                    (
+                        color_buffer.data.as_mut_slice() as *mut [u8],
+                        color_buffer.layout,
+                    )
                 }
-                ColorTarget::Raw(ref mut data) => {
-                    let mut fb = crate::wasm_gl_emu::Framebuffer {
-                        width: config.width,
-                        height: config.height,
-                        internal_format: config.internal_format,
-                        color: data,
-                        depth: config.depth,
-                        stencil: config.stencil,
-                        layout: StorageLayout::Linear,
-                    };
-                    self.rasterize_all(
-                        &mut fb,
-                        &vertices,
-                        config.mode,
-                        config.pipeline,
-                        config.state,
-                    );
+                ColorTarget::Raw(data) => (*data as *mut [u8], StorageLayout::Linear),
+            };
+
+            let (target_depth, target_stencil) = match &mut config.depth_stencil_target {
+                DepthStencilTarget::Handle(handle) => {
+                    let ds_buffer = kernel.get_buffer_mut(*handle).expect("ds buffer lost");
+                    let width = config.width as usize;
+                    let height = config.height as usize;
+                    let data = &mut ds_buffer.data;
+
+                    if data.len() >= width * height * 4 {
+                        let d_ptr = data.as_mut_ptr() as *mut f32;
+                        let d_slice =
+                            unsafe { std::slice::from_raw_parts_mut(d_ptr, data.len() / 4) };
+                        let s_slice = if data.len() >= width * height * 5 {
+                            &mut data[width * height * 4..width * height * 5]
+                        } else {
+                            &mut []
+                        };
+                        (d_slice, s_slice)
+                    } else {
+                        (&mut [] as &mut [f32], &mut [] as &mut [u8])
+                    }
                 }
-            }
+                DepthStencilTarget::Raw { depth, stencil } => {
+                    (*depth as &mut [f32], *stencil as &mut [u8])
+                }
+            };
+
+            let mut fb = crate::wasm_gl_emu::Framebuffer {
+                width: config.width,
+                height: config.height,
+                internal_format: config.internal_format,
+                color: unsafe { &mut *target_color },
+                depth: target_depth,
+                stencil: target_stencil,
+                layout: target_layout,
+            };
+
+            self.rasterize_all(
+                &mut fb,
+                &vertices,
+                config.mode,
+                config.pipeline,
+                config.state,
+            );
         }
     }
 
@@ -1337,16 +1419,16 @@ mod tests {
     }
 
     #[test]
-    fn test_shader_memory_layout_default() {
-        let layout = ShaderMemoryLayout::default();
-        assert_eq!(layout.attr_ptr, 0x2000);
-        assert_eq!(layout.uniform_ptr, 0x1000);
-        assert_eq!(layout.varying_ptr, 0x3000);
+    fn test_shader_memory_layout_new() {
+        let layout = ShaderMemoryLayout::new(0);
+        assert!(layout.attr_ptr > 0);
+        assert!(layout.uniform_ptr > 0);
+        assert!(layout.varying_ptr > 0);
     }
 
     #[test]
-    fn test_raster_pipeline_default() {
-        let pipeline = RasterPipeline::default();
+    fn test_raster_pipeline_new() {
+        let pipeline = RasterPipeline::new(0);
         assert_eq!(pipeline.vertex_shader_type, GL_VERTEX_SHADER);
         assert_eq!(pipeline.fragment_shader_type, GL_FRAGMENT_SHADER);
     }

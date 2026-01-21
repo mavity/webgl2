@@ -285,22 +285,11 @@ pub struct RenderPassConfig {
     pub clear_a: f64,
 }
 
-/// Begin render pass (simplified for 1 color attachment)
-pub fn command_encoder_begin_render_pass_1_color(
+/// Begin a render pass
+pub fn command_encoder_begin_render_pass(
     ctx_handle: u32,
     encoder_handle: u32,
     config: RenderPassConfig,
-) -> u32 {
-    // Deprecated in favor of run_render_pass, but kept for compatibility if needed
-    command_encoder_run_render_pass(ctx_handle, encoder_handle, config, &[])
-}
-
-/// Run a render pass with buffered commands
-pub fn command_encoder_run_render_pass(
-    ctx_handle: u32,
-    encoder_handle: u32,
-    config: RenderPassConfig,
-    commands: &[u32],
 ) -> u32 {
     with_context(ctx_handle, |ctx| {
         let encoder_id = match ctx.command_encoders.get(&encoder_handle) {
@@ -345,7 +334,7 @@ pub fn command_encoder_run_render_pass(
             multiview_mask: None,
         };
 
-        let (mut pass, err) = ctx
+        let (pass, err) = ctx
             .global
             .command_encoder_begin_render_pass(encoder_id, &desc);
         if let Some(e) = err {
@@ -354,195 +343,31 @@ pub fn command_encoder_run_render_pass(
                 super::WEBGPU_ERROR_OPERATION_FAILED,
                 e,
             );
-            return super::WEBGPU_ERROR_OPERATION_FAILED;
+            return super::NULL_HANDLE;
         }
 
-        // Execute commands
-        let mut cursor = 0;
-        while cursor < commands.len() {
-            let op = commands[cursor];
-            cursor += 1;
+        let handle = ctx.next_render_pass_id;
+        ctx.next_render_pass_id += 1;
+        ctx.render_passes.insert(handle, pass);
 
-            match op {
-                1 => {
-                    // SetPipeline
-                    if cursor >= commands.len() {
-                        break;
-                    }
-                    let pipeline_handle = commands[cursor];
-                    cursor += 1;
-                    if let Some(id) = ctx.render_pipelines.get(&pipeline_handle) {
-                        let _ = ctx.global.render_pass_set_pipeline(&mut pass, *id);
-                    }
-                }
-                2 => {
-                    // SetVertexBuffer
-                    if cursor + 3 >= commands.len() {
-                        break;
-                    }
-                    let slot = commands[cursor];
-                    let buffer_handle = commands[cursor + 1];
-                    let offset = commands[cursor + 2] as u64;
-                    let size = commands[cursor + 3] as u64;
-                    cursor += 4;
+        handle
+    })
+}
 
-                    if let Some(id) = ctx.buffers.get(&buffer_handle) {
-                        let _ = ctx.global.render_pass_set_vertex_buffer(
-                            &mut pass,
-                            slot,
-                            *id,
-                            offset,
-                            NonZero::new(size),
-                        );
-                    }
-                }
-                3 => {
-                    // Draw
-                    if cursor + 3 >= commands.len() {
-                        break;
-                    }
-                    let vertex_count = commands[cursor];
-                    let instance_count = commands[cursor + 1];
-                    let first_vertex = commands[cursor + 2];
-                    let first_instance = commands[cursor + 3];
-                    cursor += 4;
+/// Set the render pipeline for a pass
+pub fn render_pass_set_pipeline(ctx_handle: u32, pass_handle: u32, pipeline_handle: u32) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let pipeline_id = match ctx.render_pipelines.get(&pipeline_handle) {
+            Some(id) => *id,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
 
-                    if let Err(e) = ctx.global.render_pass_draw(
-                        &mut pass,
-                        vertex_count,
-                        instance_count,
-                        first_vertex,
-                        first_instance,
-                    ) {
-                        crate::error::set_error(
-                            crate::error::ErrorSource::WebGPU(
-                                crate::error::WebGPUErrorFilter::Validation,
-                            ),
-                            super::WEBGPU_ERROR_OPERATION_FAILED,
-                            e,
-                        );
-                    }
-                }
-                4 => {
-                    // SetBindGroup
-                    if cursor + 1 >= commands.len() {
-                        break;
-                    }
-                    let index = commands[cursor];
-                    let bg_handle = commands[cursor + 1];
-                    cursor += 2;
+        let pass = match ctx.render_passes.get_mut(&pass_handle) {
+            Some(p) => p,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
 
-                    if let Some(id) = ctx.bind_groups.get(&bg_handle) {
-                        if let Err(e) =
-                            ctx.global
-                                .render_pass_set_bind_group(&mut pass, index, Some(*id), &[])
-                        {
-                            crate::error::set_error(
-                                crate::error::ErrorSource::WebGPU(
-                                    crate::error::WebGPUErrorFilter::Validation,
-                                ),
-                                super::WEBGPU_ERROR_OPERATION_FAILED,
-                                e,
-                            );
-                        }
-                    }
-                }
-                5 => {
-                    // SetIndexBuffer
-                    if cursor + 3 >= commands.len() {
-                        break;
-                    }
-                    let buffer_handle = commands[cursor];
-                    let format_id = commands[cursor + 1];
-                    let offset = commands[cursor + 2] as u64;
-                    let size = commands[cursor + 3] as u64;
-                    cursor += 4;
-
-                    let format = match format_id {
-                        1 => wgt::IndexFormat::Uint16,
-                        2 => wgt::IndexFormat::Uint32,
-                        _ => wgt::IndexFormat::Uint16,
-                    };
-
-                    if let Some(id) = ctx.buffers.get(&buffer_handle) {
-                        let _ = ctx.global.render_pass_set_index_buffer(
-                            &mut pass,
-                            *id,
-                            format,
-                            offset,
-                            NonZero::new(size),
-                        );
-                    }
-                }
-                6 => {
-                    // DrawIndexed
-                    if cursor + 4 >= commands.len() {
-                        break;
-                    }
-                    let index_count = commands[cursor];
-                    let instance_count = commands[cursor + 1];
-                    let first_index = commands[cursor + 2];
-                    let base_vertex = commands[cursor + 3] as i32;
-                    let first_instance = commands[cursor + 4];
-                    cursor += 5;
-
-                    if let Err(e) = ctx.global.render_pass_draw_indexed(
-                        &mut pass,
-                        index_count,
-                        instance_count,
-                        first_index,
-                        base_vertex,
-                        first_instance,
-                    ) {
-                        crate::error::set_error(
-                            crate::error::ErrorSource::WebGPU(
-                                crate::error::WebGPUErrorFilter::Validation,
-                            ),
-                            super::WEBGPU_ERROR_OPERATION_FAILED,
-                            e,
-                        );
-                    }
-                }
-                7 => {
-                    // SetViewport
-                    if cursor + 5 >= commands.len() {
-                        break;
-                    }
-                    let x = f32::from_bits(commands[cursor]);
-                    let y = f32::from_bits(commands[cursor + 1]);
-                    let w = f32::from_bits(commands[cursor + 2]);
-                    let h = f32::from_bits(commands[cursor + 3]);
-                    let min_depth = f32::from_bits(commands[cursor + 4]);
-                    let max_depth = f32::from_bits(commands[cursor + 5]);
-                    cursor += 6;
-
-                    let _ = ctx
-                        .global
-                        .render_pass_set_viewport(&mut pass, x, y, w, h, min_depth, max_depth);
-                }
-                8 => {
-                    // SetScissorRect
-                    if cursor + 3 >= commands.len() {
-                        break;
-                    }
-                    let x = commands[cursor];
-                    let y = commands[cursor + 1];
-                    let w = commands[cursor + 2];
-                    let h = commands[cursor + 3];
-                    cursor += 4;
-
-                    let _ = ctx
-                        .global
-                        .render_pass_set_scissor_rect(&mut pass, x, y, w, h);
-                }
-                _ => {
-                    // TODO: handle properly, propagate error
-                    break;
-                }
-            }
-        }
-
-        if let Err(e) = ctx.global.render_pass_end(&mut pass) {
+        if let Err(e) = ctx.global.render_pass_set_pipeline(pass, pipeline_id) {
             crate::error::set_error(
                 crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
                 super::WEBGPU_ERROR_OPERATION_FAILED,
@@ -553,6 +378,253 @@ pub fn command_encoder_run_render_pass(
 
         super::WEBGPU_SUCCESS
     })
+}
+
+/// Set vertex buffer for a pass
+pub fn render_pass_set_vertex_buffer(
+    ctx_handle: u32,
+    pass_handle: u32,
+    slot: u32,
+    buffer_handle: u32,
+    offset: u64,
+    size: u64,
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let buffer_id = match ctx.buffers.get(&buffer_handle) {
+            Some(id) => *id,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        let pass = match ctx.render_passes.get_mut(&pass_handle) {
+            Some(p) => p,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        let _ = ctx.global.render_pass_set_vertex_buffer(
+            pass,
+            slot,
+            buffer_id,
+            offset,
+            NonZero::new(size),
+        );
+
+        super::WEBGPU_SUCCESS
+    })
+}
+
+/// Set index buffer for a pass
+pub fn render_pass_set_index_buffer(
+    ctx_handle: u32,
+    pass_handle: u32,
+    buffer_handle: u32,
+    format_id: u32,
+    offset: u64,
+    size: u64,
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let buffer_id = match ctx.buffers.get(&buffer_handle) {
+            Some(id) => *id,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        let pass = match ctx.render_passes.get_mut(&pass_handle) {
+            Some(p) => p,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        let format = match format_id {
+            1 => wgt::IndexFormat::Uint16,
+            2 => wgt::IndexFormat::Uint32,
+            _ => wgt::IndexFormat::Uint16,
+        };
+
+        let _ = ctx.global.render_pass_set_index_buffer(
+            pass,
+            buffer_id,
+            format,
+            offset,
+            NonZero::new(size),
+        );
+
+        super::WEBGPU_SUCCESS
+    })
+}
+
+/// Draw vertices
+pub fn render_pass_draw(
+    ctx_handle: u32,
+    pass_handle: u32,
+    vertex_count: u32,
+    instance_count: u32,
+    first_vertex: u32,
+    first_instance: u32,
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let pass = match ctx.render_passes.get_mut(&pass_handle) {
+            Some(p) => p,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        if let Err(e) = ctx.global.render_pass_draw(
+            pass,
+            vertex_count,
+            instance_count,
+            first_vertex,
+            first_instance,
+        ) {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_OPERATION_FAILED,
+                e,
+            );
+            return super::WEBGPU_ERROR_OPERATION_FAILED;
+        }
+
+        super::WEBGPU_SUCCESS
+    })
+}
+
+/// Draw indexed vertices
+pub fn render_pass_draw_indexed(
+    ctx_handle: u32,
+    pass_handle: u32,
+    index_count: u32,
+    instance_count: u32,
+    first_index: u32,
+    base_vertex: i32,
+    first_instance: u32,
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let pass = match ctx.render_passes.get_mut(&pass_handle) {
+            Some(p) => p,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        if let Err(e) = ctx.global.render_pass_draw_indexed(
+            pass,
+            index_count,
+            instance_count,
+            first_index,
+            base_vertex,
+            first_instance,
+        ) {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_OPERATION_FAILED,
+                e,
+            );
+            return super::WEBGPU_ERROR_OPERATION_FAILED;
+        }
+
+        super::WEBGPU_SUCCESS
+    })
+}
+
+/// Set bind group for a pass
+pub fn render_pass_set_bind_group(
+    ctx_handle: u32,
+    pass_handle: u32,
+    index: u32,
+    bg_handle: u32,
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let pass = match ctx.render_passes.get_mut(&pass_handle) {
+            Some(p) => p,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        let bg_id = match ctx.bind_groups.get(&bg_handle) {
+            Some(id) => *id,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        if let Err(e) = ctx
+            .global
+            .render_pass_set_bind_group(pass, index, Some(bg_id), &[])
+        {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_OPERATION_FAILED,
+                e,
+            );
+            return super::WEBGPU_ERROR_OPERATION_FAILED;
+        }
+
+        super::WEBGPU_SUCCESS
+    })
+}
+
+/// Set viewport for a pass
+pub fn render_pass_set_viewport(
+    ctx_handle: u32,
+    pass_handle: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    min_depth: f32,
+    max_depth: f32,
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let pass = match ctx.render_passes.get_mut(&pass_handle) {
+            Some(p) => p,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        let _ = ctx
+            .global
+            .render_pass_set_viewport(pass, x, y, w, h, min_depth, max_depth);
+
+        super::WEBGPU_SUCCESS
+    })
+}
+
+/// Set scissor rect for a pass
+pub fn render_pass_set_scissor_rect(
+    ctx_handle: u32,
+    pass_handle: u32,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+) -> u32 {
+    with_context(ctx_handle, |ctx| {
+        let pass = match ctx.render_passes.get_mut(&pass_handle) {
+            Some(p) => p,
+            None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+        };
+
+        let _ = ctx.global.render_pass_set_scissor_rect(pass, x, y, w, h);
+
+        super::WEBGPU_SUCCESS
+    })
+}
+
+/// End a render pass
+pub fn render_pass_end(ctx_handle: u32, pass_handle: u32) -> u32 {
+    let result = with_context_val(ctx_handle, None, |ctx| {
+        let pass = match ctx.render_passes.remove(&pass_handle) {
+            Some(p) => p,
+            None => return None,
+        };
+        Some((ctx.global.clone(), pass))
+    });
+
+    let (global, mut pass) = match result {
+        Some(res) => res,
+        None => return super::WEBGPU_ERROR_INVALID_HANDLE,
+    };
+
+    if let Err(e) = global.render_pass_end(&mut pass) {
+        crate::error::set_error(
+            crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+            super::WEBGPU_ERROR_OPERATION_FAILED,
+            e,
+        );
+        return super::WEBGPU_ERROR_OPERATION_FAILED;
+    }
+
+    super::WEBGPU_SUCCESS
 }
 
 /// Write data to a buffer via the queue

@@ -10,14 +10,14 @@ import {
   getShaderGlsl,
   decompileWasmToGlsl
 } from './src/webgl2_context.js';
-import { GPU, GPUBufferUsage, GPUMapMode, GPUTextureUsage } from './src/webgpu_context.js';
+import { GPU, GPUBufferUsage, GPUMapMode, GPUTextureUsage, GPUShaderStage } from './src/webgpu_context.js';
 
 export const debug = {
   getLcovReport,
   resetLcovReport
 };
 
-export { ERR_OK, ERR_INVALID_HANDLE, GPUBufferUsage, GPUMapMode, GPUTextureUsage, getShaderModule, getShaderWat, getShaderGlsl, decompileWasmToGlsl };
+export { ERR_OK, ERR_INVALID_HANDLE, GPUBufferUsage, GPUMapMode, GPUTextureUsage, GPUShaderStage, getShaderModule, getShaderWat, getShaderGlsl, decompileWasmToGlsl };
 
 /**
  * Simple allocator for function table indices.
@@ -25,9 +25,10 @@ export { ERR_OK, ERR_INVALID_HANDLE, GPUBufferUsage, GPUMapMode, GPUTextureUsage
  */
 class TableAllocator {
   constructor() {
-    // Rust uses the first ~1900 slots for its indirect function table (dyn calls, etc).
-    // We must valid collision by starting allocations after that region.
-    this.nextIndex = 2000;
+    // Rust uses many slots for its indirect function table (dyn calls, etc).
+    // We must avoid collision by starting allocations after that region.
+    // Increased from 2000 to 5000 for safety in larger modules.
+    this.nextIndex = 5000;
     this.freeList = [];
   }
 
@@ -99,7 +100,7 @@ export async function webGL2({ debug = (typeof process !== 'undefined' ? process
       }
     });
   }
-  const { ex, instance, sharedTable, tableAllocator } = await promise;
+  const { ex, instance, sharedTable, tableAllocator, scratchLayout } = await promise;
 
   // Initialize coverage if available
   if (ex.wasm_init_coverage && ex.COV_MAP_PTR) {
@@ -136,7 +137,8 @@ export async function webGL2({ debug = (typeof process !== 'undefined' ? process
     height,
     debugShaders: !!debugShaders,
     sharedTable,
-    tableAllocator
+    tableAllocator,
+    scratchLayout
   });
 
   if (size && typeof size.width === 'number' && typeof size.height === 'number') {
@@ -167,8 +169,8 @@ export async function webGPU({ debug = (typeof process !== 'undefined' ? process
       }
     });
   }
-  const { ex, instance } = await promise;
-  return new GPU(ex, ex.memory);
+  const { ex, instance, scratchLayout } = await promise;
+  return new GPU(ex, ex.memory, scratchLayout);
 }
 
 /**
@@ -207,8 +209,8 @@ async function initWASM({ debug } = {}) {
 
   // Create shared function table for direct shader calls
   const sharedTable = new WebAssembly.Table({
-    initial: 4096,   // Increased from 4096 to handle larger modules
-    maximum: 8192,   // Prevent unbounded growth
+    initial: 8192,
+    maximum: 65536,
     element: "anyfunc"
   });
   const tableAllocator = new TableAllocator();
@@ -305,7 +307,18 @@ async function initWASM({ debug } = {}) {
   if (!(ex.memory instanceof WebAssembly.Memory)) {
     throw new Error('WASM module missing memory export');
   }
-  return { ex, instance, module: wasmModule, sharedTable, tableAllocator };
+  // Calculate dynamic scratch layout
+  const scratchBase = typeof ex.wasm_get_scratch_base === 'function' ? ex.wasm_get_scratch_base() : 0x200000;
+  const scratchLayout = {
+    base: scratchBase,
+    attr: scratchBase + 0x0000,
+    uniform: scratchBase + 0x4000,
+    varying: scratchBase + 0x8000,
+    private: scratchBase + 0xC000,
+    texture: scratchBase + 0x10000,
+  };
+
+  return { ex, instance, module: wasmModule, sharedTable, tableAllocator, scratchLayout };
 }
 
 /**

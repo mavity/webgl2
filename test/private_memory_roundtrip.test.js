@@ -31,9 +31,9 @@ test('Private memory roundtrip (fragment store visible to host)', async (t) => {
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.POINTS, 0, 1);
 
-    // Read back the private memory at default private_ptr (0x4000)
+    // Read back the private memory at dynamic private_ptr
     const mem = gl._instance.exports.memory.buffer;
-    const floatView = new Float32Array(mem, 0x4000, 4);
+    const floatView = new Float32Array(mem, gl._scratchLayout.private, 4);
 
     // Due to float representation in memory the values should be near 0.1..0.4
     const got = Array.from(floatView).map(v => Math.round(v * 1000) / 1000);

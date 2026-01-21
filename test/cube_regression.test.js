@@ -57,6 +57,7 @@ test('Cube regression: rendered pixels match output.png color stats', async () =
   const gl = await webGL2();
   try {
     gl.viewport(0, 0, 640, 480);
+    gl.enable(gl.DEPTH_TEST);
 
     // Shaders (same as demo)
     const vsSource = `#version 300 es
@@ -203,14 +204,15 @@ test('Cube regression: rendered pixels match output.png color stats', async () =
     // Allow small absolute difference in percentage points
     const EPS = 2.0; // percent
 
-    assert.ok(Math.abs(REFERENCE_STATS.transparentPct - outStats.transparentPct) <= EPS,
-      `Transparent percentage differs: ref=${REFERENCE_STATS.transparentPct.toFixed(2)}% got=${outStats.transparentPct.toFixed(2)}%`);
-
-    assert.ok(Math.abs(REFERENCE_STATS.bluePct - outStats.bluePct) <= EPS,
-      `Blue percentage differs: ref=${REFERENCE_STATS.bluePct.toFixed(2)}% got=${outStats.bluePct.toFixed(2)}%`);
-
-    assert.ok(Math.abs(REFERENCE_STATS.goldPct - outStats.goldPct) <= EPS,
-      `Gold percentage differs: ref=${REFERENCE_STATS.goldPct.toFixed(2)}% got=${outStats.goldPct.toFixed(2)}%`);
+    assert.ok(
+      Math.abs(REFERENCE_STATS.transparentPct - outStats.transparentPct) <= EPS &&
+      Math.abs(REFERENCE_STATS.bluePct - outStats.bluePct) <= EPS &&
+      Math.abs(REFERENCE_STATS.goldPct - outStats.goldPct) <= EPS,
+      'Percentages differ: ' +
+      'TRANSPARENT ref=' + REFERENCE_STATS.transparentPct.toFixed(2) + '% got=' + outStats.transparentPct.toFixed(2) + '%' +
+      ' BLUE ref=' + REFERENCE_STATS.bluePct.toFixed(2) + '% got=' + outStats.bluePct.toFixed(2) + '%' +
+      ' GOLD ref=' + REFERENCE_STATS.goldPct.toFixed(2) + '% got=' + outStats.goldPct.toFixed(2) + '%'
+    );
 
   } finally {
     gl.destroy();

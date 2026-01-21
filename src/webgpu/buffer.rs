@@ -43,6 +43,7 @@ pub fn create_buffer(
         let handle = ctx.next_buffer_id;
         ctx.next_buffer_id += 1;
         ctx.buffers.insert(handle, buffer_id);
+        ctx.buffer_to_device.insert(buffer_id, device_id);
 
         handle
     })
@@ -164,29 +165,43 @@ pub fn buffer_get_mapped_range(
 
 /// Unmap a buffer
 pub fn buffer_unmap(ctx_handle: u32, buffer_handle: u32) -> u32 {
-    with_context(ctx_handle, |ctx| {
+    let result = with_context_val(ctx_handle, None, |ctx| {
         let buffer_id = match ctx.buffers.get(&buffer_handle) {
             Some(id) => *id,
-            None => {
-                crate::error::set_error(
-                    crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                    super::WEBGPU_ERROR_INVALID_HANDLE,
-                    "Invalid buffer handle",
-                );
-                return super::WEBGPU_ERROR_INVALID_HANDLE;
-            }
+            None => return None,
         };
+        let device_id = match ctx.buffer_to_device.get(&buffer_id) {
+            Some(id) => *id,
+            None => return None,
+        };
+        Some((ctx.global.clone(), device_id, buffer_id))
+    });
 
-        match ctx.global.buffer_unmap(buffer_id) {
-            Ok(_) => super::WEBGPU_SUCCESS,
-            Err(e) => {
-                crate::error::set_error(
-                    crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
-                    super::WEBGPU_ERROR_INVALID_HANDLE,
-                    e,
-                );
-                super::WEBGPU_ERROR_INVALID_HANDLE
-            }
+    let (global, device_id, buffer_id) = match result {
+        Some(res) => res,
+        None => {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_INVALID_HANDLE,
+                "Invalid buffer handle",
+            );
+            return super::WEBGPU_ERROR_INVALID_HANDLE;
         }
-    })
+    };
+
+    match global.buffer_unmap(buffer_id) {
+        Ok(_) => {
+            // Force processing of the unmap operation
+            let _ = global.device_poll(device_id, wgt::PollType::Poll);
+            super::WEBGPU_SUCCESS
+        }
+        Err(e) => {
+            crate::error::set_error(
+                crate::error::ErrorSource::WebGPU(crate::error::WebGPUErrorFilter::Validation),
+                super::WEBGPU_ERROR_INVALID_HANDLE,
+                e,
+            );
+            super::WEBGPU_ERROR_INVALID_HANDLE
+        }
+    }
 }

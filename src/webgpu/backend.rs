@@ -9,6 +9,7 @@ use crate::webgl2_context::types::*;
 use std::time::Duration;
 use wgpu_hal as hal;
 use wgpu_types as wgt;
+use wgt::{Features, Limits, MemoryHints};
 
 type VertexBufferEntry = Option<(Arc<Mutex<Vec<u8>>>, wgt::BufferAddress)>;
 type IndexBufferEntry = Option<(Arc<Mutex<Vec<u8>>>, wgt::BufferAddress, wgt::IndexFormat)>;
@@ -59,13 +60,17 @@ impl hal::Api for SoftApi {
     const VARIANT: wgt::Backend = wgt::Backend::Noop;
 }
 
-pub struct SoftInstance;
+pub struct SoftInstance {
+    pub shader_memory_base: u32,
+}
 
 impl hal::Instance for SoftInstance {
     type A = SoftApi;
 
     unsafe fn init(_desc: &hal::InstanceDescriptor) -> Result<Self, hal::InstanceError> {
-        Ok(SoftInstance)
+        Ok(SoftInstance {
+            shader_memory_base: crate::wasm_get_scratch_base(),
+        })
     }
 
     unsafe fn create_surface(
@@ -80,7 +85,9 @@ impl hal::Instance for SoftInstance {
         &self,
         _surface_hint: Option<&SoftSurface>,
     ) -> Vec<hal::ExposedAdapter<SoftApi>> {
-        let adapter = SoftAdapter;
+        let adapter = SoftAdapter {
+            shader_memory_base: self.shader_memory_base,
+        };
 
         let info = wgt::AdapterInfo {
             name: "WASM Soft-GPU".to_string(),
@@ -145,7 +152,9 @@ impl hal::Surface for SoftSurface {
 }
 
 #[derive(Debug)]
-pub struct SoftAdapter;
+pub struct SoftAdapter {
+    pub shader_memory_base: u32,
+}
 
 impl hal::Adapter for SoftAdapter {
     type A = SoftApi;
@@ -157,9 +166,13 @@ impl hal::Adapter for SoftAdapter {
         _memory_hints: &wgt::MemoryHints,
     ) -> Result<hal::OpenDevice<SoftApi>, hal::DeviceError> {
         let device = SoftDevice {
+            // TODO: no need for sync in single-threaded!!
             _mem_allocator: Arc::new(Mutex::new(0)), // Simple allocator
+            shader_memory_base: self.shader_memory_base,
         };
-        let queue = SoftQueue;
+        let queue = SoftQueue {
+            shader_memory_base: self.shader_memory_base,
+        };
         Ok(hal::OpenDevice { device, queue })
     }
 
@@ -192,7 +205,9 @@ impl hal::Adapter for SoftAdapter {
 #[derive(Debug)]
 pub struct SoftDevice {
     // In a real implementation, this would manage memory
+    // TODO: in single threaded there is no need for sync!!!
     _mem_allocator: Arc<Mutex<u32>>,
+    pub shader_memory_base: u32,
 }
 
 impl SoftDevice {
@@ -229,6 +244,7 @@ impl SoftDevice {
             info: &info,
             source: "",
             stage,
+            entry_point: Some(entry_point),
             attribute_locations: &HashMap::new(),
             uniform_locations: &HashMap::new(),
             varying_locations: &HashMap::new(),
@@ -635,6 +651,12 @@ pub enum SoftCommand {
         regions: Vec<hal::BufferTextureCopy>,
         texture_desc: SoftTextureDescriptor,
     },
+    CopyBufferToTexture {
+        src: Arc<Mutex<Vec<u8>>>,
+        dst: Arc<Mutex<Vec<u8>>>,
+        regions: Vec<hal::BufferTextureCopy>,
+        texture_desc: SoftTextureDescriptor,
+    },
     RenderPass {
         desc: SoftRenderPassDescriptor,
         commands: Vec<SoftRenderCommand>,
@@ -717,42 +739,93 @@ pub enum SoftRenderCommand {
 }
 
 #[derive(Debug)]
-pub struct SoftQueue;
+pub struct SoftQueue {
+    pub shader_memory_base: u32,
+}
 
 impl SoftQueue {
-    fn scalarize_bind_groups(
+    fn scalarize_into(
         &self,
+        uniform_data: &mut [u8],
         bind_groups: &[Option<SoftBindGroup>],
-        shader_stage: &SoftShaderStage,
-    ) -> Vec<u8> {
-        let mut uniform_data = vec![0u8; 4096]; // Max uniform size
+        stages: &[&SoftShaderStage],
+    ) {
+        let mut current_offset = crate::naga_wasm_backend::output_layout::CONTEXT_BLOCK_SIZE;
+        let mut processed_bindings = std::collections::HashMap::new();
 
-        for (&(group_idx, binding_idx), &(offset, _layout)) in &shader_stage.uniform_map {
-            if let Some(Some(bg)) = bind_groups.get(group_idx as usize) {
-                if let Some(SoftResource::Buffer {
-                    buffer,
-                    offset: buf_offset,
-                    size,
-                }) = bg.resources.get(&binding_idx)
-                {
-                    let data = buffer.data.lock().unwrap();
-                    let start = *buf_offset as usize;
-                    let end = if let Some(s) = size {
-                        start + s.get() as usize
-                    } else {
-                        data.len()
-                    };
-                    let bytes = &data[start..end];
-                    let dest_start = offset as usize;
-                    let copy_len = bytes.len().min(64); // Naga uses 64-byte slots
-                    if dest_start + copy_len <= uniform_data.len() {
-                        uniform_data[dest_start..dest_start + copy_len]
-                            .copy_from_slice(&bytes[..copy_len]);
+        for stage in stages {
+            for (&(group_idx, binding_idx), &(context_offset, _layout)) in &stage.uniform_map {
+                // Determine if we've already packed this resource's data
+                // In WebGPU, same (group, binding) across stages refers to the same resource.
+                let resource_key = (group_idx, binding_idx);
+
+                if let Some(Some(bg)) = bind_groups.get(group_idx as usize) {
+                    if let Some(res) = bg.resources.get(&binding_idx) {
+                        match res {
+                            SoftResource::Buffer {
+                                buffer,
+                                offset: buf_offset,
+                                size,
+                            } => {
+                                // 1. Write the pointer to the context block ALWAYS (stage-specific offset)
+                                let context_ptr = context_offset as usize;
+
+                                // We need to know where the data for this resource lives.
+                                // If already processed, reuse the existing offset.
+                                let data_offset = if let Some(&existing_offset) =
+                                    processed_bindings.get(&resource_key)
+                                {
+                                    existing_offset
+                                } else {
+                                    // Pack new data
+                                    let data = buffer.data.lock().unwrap();
+                                    let start = *buf_offset as usize;
+                                    let end = if let Some(s) = size {
+                                        start + s.get() as usize
+                                    } else {
+                                        data.len()
+                                    };
+
+                                    if start < data.len() {
+                                        let actual_end = end.min(data.len());
+                                        let bytes = &data[start..actual_end];
+
+                                        // Align current_offset to 16 bytes for safety
+                                        current_offset = (current_offset + 15) & !15;
+
+                                        let copy_len = bytes.len();
+                                        if current_offset + copy_len as u32
+                                            <= uniform_data.len() as u32
+                                        {
+                                            let target_offset = current_offset;
+                                            uniform_data[target_offset as usize
+                                                ..target_offset as usize + copy_len]
+                                                .copy_from_slice(bytes);
+
+                                            current_offset += copy_len as u32;
+                                            processed_bindings.insert(resource_key, target_offset);
+                                            target_offset
+                                        } else {
+                                            0 // Should not happen with 4KB buffer
+                                        }
+                                    } else {
+                                        0
+                                    }
+                                };
+
+                                if context_ptr + 4 <= uniform_data.len() {
+                                    uniform_data[context_ptr..context_ptr + 4]
+                                        .copy_from_slice(&data_offset.to_le_bytes());
+                                }
+                            }
+                            SoftResource::TextureView(_) | SoftResource::Sampler(_) => {
+                                // Handled via texture_ptr context block in prepare_textures
+                            }
+                        }
                     }
                 }
             }
         }
-        uniform_data
     }
 }
 
@@ -765,6 +838,7 @@ impl hal::Queue for SoftQueue {
         _surface_textures: &[&SoftTexture],
         fence: (&mut SoftFence, hal::FenceValue),
     ) -> Result<(), hal::DeviceError> {
+        // Pass 1: Execute all copy commands first
         for cmd_buf in command_buffers {
             for cmd in &cmd_buf.commands {
                 match cmd {
@@ -775,19 +849,60 @@ impl hal::Queue for SoftQueue {
                             let src_start = region.src_offset as usize;
                             let dst_start = region.dst_offset as usize;
                             let size = region.size.get() as usize;
-                            // Ensure bounds
+
                             if src_start + size <= src_data.len()
                                 && dst_start + size <= dst_data.len()
                             {
                                 dst_data[dst_start..dst_start + size]
                                     .copy_from_slice(&src_data[src_start..src_start + size]);
-                            } else {
-                                // Log error or panic in debug?
-                                eprintln!("SoftGPU: CopyBufferToBuffer out of bounds");
                             }
                         }
                     }
-                    SoftCommand::CopyTextureToBuffer {
+
+                    // TODO: why was this removed???
+                    // SoftCommand::CopyTextureToBuffer {
+                    //     src,
+                    //     dst,
+                    //     regions,
+                    //     texture_desc,
+                    // } => {
+                    //     let src_data = src.lock().unwrap();
+                    //     let mut dst_data = dst.lock().unwrap();
+                    //     for region in regions {
+                    //         let bytes_per_pixel = 4;
+                    //         let width = region.size.width;
+                    //         let height = region.size.height;
+                    //         let depth = region.size.depth;
+                    //         let row_pitch = width * bytes_per_pixel;
+                    //         let slice_pitch = row_pitch * height;
+                    //         let src_origin = region.texture_base.origin;
+                    //         let src_offset =
+                    //             (src_origin.z * texture_desc.size.height * texture_desc.size.width
+                    //                 + src_origin.y * texture_desc.size.width
+                    //                 + src_origin.x)
+                    //                 * bytes_per_pixel;
+                    //         let dst_offset = region.buffer_layout.offset;
+
+                    //         for z in 0..depth {
+                    //             for y in 0..height {
+                    //                 let src_idx =
+                    //                     (src_offset + (z * slice_pitch) + (y * row_pitch)) as usize;
+                    //                 let dst_idx = (dst_offset
+                    //                     + (z as u64 * slice_pitch as u64)
+                    //                     + (y as u64 * row_pitch as u64))
+                    //                     as usize;
+                    //                 let len = row_pitch as usize;
+                    //                 if src_idx + len <= src_data.len()
+                    //                     && dst_idx + len <= dst_data.len()
+                    //                 {
+                    //                     dst_data[dst_idx..dst_idx + len]
+                    //                         .copy_from_slice(&src_data[src_idx..src_idx + len]);
+                    //                 }
+                    //             }
+                    //         }
+                    //     }
+                    // }
+                    SoftCommand::CopyBufferToTexture {
                         src,
                         dst,
                         regions,
@@ -795,42 +910,43 @@ impl hal::Queue for SoftQueue {
                     } => {
                         let src_data = src.lock().unwrap();
                         let mut dst_data = dst.lock().unwrap();
-
                         for region in regions {
-                            // Simplified implementation: assumes tightly packed RGBA8
-                            // TODO: Handle strides, offsets, and other formats correctly
-
-                            let bytes_per_pixel = 4; // Assume RGBA8
+                            let bytes_per_pixel = match texture_desc.format {
+                                wgt::TextureFormat::R32Float => 4,
+                                wgt::TextureFormat::Rg32Float => 8,
+                                wgt::TextureFormat::Rgba32Float => 16,
+                                _ => 4,
+                            };
                             let width = region.size.width;
                             let height = region.size.height;
                             let depth = region.size.depth;
+                            let buffer_row_pitch = region
+                                .buffer_layout
+                                .bytes_per_row
+                                .unwrap_or(width * bytes_per_pixel);
+                            let buffer_slice_pitch =
+                                region.buffer_layout.rows_per_image.unwrap_or(height)
+                                    * buffer_row_pitch;
+                            let texture_row_pitch = texture_desc.size.width * bytes_per_pixel;
+                            let texture_slice_pitch = texture_desc.size.height * texture_row_pitch;
+                            let src_offset = region.buffer_layout.offset;
+                            let dst_origin = region.texture_base.origin;
+                            let dst_offset = (dst_origin.z * texture_slice_pitch
+                                + dst_origin.y * texture_row_pitch
+                                + dst_origin.x * bytes_per_pixel)
+                                as u64;
 
-                            let row_pitch = width * bytes_per_pixel;
-                            let slice_pitch = row_pitch * height;
-
-                            // Calculate source offset
-                            // Assumes 2D texture for now
-                            let src_origin = region.texture_base.origin;
-                            let src_offset =
-                                (src_origin.z * texture_desc.size.height * texture_desc.size.width
-                                    + src_origin.y * texture_desc.size.width
-                                    + src_origin.x)
-                                    * bytes_per_pixel;
-
-                            // Calculate dest offset
-                            let dst_offset = region.buffer_layout.offset;
-
-                            // Copy row by row
                             for z in 0..depth {
                                 for y in 0..height {
-                                    let src_idx =
-                                        (src_offset + (z * slice_pitch) + (y * row_pitch)) as usize;
-                                    let dst_idx = (dst_offset
-                                        + (z as u64 * slice_pitch as u64)
-                                        + (y as u64 * row_pitch as u64))
+                                    let src_idx = (src_offset
+                                        + (z as u64 * buffer_slice_pitch as u64)
+                                        + (y as u64 * buffer_row_pitch as u64))
                                         as usize;
-
-                                    let len = row_pitch as usize;
+                                    let dst_idx = (dst_offset
+                                        + (z as u64 * texture_slice_pitch as u64)
+                                        + (y as u64 * texture_row_pitch as u64))
+                                        as usize;
+                                    let len = (width * bytes_per_pixel) as usize;
                                     if src_idx + len <= src_data.len()
                                         && dst_idx + len <= dst_data.len()
                                     {
@@ -841,6 +957,25 @@ impl hal::Queue for SoftQueue {
                             }
                         }
                     }
+                    _ => {}
+                }
+            }
+        }
+
+        // TODO: why was this removed??
+        // // Pass 2: Execute render passes
+        // for cmd_buf in command_buffers {
+        //     for cmd in &cmd_buf.commands {
+        //         match cmd {
+        //             _ => {}
+        //         }
+        //     }
+        // }
+
+        // Pass 2: Execute render passes and other non-copy commands
+        for cmd_buf in command_buffers {
+            for cmd in &cmd_buf.commands {
+                match cmd {
                     SoftCommand::RenderPass { desc, commands } => {
                         // 1. Handle LoadOps (Clearing)
                         for att in desc.color_attachments.iter().flatten() {
@@ -884,7 +1019,7 @@ impl hal::Queue for SoftQueue {
                         let mut current_pipeline: Option<&SoftRenderPipeline> = None;
                         let mut vertex_buffers: Vec<VertexBufferEntry> = vec![None; 16];
                         let mut index_buffer: IndexBufferEntry = None;
-                        let bind_groups: Vec<Option<SoftBindGroup>> = vec![None; 4];
+                        let mut bind_groups: Vec<Option<SoftBindGroup>> = vec![None; 4];
 
                         let mut viewport = (0i32, 0i32, 0u32, 0u32);
                         let mut scissor = (0i32, 0i32, 0u32, 0u32);
@@ -929,8 +1064,14 @@ impl hal::Queue for SoftQueue {
                                 SoftRenderCommand::SetPipeline(pipeline) => {
                                     current_pipeline = Some(pipeline);
                                 }
-                                SoftRenderCommand::SetBindGroup { .. } => {
-                                    // TODO: Handle bind groups
+                                SoftRenderCommand::SetBindGroup {
+                                    index,
+                                    group,
+                                    dynamic_offsets: _,
+                                } => {
+                                    if (*index as usize) < bind_groups.len() {
+                                        bind_groups[*index as usize] = Some(group.clone());
+                                    }
                                 }
                                 SoftRenderCommand::SetVertexBuffer {
                                     index,
@@ -979,26 +1120,225 @@ impl hal::Queue for SoftQueue {
                                             let mut dummy_stencil =
                                                 vec![0u8; (width * height) as usize];
 
-                                            let rasterizer = wasm_gl_emu::Rasterizer::default();
+                                            let rasterizer = wasm_gl_emu::Rasterizer::new(
+                                                self.shader_memory_base,
+                                            );
 
                                             let fetcher = SoftVertexFetcher {
                                                 vertex_buffers: &vertex_buffers,
                                                 vertex_layouts: &pipeline.vertex_layouts,
                                             };
 
-                                            let vs_uniforms = self.scalarize_bind_groups(
+                                            let mut combined_uniforms = vec![0u8; 4096];
+                                            self.scalarize_into(
+                                                &mut combined_uniforms,
                                                 &bind_groups,
-                                                &pipeline.vertex_stage,
+                                                &[&pipeline.vertex_stage, &pipeline.fragment_stage],
+                                            );
+
+                                            // Pre-lock textures to keep pointers valid during draw
+                                            type TexMetadata = (
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                            );
+                                            let mut texture_metas: HashMap<u32, TexMetadata> =
+                                                HashMap::new();
+                                            let mut _texture_guards = Vec::new();
+                                            let mut _already_locked = HashMap::new();
+
+                                            for stage in
+                                                &[&pipeline.vertex_stage, &pipeline.fragment_stage]
+                                            {
+                                                for (&(group, binding), &(offset, _)) in
+                                                    &stage.uniform_map
+                                                {
+                                                    if let Some(Some(bg)) =
+                                                        bind_groups.get(group as usize)
+                                                    {
+                                                        match bg.resources.get(&binding) {
+                                                            Some(SoftResource::TextureView(
+                                                                view,
+                                                            )) => {
+                                                                let tex_ptr =
+                                                                    Arc::as_ptr(&view.texture)
+                                                                        as usize;
+                                                                let data_ptr = if let Some(&p) =
+                                                                    _already_locked.get(&tex_ptr)
+                                                                {
+                                                                    p
+                                                                } else {
+                                                                    let guard = view
+                                                                        .texture
+                                                                        .lock()
+                                                                        .unwrap();
+                                                                    let p = guard.as_ptr() as u32;
+                                                                    _texture_guards.push(guard);
+                                                                    _already_locked
+                                                                        .insert(tex_ptr, p);
+                                                                    p
+                                                                };
+
+                                                                let format = match view.texture_desc.format {
+                                                                    wgt::TextureFormat::R32Float => 0x822E,
+                                                                    wgt::TextureFormat::Rg32Float => 0x8230,
+                                                                    wgt::TextureFormat::Rgba32Float => 0x8814,
+                                                                    wgt::TextureFormat::Rgba8Unorm | wgt::TextureFormat::Bgra8Unorm => 0x8058,
+                                                                    _ => 0x8058,
+                                                                };
+                                                                let bpp = match format {
+                                                                    0x822E => 4,
+                                                                    0x8230 => 8,
+                                                                    0x8814 => 16,
+                                                                    _ => 4,
+                                                                };
+
+                                                                texture_metas.insert(
+                                                                    offset as u32,
+                                                                    (
+                                                                        view.texture_desc
+                                                                            .size
+                                                                            .width,
+                                                                        view.texture_desc
+                                                                            .size
+                                                                            .height,
+                                                                        data_ptr,
+                                                                        view.texture_desc
+                                                                            .size
+                                                                            .depth_or_array_layers,
+                                                                        format,
+                                                                        bpp,
+                                                                        0x2901, // GL_REPEAT
+                                                                        0x2901, // GL_REPEAT
+                                                                        0x2901, // Default wrap_r
+                                                                        0,      // Layout: Linear
+                                                                        0x2601, // min_filter: Linear
+                                                                        0x2601, // mag_filter: Linear
+                                                                    ),
+                                                                );
+                                                            }
+                                                            Some(SoftResource::Sampler(
+                                                                sampler,
+                                                            )) => {
+                                                                let wrap_s = match sampler.desc.address_modes[0] {
+                                                                    wgt::AddressMode::Repeat => 0x2901,
+                                                                    wgt::AddressMode::MirrorRepeat => 0x8370,
+                                                                    wgt::AddressMode::ClampToEdge => 0x812F,
+                                                                    _ => 0x2901,
+                                                                };
+                                                                let wrap_t = match sampler.desc.address_modes[1] {
+                                                                    wgt::AddressMode::Repeat => 0x2901,
+                                                                    wgt::AddressMode::MirrorRepeat => 0x8370,
+                                                                    wgt::AddressMode::ClampToEdge => 0x812F,
+                                                                    _ => 0x2901,
+                                                                };
+                                                                let wrap_r = match sampler.desc.address_modes[2] {
+                                                                    wgt::AddressMode::Repeat => 0x2901,
+                                                                    wgt::AddressMode::MirrorRepeat => 0x8370,
+                                                                    _ => 0x2901,
+                                                                };
+                                                                let min_filter = match sampler
+                                                                    .desc
+                                                                    .min_filter
+                                                                {
+                                                                    wgt::FilterMode::Nearest => {
+                                                                        0x2600
+                                                                    }
+                                                                    wgt::FilterMode::Linear => {
+                                                                        0x2601
+                                                                    }
+                                                                };
+                                                                let mag_filter = match sampler
+                                                                    .desc
+                                                                    .mag_filter
+                                                                {
+                                                                    wgt::FilterMode::Nearest => {
+                                                                        0x2600
+                                                                    }
+                                                                    wgt::FilterMode::Linear => {
+                                                                        0x2601
+                                                                    }
+                                                                };
+
+                                                                texture_metas.insert(
+                                                                    offset as u32,
+                                                                    (
+                                                                        0, 0, 0, 0, 0, 0, wrap_s,
+                                                                        wrap_t, wrap_r,
+                                                                        0, // Layout
+                                                                        min_filter, mag_filter,
+                                                                    ),
+                                                                );
+                                                            }
+                                                            _ => {}
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            let prepare_textures = Box::new(
+                                                move |mem: &wasm_gl_emu::ShaderMemoryLayout| {
+                                                    for (&offset, meta) in &texture_metas {
+                                                        // Place metadata after the 256-byte context block in the texture region.
+                                                        // Each binding gets 64 bytes for its metadata.
+                                                        let data_offset = 256 + (offset / 4) * 64;
+                                                        let data_addr =
+                                                            mem.texture_ptr + data_offset;
+                                                        unsafe {
+                                                            // 1. Write the pointer to the UNIFORM context block (where the shader looks)
+                                                            let ctx_ptr = (mem.uniform_ptr + offset)
+                                                                as *mut u32;
+                                                            *ctx_ptr = data_addr;
+
+                                                            // 2. Write metadata to the pointed-to location (in the texture region)
+                                                            let base = data_addr as *mut i32;
+                                                            *base.offset(0) = meta.0 as i32; // width
+                                                            *base.offset(1) = meta.1 as i32; // height
+                                                            *base.offset(2) = meta.2 as i32; // data_ptr
+                                                            *base.offset(3) = meta.3 as i32; // depth
+                                                            *base.offset(4) = meta.4 as i32; // format
+                                                            *base.offset(5) = meta.5 as i32; // bpp
+                                                            *base.offset(6) = meta.6 as i32; // wrap_s
+                                                            *base.offset(7) = meta.7 as i32; // wrap_t
+                                                            *base.offset(8) = meta.8 as i32; // wrap_r
+                                                            *base.offset(9) = meta.9 as i32; // layout
+                                                            *base.offset(10) = meta.10 as i32; // min_filter
+                                                            *base.offset(11) = meta.11 as i32;
+                                                            // mag_filter
+                                                        }
+                                                    }
+                                                },
+                                            );
+
+                                            let mut raster_pipeline =
+                                                wasm_gl_emu::RasterPipeline::new(
+                                                    self.shader_memory_base,
+                                                );
+                                            raster_pipeline.vs_table_idx =
+                                                Some(pipeline.vertex_stage.wasm_module.table_index);
+                                            raster_pipeline.fs_table_idx = Some(
+                                                pipeline.fragment_stage.wasm_module.table_index,
                                             );
 
                                             let mut state = wasm_gl_emu::RenderState {
                                                 ctx_handle: 0,
-                                                memory: wasm_gl_emu::ShaderMemoryLayout::default(),
+                                                memory: wasm_gl_emu::ShaderMemoryLayout::new(
+                                                    self.shader_memory_base,
+                                                ),
                                                 viewport,
                                                 scissor,
                                                 scissor_enabled,
-                                                uniform_data: &vs_uniforms,
-                                                prepare_textures: None,
+                                                uniform_data: &combined_uniforms,
+                                                prepare_textures: Some(prepare_textures),
                                                 blend: wasm_gl_emu::rasterizer::BlendState::default(
                                                 ),
                                                 color_mask:
@@ -1008,9 +1348,12 @@ impl hal::Queue for SoftQueue {
                                                 ),
                                                 stencil:
                                                     wasm_gl_emu::rasterizer::StencilState::default(),
+                                                cull_face_enabled: false,
+                                                cull_face_mode: GL_BACK,
+                                                front_face: GL_CCW,
                                             };
 
-                                            // Map depth state from pipeline
+                                            // Map depth/blend state
                                             if let Some(ds) = &pipeline.depth_stencil {
                                                 state.depth.enabled = true;
                                                 state.depth.mask = ds.depth_write_enabled;
@@ -1026,7 +1369,6 @@ impl hal::Queue for SoftQueue {
                                                 };
                                             }
 
-                                            // Map blend state from pipeline
                                             if let Some(Some(target)) =
                                                 pipeline.color_targets.first()
                                             {
@@ -1079,14 +1421,6 @@ impl hal::Queue for SoftQueue {
                                                 }
                                             }
 
-                                            let mut raster_pipeline =
-                                                wasm_gl_emu::RasterPipeline::default();
-                                            raster_pipeline.vs_table_idx =
-                                                Some(pipeline.vertex_stage.wasm_module.table_index);
-                                            raster_pipeline.fs_table_idx = Some(
-                                                pipeline.fragment_stage.wasm_module.table_index,
-                                            );
-
                                             let mut dummy_kernel = wasm_gl_emu::GpuKernel::new();
                                             rasterizer.draw(
                                                 &mut dummy_kernel,
@@ -1095,11 +1429,14 @@ impl hal::Queue for SoftQueue {
                                                         wasm_gl_emu::rasterizer::ColorTarget::Raw(
                                                             &mut data,
                                                         ),
-                                                    width,
-                                                    height,
-                                                    internal_format,
-                                                    depth: &mut dummy_depth,
-                                                    stencil: &mut dummy_stencil,
+                                                    depth_stencil_target:
+                                                        wasm_gl_emu::rasterizer::DepthStencilTarget::Raw {
+                                                            depth: &mut dummy_depth,
+                                                            stencil: &mut dummy_stencil,
+                                                        },
+                                                    width: width,
+                                                    height: height,
+                                                    internal_format: internal_format,
                                                     pipeline: &raster_pipeline,
                                                     state: &state,
                                                     vertex_fetcher: &fetcher,
@@ -1124,6 +1461,7 @@ impl hal::Queue for SoftQueue {
                                                         wgt::PrimitiveTopology::TriangleStrip => {
                                                             GL_TRIANGLE_STRIP
                                                         }
+                                                        _ => GL_TRIANGLES,
                                                     },
                                                 },
                                             );
@@ -1158,26 +1496,216 @@ impl hal::Queue for SoftQueue {
                                             let mut dummy_stencil =
                                                 vec![0u8; (width * height) as usize];
 
-                                            let rasterizer = wasm_gl_emu::Rasterizer::default();
+                                            let rasterizer = wasm_gl_emu::Rasterizer::new(
+                                                self.shader_memory_base,
+                                            );
 
                                             let fetcher = SoftVertexFetcher {
                                                 vertex_buffers: &vertex_buffers,
                                                 vertex_layouts: &pipeline.vertex_layouts,
                                             };
 
-                                            let vs_uniforms = self.scalarize_bind_groups(
+                                            let mut combined_uniforms = vec![0u8; 4096];
+                                            self.scalarize_into(
+                                                &mut combined_uniforms,
                                                 &bind_groups,
-                                                &pipeline.vertex_stage,
+                                                &[&pipeline.vertex_stage, &pipeline.fragment_stage],
                                             );
 
+                                            // Pre-lock textures to keep pointers valid during draw
+                                            type TexMetadata = (
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                                u32,
+                                            );
+                                            let mut texture_metas: HashMap<u32, TexMetadata> =
+                                                HashMap::new();
+                                            let mut _texture_guards = Vec::new();
+                                            let mut _already_locked = HashMap::new();
+
+                                            for stage in
+                                                &[&pipeline.vertex_stage, &pipeline.fragment_stage]
+                                            {
+                                                for (&(group, binding), &(offset, _)) in
+                                                    &stage.uniform_map
+                                                {
+                                                    if let Some(Some(bg)) =
+                                                        bind_groups.get(group as usize)
+                                                    {
+                                                        match bg.resources.get(&binding) {
+                                                            Some(SoftResource::TextureView(
+                                                                view,
+                                                            )) => {
+                                                                let tex_ptr =
+                                                                    Arc::as_ptr(&view.texture)
+                                                                        as usize;
+                                                                let data_ptr = if let Some(&p) =
+                                                                    _already_locked.get(&tex_ptr)
+                                                                {
+                                                                    p
+                                                                } else {
+                                                                    let guard = view
+                                                                        .texture
+                                                                        .lock()
+                                                                        .unwrap();
+                                                                    let p = guard.as_ptr() as u32;
+                                                                    _texture_guards.push(guard);
+                                                                    _already_locked
+                                                                        .insert(tex_ptr, p);
+                                                                    p
+                                                                };
+
+                                                                let format = match view.texture_desc.format {
+                                                                    wgt::TextureFormat::R32Float => 0x822E,
+                                                                    wgt::TextureFormat::Rg32Float => 0x8230,
+                                                                    wgt::TextureFormat::Rgba32Float => 0x8814,
+                                                                    wgt::TextureFormat::Rgba8Unorm | wgt::TextureFormat::Bgra8Unorm => 0x8058,
+                                                                    _ => 0x8058,
+                                                                };
+                                                                let bpp = match format {
+                                                                    0x822E => 4,
+                                                                    0x8230 => 8,
+                                                                    0x8814 => 16,
+                                                                    _ => 4,
+                                                                };
+
+                                                                texture_metas.insert(
+                                                                    offset as u32,
+                                                                    (
+                                                                        view.texture_desc
+                                                                            .size
+                                                                            .width,
+                                                                        view.texture_desc
+                                                                            .size
+                                                                            .height,
+                                                                        data_ptr,
+                                                                        view.texture_desc
+                                                                            .size
+                                                                            .depth_or_array_layers,
+                                                                        format,
+                                                                        bpp,
+                                                                        0x2901, // GL_REPEAT
+                                                                        0x2901, // GL_REPEAT
+                                                                        0x2901, // Default wrap_r
+                                                                        0,      // Layout: Linear
+                                                                        0x2601, // min_filter: Linear
+                                                                        0x2601, // mag_filter: Linear
+                                                                    ),
+                                                                );
+                                                            }
+                                                            Some(SoftResource::Sampler(
+                                                                sampler,
+                                                            )) => {
+                                                                let wrap_s = match sampler.desc.address_modes[0] {
+                                                                    wgt::AddressMode::Repeat => 0x2901,
+                                                                    wgt::AddressMode::MirrorRepeat => 0x8370,
+                                                                    wgt::AddressMode::ClampToEdge => 0x812F,
+                                                                    _ => 0x2901,
+                                                                };
+                                                                let wrap_t = match sampler.desc.address_modes[1] {
+                                                                    wgt::AddressMode::Repeat => 0x2901,
+                                                                    wgt::AddressMode::MirrorRepeat => 0x8370,
+                                                                    wgt::AddressMode::ClampToEdge => 0x812F,
+                                                                    _ => 0x2901,
+                                                                };
+                                                                let wrap_r = match sampler.desc.address_modes[2] {
+                                                                    wgt::AddressMode::Repeat => 0x2901,
+                                                                    wgt::AddressMode::MirrorRepeat => 0x8370,
+                                                                    _ => 0x2901,
+                                                                };
+                                                                let min_filter = match sampler
+                                                                    .desc
+                                                                    .min_filter
+                                                                {
+                                                                    wgt::FilterMode::Nearest => {
+                                                                        0x2600
+                                                                    }
+                                                                    wgt::FilterMode::Linear => {
+                                                                        0x2601
+                                                                    }
+                                                                };
+                                                                let mag_filter = match sampler
+                                                                    .desc
+                                                                    .mag_filter
+                                                                {
+                                                                    wgt::FilterMode::Nearest => {
+                                                                        0x2600
+                                                                    }
+                                                                    wgt::FilterMode::Linear => {
+                                                                        0x2601
+                                                                    }
+                                                                };
+
+                                                                texture_metas.insert(
+                                                                    offset as u32,
+                                                                    (
+                                                                        0, 0, 0, 0, 0, 0, wrap_s,
+                                                                        wrap_t, wrap_r,
+                                                                        0, // Layout
+                                                                        min_filter, mag_filter,
+                                                                    ),
+                                                                );
+                                                            }
+                                                            _ => {}
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            let prepare_textures = Box::new(
+                                                move |mem: &wasm_gl_emu::ShaderMemoryLayout| {
+                                                    for (&offset, meta) in &texture_metas {
+                                                        // Place metadata after the 256-byte context block.
+                                                        // Each binding gets 64 bytes for its metadata.
+                                                        let data_offset = 256 + (offset / 4) * 64;
+                                                        let data_addr =
+                                                            mem.texture_ptr + data_offset;
+                                                        unsafe {
+                                                            // 1. Write the pointer to the UNIFORM context block
+                                                            let ctx_ptr = (mem.uniform_ptr + offset)
+                                                                as *mut u32;
+                                                            *ctx_ptr = data_addr;
+
+                                                            // 2. Write metadata to the pointed-to location
+                                                            let base = data_addr as *mut i32;
+                                                            *base.offset(0) = meta.0 as i32; // width
+                                                            *base.offset(1) = meta.1 as i32; // height
+                                                            *base.offset(2) = meta.2 as i32; // data_ptr
+                                                            *base.offset(3) = meta.3 as i32; // depth
+                                                            *base.offset(4) = meta.4 as i32; // format
+                                                            *base.offset(5) = meta.5 as i32; // bpp
+                                                            *base.offset(6) = meta.6 as i32; // wrap_s
+                                                            *base.offset(7) = meta.7 as i32; // wrap_t
+                                                            *base.offset(8) = meta.8 as i32; // wrap_r
+                                                            *base.offset(9) = meta.9 as i32; // layout
+                                                            *base.offset(10) = meta.10 as i32; // min_filter
+                                                            *base.offset(11) = meta.11 as i32;
+                                                            // mag_filter
+                                                        }
+                                                    }
+                                                },
+                                            );
+
+                                            let base = crate::wasm_get_scratch_base();
                                             let mut state = wasm_gl_emu::RenderState {
                                                 ctx_handle: 0,
-                                                memory: wasm_gl_emu::ShaderMemoryLayout::default(),
+                                                memory: wasm_gl_emu::ShaderMemoryLayout::new(
+                                                    self.shader_memory_base,
+                                                ),
                                                 viewport,
                                                 scissor,
                                                 scissor_enabled,
-                                                uniform_data: &vs_uniforms,
-                                                prepare_textures: None,
+                                                uniform_data: &combined_uniforms,
+                                                prepare_textures: Some(prepare_textures),
                                                 blend: wasm_gl_emu::rasterizer::BlendState::default(
                                                 ),
                                                 color_mask:
@@ -1187,6 +1715,9 @@ impl hal::Queue for SoftQueue {
                                                 ),
                                                 stencil:
                                                     wasm_gl_emu::rasterizer::StencilState::default(),
+                                                cull_face_enabled: false,
+                                                cull_face_mode: GL_BACK,
+                                                front_face: GL_CCW,
                                             };
 
                                             // Map depth/blend state (same as Draw)
@@ -1259,7 +1790,9 @@ impl hal::Queue for SoftQueue {
                                             }
 
                                             let mut raster_pipeline =
-                                                wasm_gl_emu::RasterPipeline::default();
+                                                wasm_gl_emu::RasterPipeline::new(
+                                                    self.shader_memory_base,
+                                                );
                                             raster_pipeline.vs_table_idx =
                                                 Some(pipeline.vertex_stage.wasm_module.table_index);
                                             raster_pipeline.fs_table_idx = Some(
@@ -1327,11 +1860,13 @@ impl hal::Queue for SoftQueue {
                                             let mut dummy_kernel = wasm_gl_emu::GpuKernel::new();
                                             rasterizer.draw(&mut dummy_kernel, wasm_gl_emu::rasterizer::DrawConfig {
                                                 color_target: wasm_gl_emu::rasterizer::ColorTarget::Raw(&mut data),
-                                                width,
-                                                height,
-                                                internal_format,
-                                                depth: &mut dummy_depth,
-                                                stencil: &mut dummy_stencil,
+                                                depth_stencil_target: wasm_gl_emu::rasterizer::DepthStencilTarget::Raw {
+                                                    depth: &mut dummy_depth,
+                                                    stencil: &mut dummy_stencil,
+                                                },
+                                                width: width,
+                                                height: height,
+                                                internal_format: internal_format,
                                                 pipeline: &raster_pipeline,
                                                 state: &state,
                                                 vertex_fetcher: &fetcher,
@@ -1346,6 +1881,7 @@ impl hal::Queue for SoftQueue {
                                                     wgt::PrimitiveTopology::LineStrip => GL_LINE_STRIP,
                                                     wgt::PrimitiveTopology::TriangleList => GL_TRIANGLES,
                                                     wgt::PrimitiveTopology::TriangleStrip => GL_TRIANGLE_STRIP,
+                                                    _ => GL_TRIANGLES,
                                                 },
                                             });
                                         }
@@ -1359,6 +1895,58 @@ impl hal::Queue for SoftQueue {
                         // StoreOp::Discard would mean we don't care, but we already wrote it.
                         // Resolve targets would need to be handled here.
                     }
+                    _ => {}
+                }
+            }
+        }
+
+        // Pass 3: Execute all readback copies (TextureToBuffer)
+        for cmd_buf in command_buffers {
+            for cmd in &cmd_buf.commands {
+                match cmd {
+                    SoftCommand::CopyTextureToBuffer {
+                        src,
+                        dst,
+                        regions,
+                        texture_desc,
+                    } => {
+                        let src_data = src.lock().unwrap();
+                        let mut dst_data = dst.lock().unwrap();
+                        for region in regions {
+                            let bytes_per_pixel = 4;
+                            let width = region.size.width;
+                            let height = region.size.height;
+                            let depth = region.size.depth;
+                            let row_pitch = width * bytes_per_pixel;
+                            let slice_pitch = row_pitch * height;
+                            let src_origin = region.texture_base.origin;
+                            let src_offset =
+                                (src_origin.z * texture_desc.size.height * texture_desc.size.width
+                                    + src_origin.y * texture_desc.size.width
+                                    + src_origin.x)
+                                    * bytes_per_pixel;
+                            let dst_offset = region.buffer_layout.offset;
+
+                            for z in 0..depth {
+                                for y in 0..height {
+                                    let src_idx =
+                                        (src_offset + (z * slice_pitch) + (y * row_pitch)) as usize;
+                                    let dst_idx = (dst_offset
+                                        + (z as u64 * slice_pitch as u64)
+                                        + (y as u64 * row_pitch as u64))
+                                        as usize;
+                                    let len = row_pitch as usize;
+                                    if src_idx + len <= src_data.len()
+                                        && dst_idx + len <= dst_data.len()
+                                    {
+                                        dst_data[dst_idx..dst_idx + len]
+                                            .copy_from_slice(&src_data[src_idx..src_idx + len]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -1457,14 +2045,17 @@ impl hal::CommandEncoder for SoftCommandEncoder {
         T: Iterator<Item = hal::TextureCopy>,
     {
     }
-    unsafe fn copy_buffer_to_texture<T>(
-        &mut self,
-        _src: &SoftBuffer,
-        _dst: &SoftTexture,
-        _regions: T,
-    ) where
+    unsafe fn copy_buffer_to_texture<T>(&mut self, src: &SoftBuffer, dst: &SoftTexture, regions: T)
+    where
         T: Iterator<Item = hal::BufferTextureCopy>,
     {
+        let regions_vec: Vec<hal::BufferTextureCopy> = regions.collect();
+        self.commands.push(SoftCommand::CopyBufferToTexture {
+            src: src.data.clone(),
+            dst: dst.data.clone(),
+            regions: regions_vec,
+            texture_desc: dst.desc.clone(),
+        });
     }
     unsafe fn copy_texture_to_buffer<T>(
         &mut self,

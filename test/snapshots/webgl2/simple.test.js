@@ -50,7 +50,7 @@ test('basic vertex shader WAT', async () => {
   (type (;17;) (func (param f32) (result f32)))
   (type (;18;) (func))
   (type (;19;) (func (param i32 i32 i32 i32 i32 i32 i32 i32)))
-  (import "env" "memory" (memory (;0;) 10))
+  (import "env" "memory" (memory (;0;) 100))
   (import "env" "gl_sin" (func (;0;) (type 0)))
   (import "env" "gl_cos" (func (;1;) (type 1)))
   (import "env" "gl_tan" (func (;2;) (type 2)))
@@ -104,7 +104,9 @@ test('basic vertex shader WAT', async () => {
     global.set 3
     local.get 7
     global.set 4
-    i32.const 524288
+    local.get 6
+    i32.const 81920
+    i32.add
     global.set 5
     call 18
     global.get 2
@@ -193,7 +195,7 @@ test('basic fragment shader WAT', async () => {
   (type (;17;) (func (param f32) (result f32)))
   (type (;18;) (func))
   (type (;19;) (func (param i32 i32 i32 i32 i32 i32 i32 i32)))
-  (import "env" "memory" (memory (;0;) 10))
+  (import "env" "memory" (memory (;0;) 100))
   (import "env" "gl_sin" (func (;0;) (type 0)))
   (import "env" "gl_cos" (func (;1;) (type 1)))
   (import "env" "gl_tan" (func (;2;) (type 2)))
@@ -247,7 +249,9 @@ test('basic fragment shader WAT', async () => {
     global.set 3
     local.get 7
     global.set 4
-    i32.const 524288
+    local.get 6
+    i32.const 81920
+    i32.add
     global.set 5
     call 18
     global.get 3

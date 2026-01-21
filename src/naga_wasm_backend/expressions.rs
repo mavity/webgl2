@@ -662,7 +662,24 @@ pub fn translate_expression_component(
             if let Some(&(offset, base_ptr_idx)) = ctx.global_offsets.get(handle) {
                 ctx.wasm_func
                     .instruction(&Instruction::GlobalGet(base_ptr_idx));
-                let final_offset = offset + component_idx * 4;
+
+                // For Uniforms and Textures, the offset points into the Context Block.
+                // We must load the actual base address from there.
+                if base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL
+                    || base_ptr_idx == output_layout::TEXTURE_PTR_GLOBAL
+                {
+                    ctx.wasm_func
+                        .instruction(&Instruction::I32Const(offset as i32));
+                    ctx.wasm_func.instruction(&Instruction::I32Add);
+                    ctx.wasm_func
+                        .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                            offset: 0,
+                            align: 2,
+                            memory_index: 0,
+                        }));
+                }
+
+                let final_offset = component_idx * 4;
                 if final_offset > 0 {
                     ctx.wasm_func
                         .instruction(&Instruction::I32Const(final_offset as i32));
@@ -1082,7 +1099,10 @@ pub fn translate_expression_component(
             }
         }
         Expression::ImageSample {
-            image, coordinate, ..
+            image,
+            coordinate,
+            sampler,
+            ..
         } => {
             let ty_handle = ctx.typifier[*image].handle().unwrap();
             let dim = match ctx.module.types[ty_handle].inner {
@@ -1097,20 +1117,58 @@ pub fn translate_expression_component(
             };
 
             if let Some(tex_fetch_idx) = sampler_idx {
-                // 1. Push texture_ptr (global)
-                ctx.wasm_func
-                    .instruction(&Instruction::GlobalGet(output_layout::TEXTURE_PTR_GLOBAL));
+                let mut push_handle_addr =
+                    |h_expr: naga::Handle<Expression>, ctx: &mut TranslationContext| {
+                        if let Expression::GlobalVariable(h) = ctx.func.expressions[h_expr] {
+                            if let Some(&(offset, base_ptr_idx)) = ctx.global_offsets.get(&h) {
+                                let var = &ctx.module.global_variables[h];
+                                if base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL
+                                    && var.space == naga::AddressSpace::Handle
+                                    && !ctx.uniform_locations.is_empty()
+                                {
+                                    // Index model (WebGL): Load unit index from uniform memory
+                                    // Note: WebGL uniforms use indirection (table -> value)
+                                    ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                        output_layout::UNIFORM_PTR_GLOBAL,
+                                    ));
+                                    if offset > 0 {
+                                        ctx.wasm_func
+                                            .instruction(&Instruction::I32Const(offset as i32));
+                                        ctx.wasm_func.instruction(&Instruction::I32Add);
+                                    }
+                                    ctx.wasm_func.instruction(&Instruction::I32Load(
+                                        wasm_encoder::MemArg {
+                                            offset: 0,
+                                            align: 2,
+                                            memory_index: 0,
+                                        },
+                                    ));
 
-                // 2. Get texture unit index
-                translate_expression_component(*image, 0, ctx)?;
-                if let Expression::GlobalVariable(_) = ctx.func.expressions[*image] {
-                    ctx.wasm_func
-                        .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-                            offset: 0,
-                            align: 2,
-                            memory_index: 0,
-                        }));
-                }
+                                    // Now we have unit_index on stack
+                                    ctx.wasm_func.instruction(&Instruction::I32Const(6));
+                                    ctx.wasm_func.instruction(&Instruction::I32Shl); // * 64
+                                    ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                        output_layout::TEXTURE_PTR_GLOBAL,
+                                    ));
+                                    ctx.wasm_func.instruction(&Instruction::I32Add);
+                                } else {
+                                    // Handle model (WebGPU) or direct pointer: Push absolute descriptor address
+                                    translate_expression_component(h_expr, 0, ctx)?;
+                                }
+                            } else {
+                                translate_expression_component(h_expr, 0, ctx)?;
+                            }
+                        } else {
+                            translate_expression_component(h_expr, 0, ctx)?;
+                        }
+                        Ok::<(), BackendError>(())
+                    };
+
+                // 1. Push texture descriptor address
+                push_handle_addr(*image, ctx)?;
+
+                // 2. Push sampler descriptor address
+                push_handle_addr(*sampler, ctx)?;
 
                 // 3. Push coordinates
                 translate_expression_component(*coordinate, 0, ctx)?;
@@ -1119,7 +1177,7 @@ pub fn translate_expression_component(
                     translate_expression_component(*coordinate, 2, ctx)?;
                 }
 
-                // 4. Call helper
+                // 4. Call helper (expects texture_desc, sampler_desc, u, v, [w])
                 ctx.wasm_func.instruction(&Instruction::Call(tex_fetch_idx));
 
                 // 5. Store results
@@ -1147,29 +1205,61 @@ pub fn translate_expression_component(
             image, coordinate, ..
         } => {
             if let Some(load_idx) = ctx.webgl_image_load_idx {
-                // 1. Push texture_ptr (global)
-                ctx.wasm_func
-                    .instruction(&Instruction::GlobalGet(output_layout::TEXTURE_PTR_GLOBAL));
-
-                // 2. Get texture unit index
-                translate_expression_component(*image, 0, ctx)?;
-
-                if let Expression::GlobalVariable(_) = ctx.func.expressions[*image] {
+                // 1. Resolve arguments 0 and 1 (texture_ptr and desc_addr)
+                if let Expression::GlobalVariable(h) = ctx.func.expressions[*image] {
+                    if let Some(&(offset, base_ptr_idx)) = ctx.global_offsets.get(&h) {
+                        ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                            output_layout::TEXTURE_PTR_GLOBAL,
+                        ));
+                        if base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL
+                            && !ctx.uniform_locations.is_empty()
+                        {
+                            // Index model (WebGL): Load unit index from uniform memory
+                            ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                output_layout::UNIFORM_PTR_GLOBAL,
+                            ));
+                            let final_offset = offset + 0;
+                            if final_offset > 0 {
+                                ctx.wasm_func
+                                    .instruction(&Instruction::I32Const(final_offset as i32));
+                                ctx.wasm_func.instruction(&Instruction::I32Add);
+                            }
+                            ctx.wasm_func.instruction(&Instruction::I32Load(
+                                wasm_encoder::MemArg {
+                                    offset: 0,
+                                    align: 2,
+                                    memory_index: 0,
+                                },
+                            ));
+                            ctx.wasm_func.instruction(&Instruction::I32Const(64));
+                            ctx.wasm_func.instruction(&Instruction::I32Mul);
+                            ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                output_layout::TEXTURE_PTR_GLOBAL,
+                            ));
+                            ctx.wasm_func.instruction(&Instruction::I32Add);
+                        } else {
+                            // Handle model (WebGPU)
+                            translate_expression_component(*image, 0, ctx)?;
+                        }
+                    } else {
+                        // Fallback
+                        ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                            output_layout::TEXTURE_PTR_GLOBAL,
+                        ));
+                        translate_expression_component(*image, 0, ctx)?;
+                    }
+                } else {
+                    // Fallback
                     ctx.wasm_func
-                        .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-                            offset: 0,
-                            align: 2,
-                            memory_index: 0,
-                        }));
+                        .instruction(&Instruction::GlobalGet(output_layout::TEXTURE_PTR_GLOBAL));
+                    translate_expression_component(*image, 0, ctx)?;
                 }
 
-                // 3. Push X coordinate (i32)
+                // 2. Push coordinates (x, y)
                 translate_expression_component(*coordinate, 0, ctx)?;
-
-                // 4. Push Y coordinate (i32)
                 translate_expression_component(*coordinate, 1, ctx)?;
 
-                // 5. Call host load import -> returns (f32, f32, f32, f32)
+                // 3. Call helper (expects texture_ptr, desc_addr, x, y)
                 ctx.wasm_func.instruction(&Instruction::Call(load_idx));
 
                 // 6. Store all 4 results
@@ -1196,26 +1286,45 @@ pub fn translate_expression_component(
         Expression::ImageQuery { image, query } => {
             match query {
                 naga::ImageQuery::Size { .. } => {
-                    // Load width/height from descriptor
-                    ctx.wasm_func
-                        .instruction(&Instruction::GlobalGet(output_layout::TEXTURE_PTR_GLOBAL));
-
-                    // Get texture unit index
-                    translate_expression_component(*image, 0, ctx)?;
-                    if let Expression::GlobalVariable(_) = ctx.func.expressions[*image] {
-                        ctx.wasm_func
-                            .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-                                offset: 0,
-                                align: 2,
-                                memory_index: 0,
-                            }));
+                    // 1. Resolve descriptor address
+                    if let Expression::GlobalVariable(h) = ctx.func.expressions[*image] {
+                        if let Some(&(offset, base_ptr_idx)) = ctx.global_offsets.get(&h) {
+                            if base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL {
+                                // Index model (WebGL)
+                                ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                    output_layout::UNIFORM_PTR_GLOBAL,
+                                ));
+                                let final_offset = offset + 0;
+                                if final_offset > 0 {
+                                    ctx.wasm_func
+                                        .instruction(&Instruction::I32Const(final_offset as i32));
+                                    ctx.wasm_func.instruction(&Instruction::I32Add);
+                                }
+                                ctx.wasm_func.instruction(&Instruction::I32Load(
+                                    wasm_encoder::MemArg {
+                                        offset: 0,
+                                        align: 2,
+                                        memory_index: 0,
+                                    },
+                                ));
+                                ctx.wasm_func.instruction(&Instruction::I32Const(64));
+                                ctx.wasm_func.instruction(&Instruction::I32Mul);
+                                ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                    output_layout::TEXTURE_PTR_GLOBAL,
+                                ));
+                                ctx.wasm_func.instruction(&Instruction::I32Add);
+                            } else {
+                                // Handle model (WebGPU)
+                                translate_expression_component(*image, 0, ctx)?;
+                            }
+                        } else {
+                            translate_expression_component(*image, 0, ctx)?;
+                        }
+                    } else {
+                        translate_expression_component(*image, 0, ctx)?;
                     }
 
-                    ctx.wasm_func.instruction(&Instruction::I32Const(32));
-                    ctx.wasm_func.instruction(&Instruction::I32Mul);
-                    ctx.wasm_func.instruction(&Instruction::I32Add);
-
-                    // index 0 -> width, index 1 -> height
+                    // index 0 -> width, index 1 -> height, index 3 -> depth
                     if component_idx == 0 {
                         ctx.wasm_func
                             .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
@@ -1742,7 +1851,20 @@ pub fn translate_expression(
                 if let Some(&(offset, base_ptr_idx)) = ctx.global_offsets.get(handle) {
                     ctx.wasm_func
                         .instruction(&Instruction::GlobalGet(base_ptr_idx));
-                    if offset > 0 {
+
+                    if base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL
+                        || base_ptr_idx == output_layout::TEXTURE_PTR_GLOBAL
+                    {
+                        ctx.wasm_func
+                            .instruction(&Instruction::I32Const(offset as i32));
+                        ctx.wasm_func.instruction(&Instruction::I32Add);
+                        ctx.wasm_func
+                            .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                                offset: 0,
+                                align: 2,
+                                memory_index: 0,
+                            }));
+                    } else if offset > 0 {
                         ctx.wasm_func
                             .instruction(&Instruction::I32Const(offset as i32));
                         ctx.wasm_func.instruction(&Instruction::I32Add);

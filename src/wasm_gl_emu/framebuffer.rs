@@ -34,13 +34,26 @@ impl OwnedFramebuffer {
         let layout = StorageLayout::Tiled8x8;
         let gpu_handle = kernel.create_buffer(width, height, 1, format, layout);
 
+        let pixel_count = match layout {
+            StorageLayout::Linear => (width * height) as usize,
+            StorageLayout::Tiled8x8 => {
+                let tiles_w = (width + 7) / 8;
+                let tiles_h = (height + 7) / 8;
+                (tiles_w * tiles_h * 64) as usize
+            }
+            StorageLayout::Morton => {
+                let dim = width.max(height).next_power_of_two();
+                (dim * dim) as usize
+            }
+        };
+
         Self {
             width,
             height,
             internal_format,
             gpu_handle,
-            depth: vec![1.0; (width * height) as usize],
-            stencil: vec![0; (width * height) as usize],
+            depth: vec![1.0; pixel_count],
+            stencil: vec![0; pixel_count],
             layout,
         }
     }
@@ -115,5 +128,19 @@ impl<'a> Framebuffer<'a> {
             _ => wgt::TextureFormat::Rgba8Unorm,
         };
         GpuBuffer::offset_for_layout(x, y, z, self.width, self.height, 1, format, self.layout)
+    }
+
+    pub fn get_pixel_index(&self, x: u32, y: u32, z: u32) -> usize {
+        // Use R8Unorm to get a 1-byte bpp offset (effectively pixel index)
+        GpuBuffer::offset_for_layout(
+            x,
+            y,
+            z,
+            self.width,
+            self.height,
+            1,
+            wgt::TextureFormat::R8Unorm,
+            self.layout,
+        )
     }
 }

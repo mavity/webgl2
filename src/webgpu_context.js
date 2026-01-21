@@ -177,10 +177,12 @@ export class GPU {
   /**
    * @param {*} wasmModule - WebAssembly module exports implementing WebGPU.
    * @param {WebAssembly.Memory} wasmMemory - WebAssembly linear memory.
+   * @param {any} [scratchLayout] - Dynamic memory layout for shaders.
    */
-  constructor(wasmModule, wasmMemory) {
+  constructor(wasmModule, wasmMemory, scratchLayout = null) {
     this.wasm = wasmModule;
     this.memory = wasmMemory;
+    this._scratchLayout = scratchLayout;
   }
 
   /**
@@ -936,6 +938,15 @@ export class GPURenderPipeline {
     this.ctxHandle = ctxHandle;
     this.pipelineHandle = pipelineHandle;
   }
+
+  /**
+   * @param {number} index
+   * @returns {GPUBindGroupLayout}
+   */
+  getBindGroupLayout(index) {
+    const layoutHandle = this.wasm.wasm_webgpu_pipeline_get_bind_group_layout(this.ctxHandle, this.pipelineHandle, index);
+    return new GPUBindGroupLayout(this.wasm, this.memory, this.ctxHandle, layoutHandle);
+  }
 }
 
 export class GPUCommandEncoder {
@@ -1010,7 +1021,24 @@ export class GPUCommandEncoder {
    * @returns {GPURenderPassEncoder}
    */
   beginRenderPass(descriptor) {
-    return new GPURenderPassEncoder(this.wasm, this.memory, this.ctxHandle, this.encoderHandle, descriptor);
+    const att = descriptor.colorAttachments[0];
+    const loadOp = att.loadOp === 'clear' ? 1 : 0;
+    const storeOp = att.storeOp === 'discard' ? 1 : 0;
+    const clearColor = att.clearValue || { r: 0, g: 0, b: 0, a: 0 };
+
+    const passHandle = this.wasm.wasm_webgpu_command_encoder_begin_render_pass(
+      this.ctxHandle,
+      this.encoderHandle,
+      att.view.viewHandle,
+      loadOp,
+      storeOp,
+      clearColor.r,
+      clearColor.g,
+      clearColor.b,
+      clearColor.a
+    );
+
+    return new GPURenderPassEncoder(this.wasm, this.memory, this.ctxHandle, passHandle);
   }
 
   /**
@@ -1031,16 +1059,13 @@ export class GPURenderPassEncoder {
    * @param {*} wasmModule
    * @param {WebAssembly.Memory} wasmMemory
    * @param {number} ctxHandle
-   * @param {number} encoderHandle
-   * @param {Object} descriptor
+   * @param {number} passHandle
    */
-  constructor(wasmModule, wasmMemory, ctxHandle, encoderHandle, descriptor) {
+  constructor(wasmModule, wasmMemory, ctxHandle, passHandle) {
     this.wasm = wasmModule;
     this.memory = wasmMemory;
     this.ctxHandle = ctxHandle;
-    this.encoderHandle = encoderHandle;
-    this.descriptor = descriptor;
-    this.commands = [];
+    this.passHandle = passHandle;
   }
 
   /**
@@ -1048,7 +1073,7 @@ export class GPURenderPassEncoder {
    * @param {GPURenderPipeline} pipeline
    */
   setPipeline(pipeline) {
-    this.commands.push(1, pipeline.pipelineHandle);
+    this.wasm.wasm_webgpu_render_pass_set_pipeline(this.ctxHandle, this.passHandle, pipeline.pipelineHandle);
   }
 
   /**
@@ -1059,7 +1084,14 @@ export class GPURenderPassEncoder {
    * @param {number} size
    */
   setVertexBuffer(slot, buffer, offset = 0, size) {
-    this.commands.push(2, slot, buffer.bufferHandle, offset, size || buffer.size);
+    this.wasm.wasm_webgpu_render_pass_set_vertex_buffer(
+      this.ctxHandle,
+      this.passHandle,
+      slot,
+      buffer.bufferHandle,
+      BigInt(offset),
+      BigInt(size || buffer.size)
+    );
   }
 
   /**
@@ -1069,7 +1101,7 @@ export class GPURenderPassEncoder {
    * @param {Array<number>} dynamicOffsets
    */
   setBindGroup(index, bindGroup, dynamicOffsets = []) {
-    this.commands.push(4, index, bindGroup.bindGroupHandle);
+    this.wasm.wasm_webgpu_render_pass_set_bind_group(this.ctxHandle, this.passHandle, index, bindGroup.bindGroupHandle);
   }
 
   /**
@@ -1081,7 +1113,14 @@ export class GPURenderPassEncoder {
    */
   setIndexBuffer(buffer, indexFormat, offset = 0, size) {
     const formatId = indexFormat === 'uint32' ? 2 : 1;
-    this.commands.push(5, buffer.bufferHandle, formatId, offset, size || (buffer.size - offset));
+    this.wasm.wasm_webgpu_render_pass_set_index_buffer(
+      this.ctxHandle,
+      this.passHandle,
+      buffer.bufferHandle,
+      formatId,
+      BigInt(offset),
+      BigInt(size || (buffer.size - offset))
+    );
   }
 
   /**
@@ -1092,7 +1131,7 @@ export class GPURenderPassEncoder {
    * @param {number} firstInstance
    */
   draw(vertexCount, instanceCount = 1, firstVertex = 0, firstInstance = 0) {
-    this.commands.push(3, vertexCount, instanceCount, firstVertex, firstInstance);
+    this.wasm.wasm_webgpu_render_pass_draw(this.ctxHandle, this.passHandle, vertexCount, instanceCount, firstVertex, firstInstance);
   }
 
   /**
@@ -1104,7 +1143,7 @@ export class GPURenderPassEncoder {
    * @param {number} firstInstance
    */
   drawIndexed(indexCount, instanceCount = 1, firstIndex = 0, baseVertex = 0, firstInstance = 0) {
-    this.commands.push(6, indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
+    this.wasm.wasm_webgpu_render_pass_draw_indexed(this.ctxHandle, this.passHandle, indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
   }
 
   /**
@@ -1117,16 +1156,7 @@ export class GPURenderPassEncoder {
    * @param {number} maxDepth
    */
   setViewport(x, y, width, height, minDepth, maxDepth) {
-    // Use Float32Array to get bit representation of floats
-    const f32 = new Float32Array(6);
-    f32[0] = x;
-    f32[1] = y;
-    f32[2] = width;
-    f32[3] = height;
-    f32[4] = minDepth;
-    f32[5] = maxDepth;
-    const u32 = new Uint32Array(f32.buffer);
-    this.commands.push(7, u32[0], u32[1], u32[2], u32[3], u32[4], u32[5]);
+    this.wasm.wasm_webgpu_render_pass_set_viewport(this.ctxHandle, this.passHandle, x, y, width, height, minDepth, maxDepth);
   }
 
   /**
@@ -1137,38 +1167,14 @@ export class GPURenderPassEncoder {
    * @param {number} height
    */
   setScissorRect(x, y, width, height) {
-    this.commands.push(8, x, y, width, height);
+    this.wasm.wasm_webgpu_render_pass_set_scissor_rect(this.ctxHandle, this.passHandle, x, y, width, height);
   }
 
   /**
    * End the render pass
    */
   end() {
-    // Execute the render pass with all buffered commands
-    const att = this.descriptor.colorAttachments[0];
-    const loadOp = att.loadOp === 'clear' ? 1 : 0;
-    const storeOp = att.storeOp === 'discard' ? 1 : 0;
-    const clearColor = att.clearValue || { r: 0, g: 0, b: 0, a: 0 };
-
-    const ptr = this.wasm.wasm_alloc(this.commands.length * 4);
-    const heapU32 = new Uint32Array(this.memory.buffer, ptr, this.commands.length);
-    heapU32.set(this.commands);
-
-    this.wasm.wasm_webgpu_command_encoder_run_render_pass(
-      this.ctxHandle,
-      this.encoderHandle,
-      att.view.viewHandle,
-      loadOp,
-      storeOp,
-      clearColor.r,
-      clearColor.g,
-      clearColor.b,
-      clearColor.a,
-      ptr,
-      this.commands.length
-    );
-
-    this.wasm.wasm_free(ptr, this.commands.length * 4);
+    this.wasm.wasm_webgpu_render_pass_end(this.ctxHandle, this.passHandle);
   }
 }
 

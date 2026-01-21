@@ -67,16 +67,16 @@ test('output_layout_offsets: verify vertex attribute and fragment varying offset
       
       const wasm = gl.getProgramWasm(prog, gl.FRAGMENT_SHADER);
       assert.ok(wasm, 'WASM should be available for linked fragment shader');
-      // location 1 varying offset = (1 + 1) * 16 = 32 (0x20)
-      // We expect I32Const(32) -> 0x41 0x20
+      // location 1 varying offset = (1 + 2) * 16 = 48 (0x30)
+      // We expect I32Const(48) -> 0x41 0x30
       let found = false;
       for (let i = 0; i < wasm.length - 1; i++) {
-        if (wasm[i] === 0x41 && wasm[i+1] === 0x20) {
+        if (wasm[i] === 0x41 && wasm[i+1] === 0x30) {
           found = true;
           break;
         }
       }
-      assert.ok(found, 'WASM should contain I32Const(32) for fragment varying at location 1');
+      assert.ok(found, 'WASM should contain I32Const(48) for fragment varying at location 1');
     });
   } finally {
     gl.destroy();

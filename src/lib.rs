@@ -40,6 +40,22 @@ extern "C" {
     fn wasm_register_shader(ptr: *const u8, len: usize) -> u32;
 }
 
+// Access the linker-provided __heap_base
+#[cfg(target_arch = "wasm32")]
+extern "C" {
+    static __heap_base: i32;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+static __heap_base: i32 = 0x200000;
+
+#[no_mangle]
+pub extern "C" fn wasm_get_scratch_base() -> u32 {
+    let base = unsafe { &__heap_base as *const i32 as u32 };
+    // Align to 64KB page boundary for safety and predictability
+    (base + 0xFFFF) & !0xFFFF
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn print(_ptr: *const u8, _len: usize) {}
 
@@ -220,8 +236,8 @@ pub extern "C" fn gl_sqrt(x: f32) -> f32 {
 }
 
 #[no_mangle]
-pub extern "C" fn gl_inverse_sqrt(x: f32) -> f32 {
-    x.invsqrt()
+pub extern "C" fn gl_inversesqrt(x: f32) -> f32 {
+    1.0 / x.sqrt()
 }
 
 #[no_mangle]
@@ -1755,6 +1771,16 @@ pub unsafe extern "C" fn wasm_webgpu_create_render_pipeline(
     webgpu::pipeline::create_render_pipeline(ctx_handle, device_handle, config)
 }
 
+/// Get a bind group layout from a render pipeline.
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_pipeline_get_bind_group_layout(
+    ctx_handle: u32,
+    pipeline_handle: u32,
+    index: u32,
+) -> u32 {
+    webgpu::pipeline::get_render_pipeline_bind_group_layout(ctx_handle, pipeline_handle, index)
+}
+
 /// Create a bind group layout.
 ///
 /// # Safety
@@ -1788,37 +1814,38 @@ pub unsafe extern "C" fn wasm_webgpu_create_bind_group(
     webgpu::bind_group::create_bind_group(ctx_handle, device_handle, layout_handle, entries)
 }
 
-/// Run a render pass with buffered commands.
-///
-/// # Safety
-///
-/// This function is unsafe because it takes raw pointers.
-#[no_mangle]
-pub unsafe extern "C" fn wasm_webgpu_command_encoder_run_render_pass(
-    ctx_handle: u32,
-    encoder_handle: u32,
-    view_handle: u32,
-    load_op: u32,
-    store_op: u32,
-    clear_r: f64,
-    clear_g: f64,
-    clear_b: f64,
-    clear_a: f64,
-    commands_ptr: *const u32,
-    commands_len: usize,
-) -> u32 {
-    let commands = std::slice::from_raw_parts(commands_ptr, commands_len);
-    let config = webgpu::command::RenderPassConfig {
-        view_handle,
-        load_op,
-        store_op,
-        clear_r,
-        clear_g,
-        clear_b,
-        clear_a,
-    };
-    webgpu::command::command_encoder_run_render_pass(ctx_handle, encoder_handle, config, commands)
-}
+// TODO: why was this removed???
+// /// Run a render pass with buffered commands.
+// ///
+// /// # Safety
+// ///
+// /// This function is unsafe because it takes raw pointers.
+// #[no_mangle]
+// pub unsafe extern "C" fn wasm_webgpu_command_encoder_run_render_pass(
+//     ctx_handle: u32,
+//     encoder_handle: u32,
+//     view_handle: u32,
+//     load_op: u32,
+//     store_op: u32,
+//     clear_r: f64,
+//     clear_g: f64,
+//     clear_b: f64,
+//     clear_a: f64,
+//     commands_ptr: *const u32,
+//     commands_len: usize,
+// ) -> u32 {
+//     let commands = std::slice::from_raw_parts(commands_ptr, commands_len);
+//     let config = webgpu::command::RenderPassConfig {
+//         view_handle,
+//         load_op,
+//         store_op,
+//         clear_r,
+//         clear_g,
+//         clear_b,
+//         clear_a,
+//     };
+//     webgpu::command::command_encoder_run_render_pass(ctx_handle, encoder_handle, config, commands)
+// }
 
 #[no_mangle]
 pub extern "C" fn wasm_webgpu_create_command_encoder(ctx_handle: u32, device_handle: u32) -> u32 {
@@ -1934,7 +1961,7 @@ pub extern "C" fn wasm_webgpu_command_encoder_copy_texture_to_buffer(
 }
 
 #[no_mangle]
-pub extern "C" fn wasm_webgpu_command_encoder_begin_render_pass_1_color(
+pub extern "C" fn wasm_webgpu_command_encoder_begin_render_pass(
     ctx_handle: u32,
     encoder_handle: u32,
     view_handle: u32,
@@ -1954,7 +1981,144 @@ pub extern "C" fn wasm_webgpu_command_encoder_begin_render_pass_1_color(
         clear_b,
         clear_a,
     };
-    webgpu::command::command_encoder_begin_render_pass_1_color(ctx_handle, encoder_handle, config)
+    webgpu::command::command_encoder_begin_render_pass(ctx_handle, encoder_handle, config)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_render_pass_set_pipeline(
+    ctx_handle: u32,
+    pass_handle: u32,
+    pipeline_handle: u32,
+) -> u32 {
+    webgpu::command::render_pass_set_pipeline(ctx_handle, pass_handle, pipeline_handle)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_render_pass_set_vertex_buffer(
+    ctx_handle: u32,
+    pass_handle: u32,
+    slot: u32,
+    buffer_handle: u32,
+    offset: u64,
+    size: u64,
+) -> u32 {
+    webgpu::command::render_pass_set_vertex_buffer(
+        ctx_handle,
+        pass_handle,
+        slot,
+        buffer_handle,
+        offset,
+        size,
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_render_pass_set_index_buffer(
+    ctx_handle: u32,
+    pass_handle: u32,
+    buffer_handle: u32,
+    format_id: u32,
+    offset: u64,
+    size: u64,
+) -> u32 {
+    webgpu::command::render_pass_set_index_buffer(
+        ctx_handle,
+        pass_handle,
+        buffer_handle,
+        format_id,
+        offset,
+        size,
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_render_pass_draw(
+    ctx_handle: u32,
+    pass_handle: u32,
+    vertex_count: u32,
+    instance_count: u32,
+    first_vertex: u32,
+    first_instance: u32,
+) -> u32 {
+    webgpu::command::render_pass_draw(
+        ctx_handle,
+        pass_handle,
+        vertex_count,
+        instance_count,
+        first_vertex,
+        first_instance,
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_render_pass_draw_indexed(
+    ctx_handle: u32,
+    pass_handle: u32,
+    index_count: u32,
+    instance_count: u32,
+    first_index: u32,
+    base_vertex: i32,
+    first_instance: u32,
+) -> u32 {
+    webgpu::command::render_pass_draw_indexed(
+        ctx_handle,
+        pass_handle,
+        index_count,
+        instance_count,
+        first_index,
+        base_vertex,
+        first_instance,
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_render_pass_set_bind_group(
+    ctx_handle: u32,
+    pass_handle: u32,
+    index: u32,
+    bg_handle: u32,
+) -> u32 {
+    webgpu::command::render_pass_set_bind_group(ctx_handle, pass_handle, index, bg_handle)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_render_pass_set_viewport(
+    ctx_handle: u32,
+    pass_handle: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    min_depth: f32,
+    max_depth: f32,
+) -> u32 {
+    webgpu::command::render_pass_set_viewport(
+        ctx_handle,
+        pass_handle,
+        x,
+        y,
+        w,
+        h,
+        min_depth,
+        max_depth,
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_render_pass_set_scissor_rect(
+    ctx_handle: u32,
+    pass_handle: u32,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+) -> u32 {
+    webgpu::command::render_pass_set_scissor_rect(ctx_handle, pass_handle, x, y, w, h)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_webgpu_render_pass_end(ctx_handle: u32, pass_handle: u32) -> u32 {
+    webgpu::command::render_pass_end(ctx_handle, pass_handle)
 }
 
 // ============================================================================

@@ -155,6 +155,8 @@ pub struct TextureBinding {
     pub wrap_s: u32,
     pub wrap_t: u32,
     pub wrap_r: u32,
+    pub min_filter: u32,
+    pub mag_filter: u32,
     pub gpu_handle: GpuHandle,
 }
 
@@ -403,7 +405,7 @@ impl GpuKernel {
     /// Writes texture metadata to the specified linear memory pointer for shader access
     pub fn write_texture_metadata(&self, bindings: &[Option<TextureBinding>], dest_ptr: u32) {
         for (i, binding) in bindings.iter().enumerate() {
-            let offset = i * 32;
+            let offset = i * 64; // Match Naga stride (aligned to 64 bytes)
             if let Some(b) = binding {
                 if let Some(buf) = self.get_buffer(b.gpu_handle) {
                     unsafe {
@@ -414,9 +416,12 @@ impl GpuKernel {
                         *base.offset(3) = b.depth as i32;
                         *base.offset(4) = b.format as i32;
                         *base.offset(5) = b.bytes_per_pixel as i32;
-                        *base.offset(6) =
-                            ((b.wrap_s & 0xFFFF) | ((b.wrap_t & 0xFFFF) << 16)) as i32;
-                        *base.offset(7) = (b.wrap_r & 0xFFFF) as i32 | ((buf.layout as i32) << 16);
+                        *base.offset(6) = b.wrap_s as i32;
+                        *base.offset(7) = b.wrap_t as i32;
+                        *base.offset(8) = b.wrap_r as i32;
+                        *base.offset(9) = buf.layout as i32;
+                        *base.offset(10) = b.min_filter as i32;
+                        *base.offset(11) = b.mag_filter as i32;
                     }
                 }
             }

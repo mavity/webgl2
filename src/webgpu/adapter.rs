@@ -27,6 +27,7 @@ pub struct WebGpuContext {
     pub devices: HashMap<u32, DeviceId>,
     pub queues: HashMap<u32, QueueId>,
     pub buffers: HashMap<u32, BufferId>,
+    pub buffer_to_device: HashMap<BufferId, DeviceId>,
     pub shader_modules: HashMap<u32, ShaderModuleId>,
     pub pipeline_layouts: HashMap<u32, PipelineLayoutId>,
     pub bind_group_layouts: HashMap<u32, BindGroupLayoutId>,
@@ -38,6 +39,7 @@ pub struct WebGpuContext {
     pub textures: HashMap<u32, TextureId>,
     pub texture_views: HashMap<u32, TextureViewId>,
     pub samplers: HashMap<u32, SamplerId>,
+    pub render_passes: HashMap<u32, wgpu_core::command::RenderPass>,
 
     pub next_adapter_id: u32,
     pub next_device_id: u32,
@@ -53,12 +55,15 @@ pub struct WebGpuContext {
     pub next_texture_id: u32,
     pub next_texture_view_id: u32,
     pub next_sampler_id: u32,
+    pub next_render_pass_id: u32,
 }
 
 impl WebGpuContext {
     pub fn new(id: u32) -> Self {
         // Initialize our custom backend instance
-        let soft_instance = crate::webgpu::backend::SoftInstance;
+        let soft_instance = crate::webgpu::backend::SoftInstance {
+            shader_memory_base: crate::wasm_get_scratch_base(),
+        };
 
         // Create Global using our custom backend
         // unsafe: We are responsible for the lifetime of the instance, which Global takes ownership of
@@ -76,6 +81,7 @@ impl WebGpuContext {
             devices: HashMap::new(),
             queues: HashMap::new(),
             buffers: HashMap::new(),
+            buffer_to_device: HashMap::new(),
             shader_modules: HashMap::new(),
             pipeline_layouts: HashMap::new(),
             bind_group_layouts: HashMap::new(),
@@ -87,6 +93,7 @@ impl WebGpuContext {
             textures: HashMap::new(),
             texture_views: HashMap::new(),
             samplers: HashMap::new(),
+            render_passes: HashMap::new(),
 
             next_adapter_id: 1,
             next_device_id: 1,
@@ -102,6 +109,7 @@ impl WebGpuContext {
             next_texture_id: 1,
             next_texture_view_id: 1,
             next_sampler_id: 1,
+            next_render_pass_id: 1,
         }
     }
 }

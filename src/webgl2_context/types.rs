@@ -3,7 +3,7 @@ pub(crate) use crate::wasm_gl_emu::device::GpuKernel;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-// Errno constants (must match JS constants if exposed)
+// Errno constants
 pub const ERR_OK: u32 = 0;
 pub const ERR_INVALID_HANDLE: u32 = 1;
 pub const ERR_OOM: u32 = 2;
@@ -46,6 +46,12 @@ pub const GL_LINE_STRIP: u32 = 0x0003;
 pub const GL_TRIANGLES: u32 = 0x0004;
 pub const GL_TRIANGLE_STRIP: u32 = 0x0005;
 pub const GL_TRIANGLE_FAN: u32 = 0x0006;
+
+pub const GL_FRONT: u32 = 0x0404;
+pub const GL_BACK: u32 = 0x0405;
+pub const GL_FRONT_AND_BACK: u32 = 0x0408;
+pub const GL_CW: u32 = 0x0900;
+pub const GL_CCW: u32 = 0x0901;
 
 pub const GL_BYTE: u32 = 0x1400;
 pub const GL_UNSIGNED_BYTE: u32 = 0x1401;
@@ -164,11 +170,9 @@ pub const GL_RGB565: u32 = 0x8D62;
 pub const GL_RGB5_A1: u32 = 0x8057;
 pub const GL_STENCIL_INDEX8: u32 = 0x8D48;
 
-// Handle constants
 pub(crate) const INVALID_HANDLE: u32 = 0;
 pub(crate) const FIRST_HANDLE: u32 = 1;
 
-/// A single mipmap level for a texture
 #[derive(Clone, Debug)]
 pub(crate) struct MipLevel {
     pub(crate) width: u32,
@@ -178,7 +182,6 @@ pub(crate) struct MipLevel {
     pub(crate) gpu_handle: GpuHandle,
 }
 
-/// A WebGL2 texture resource
 #[derive(Clone)]
 pub(crate) struct Texture {
     pub(crate) levels: BTreeMap<usize, MipLevel>,
@@ -190,7 +193,15 @@ pub(crate) struct Texture {
     pub(crate) wrap_r: u32,
 }
 
-/// A WebGL2 renderbuffer resource
+#[derive(Clone)]
+pub(crate) struct Sampler {
+    pub(crate) min_filter: u32,
+    pub(crate) mag_filter: u32,
+    pub(crate) wrap_s: u32,
+    pub(crate) wrap_t: u32,
+    pub(crate) wrap_r: u32,
+}
+
 #[derive(Clone)]
 pub(crate) struct Renderbuffer {
     pub(crate) width: u32,
@@ -205,7 +216,6 @@ pub(crate) enum Attachment {
     Renderbuffer(u32),
 }
 
-/// A WebGL2 framebuffer resource
 #[derive(Clone)]
 pub(crate) struct FramebufferObj {
     pub(crate) color_attachment: Option<Attachment>,
@@ -213,14 +223,12 @@ pub(crate) struct FramebufferObj {
     pub(crate) stencil_attachment: Option<Attachment>,
 }
 
-/// A WebGL2 buffer resource
 #[derive(Clone)]
 pub(crate) struct Buffer {
     pub(crate) gpu_handle: crate::wasm_gl_emu::GpuHandle,
     pub(crate) usage: u32,
 }
 
-/// A WebGL2 shader resource
 #[derive(Clone)]
 pub(crate) struct Shader {
     pub(crate) type_: u32,
@@ -231,7 +239,6 @@ pub(crate) struct Shader {
     pub(crate) info: Option<Arc<naga::valid::ModuleInfo>>,
 }
 
-/// A WebGL2 program resource
 #[derive(Debug, Clone)]
 pub(crate) struct ActiveInfo {
     pub(crate) name: String,
@@ -270,7 +277,35 @@ pub(crate) struct Program {
     pub(crate) fs_table_idx: Option<u32>,
 }
 
-/// A WebGL2 vertex array object
+impl Default for Program {
+    fn default() -> Self {
+        Program {
+            attached_shaders: Vec::new(),
+            linked: false,
+            info_log: String::new(),
+            attributes: HashMap::new(),
+            attribute_bindings: HashMap::new(),
+            uniforms: HashMap::new(),
+            uniform_types: HashMap::new(),
+            active_attributes: Vec::new(),
+            active_uniforms: Vec::new(),
+            vs_module: None,
+            fs_module: None,
+            vs_info: None,
+            fs_info: None,
+            vs_wasm: None,
+            fs_wasm: None,
+            vs_stub: None,
+            fs_stub: None,
+            varying_locations: HashMap::new(),
+            varying_types: HashMap::new(),
+            attribute_types: HashMap::new(),
+            vs_table_idx: None,
+            fs_table_idx: None,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct VertexArray {
     pub(crate) attributes: Vec<VertexAttribute>,
@@ -286,7 +321,6 @@ impl Default for VertexArray {
     }
 }
 
-/// A WebGL2 vertex attribute
 #[derive(Clone)]
 pub(crate) struct VertexAttribute {
     pub(crate) enabled: bool,
@@ -320,7 +354,6 @@ impl Default for VertexAttribute {
     }
 }
 
-/// Per-context state
 pub struct Context {
     pub(crate) textures: HashMap<u32, Texture>,
     pub(crate) framebuffers: HashMap<u32, FramebufferObj>,
@@ -329,6 +362,7 @@ pub struct Context {
     pub(crate) programs: HashMap<u32, Program>,
     pub(crate) vertex_arrays: HashMap<u32, VertexArray>,
     pub(crate) renderbuffers: HashMap<u32, Renderbuffer>,
+    pub(crate) samplers: HashMap<u32, Sampler>,
 
     pub(crate) next_texture_handle: u32,
     pub(crate) next_framebuffer_handle: u32,
@@ -337,6 +371,10 @@ pub struct Context {
     pub(crate) next_program_handle: u32,
     pub(crate) next_vertex_array_handle: u32,
     pub(crate) next_renderbuffer_handle: u32,
+    pub(crate) next_sampler_handle: u32,
+    pub(crate) next_query_handle: u32,
+    pub(crate) next_sync_handle: u32,
+    pub(crate) next_transform_feedback_handle: u32,
 
     pub(crate) bound_texture: Option<u32>,
     pub(crate) bound_read_framebuffer: Option<u32>,
@@ -344,16 +382,23 @@ pub struct Context {
     pub(crate) bound_renderbuffer: Option<u32>,
     pub(crate) buffer_bindings: HashMap<u32, Option<u32>>,
     pub(crate) bound_vertex_array: u32,
+    pub(crate) bound_array_buffer: Option<u32>,
+    pub(crate) bound_element_array_buffer: Option<u32>,
     pub(crate) current_program: Option<u32>,
 
     pub(crate) uniform_data: Vec<u8>,
+    pub(crate) private_memory: Vec<u8>,
+
+    pub width: u32,
+    pub height: u32,
+    pub is_destroyed: bool,
 
     // Software rendering state
     pub kernel: GpuKernel,
     pub default_framebuffer: crate::wasm_gl_emu::OwnedFramebuffer,
     pub rasterizer: crate::wasm_gl_emu::Rasterizer,
+    pub(crate) shader_memory_base: u32,
 
-    // State
     pub(crate) clear_color: [f32; 4],
     pub(crate) viewport: (i32, i32, u32, u32),
     pub(crate) scissor_box: (i32, i32, u32, u32),
@@ -362,9 +407,16 @@ pub struct Context {
     pub(crate) color_mask: crate::wasm_gl_emu::rasterizer::ColorMaskState,
     pub(crate) depth_state: crate::wasm_gl_emu::rasterizer::DepthState,
     pub(crate) stencil_state: crate::wasm_gl_emu::rasterizer::StencilState,
+    pub(crate) cull_face_enabled: bool,
+    pub(crate) cull_face_mode: u32,
+    pub(crate) front_face: u32,
     pub(crate) active_texture_unit: u32,
     pub(crate) texture_units: Vec<Option<u32>>,
+    pub(crate) sampler_units: Vec<Option<u32>>,
     pub(crate) gl_error: u32,
+    pub(crate) queries: HashMap<u32, ()>,
+    pub(crate) syncs: HashMap<u32, ()>,
+    pub(crate) transform_feedbacks: HashMap<u32, ()>,
     pub debug_shaders: bool,
 }
 
@@ -375,13 +427,13 @@ impl Context {
         }
     }
 
-    pub fn new(width: u32, height: u32) -> Self {
-        let mut vertex_arrays = HashMap::new();
-        vertex_arrays.insert(0, VertexArray::default());
-
-        let mut kernel = GpuKernel::default();
+    pub fn new(width: u32, height: u32, shader_memory_base: u32) -> Self {
+        let mut kernel = GpuKernel::new();
         let default_framebuffer =
             crate::wasm_gl_emu::OwnedFramebuffer::new(&mut kernel, width, height);
+
+        let mut vertex_arrays = HashMap::new();
+        vertex_arrays.insert(0, VertexArray::default());
 
         Context {
             textures: HashMap::new(),
@@ -391,6 +443,7 @@ impl Context {
             programs: HashMap::new(),
             vertex_arrays,
             renderbuffers: HashMap::new(),
+            samplers: HashMap::new(),
 
             next_texture_handle: FIRST_HANDLE,
             next_framebuffer_handle: FIRST_HANDLE,
@@ -399,6 +452,10 @@ impl Context {
             next_program_handle: FIRST_HANDLE,
             next_vertex_array_handle: FIRST_HANDLE,
             next_renderbuffer_handle: FIRST_HANDLE,
+            next_sampler_handle: FIRST_HANDLE,
+            next_query_handle: FIRST_HANDLE,
+            next_sync_handle: FIRST_HANDLE,
+            next_transform_feedback_handle: FIRST_HANDLE,
 
             bound_texture: None,
             bound_read_framebuffer: None,
@@ -406,13 +463,39 @@ impl Context {
             bound_renderbuffer: None,
             buffer_bindings: HashMap::new(),
             bound_vertex_array: 0,
+            bound_array_buffer: None,
+            bound_element_array_buffer: None,
             current_program: None,
 
-            uniform_data: vec![0; 4096], // 4KB for uniforms
+            uniform_data: {
+                let mut data = vec![0u8; 65536];
+                // Pre-populate context block pointers to data area
+                // Data starts after context block (256 bytes)
+                for i in 0..64 {
+                    let context_idx = (i * 4) as usize;
+                    let data_offset = (256 + i * 64) as u32;
+                    data[context_idx..context_idx + 4].copy_from_slice(&data_offset.to_le_bytes());
+                }
+                data
+            },
+            private_memory: {
+                let mut data = vec![0u8; 256];
+                for i in 0..16 {
+                    let context_idx = (i * 4) as usize;
+                    let data_offset = (256 + i * 64) as u32;
+                    data[context_idx..context_idx + 4].copy_from_slice(&data_offset.to_le_bytes());
+                }
+                data
+            },
+
+            width,
+            height,
+            is_destroyed: false,
 
             kernel,
             default_framebuffer,
-            rasterizer: crate::wasm_gl_emu::Rasterizer::default(),
+            rasterizer: crate::wasm_gl_emu::Rasterizer::new(shader_memory_base),
+            shader_memory_base,
 
             clear_color: [0.0, 0.0, 0.0, 0.0],
             viewport: (0, 0, width, height),
@@ -422,13 +505,20 @@ impl Context {
             color_mask: crate::wasm_gl_emu::rasterizer::ColorMaskState::default(),
             depth_state: crate::wasm_gl_emu::rasterizer::DepthState {
                 enabled: false,
-                func: 0x0201, // GL_LESS (Default). Wait, types.rs had 0x0203 LEQUAL? Standard is LESS.
+                func: 0x0201,
                 mask: true,
             },
             stencil_state: crate::wasm_gl_emu::rasterizer::StencilState::default(),
+            cull_face_enabled: false,
+            cull_face_mode: GL_BACK,
+            front_face: GL_CCW,
             active_texture_unit: 0,
             texture_units: vec![None; 16],
+            sampler_units: vec![None; 16],
             gl_error: GL_NO_ERROR,
+            queries: HashMap::new(),
+            syncs: HashMap::new(),
+            transform_feedbacks: HashMap::new(),
             debug_shaders: false,
         }
     }
@@ -436,7 +526,7 @@ impl Context {
 
 impl Default for Context {
     fn default() -> Self {
-        Self::new(640, 480)
+        Self::new(640, 480, crate::wasm_get_scratch_base())
     }
 }
 
@@ -650,15 +740,44 @@ impl Context {
             let binding = if let Some(h) = tex_handle {
                 if let Some(tex) = self.textures.get(h) {
                     if let Some(level0) = tex.levels.get(&0) {
+                        // Get sampler parameters (either from texture or separate sampler object)
+                        let idx = bindings.len();
+                        let (mag_filter, min_filter, wrap_s, wrap_t, wrap_r) =
+                            if let Some(sampler_handle) =
+                                self.sampler_units.get(idx).copied().flatten()
+                            {
+                                if let Some(s) = self.samplers.get(&sampler_handle) {
+                                    (s.mag_filter, s.min_filter, s.wrap_s, s.wrap_t, s.wrap_r)
+                                } else {
+                                    (
+                                        tex.mag_filter,
+                                        tex.min_filter,
+                                        tex.wrap_s,
+                                        tex.wrap_t,
+                                        tex.wrap_r,
+                                    )
+                                }
+                            } else {
+                                (
+                                    tex.mag_filter,
+                                    tex.min_filter,
+                                    tex.wrap_s,
+                                    tex.wrap_t,
+                                    tex.wrap_r,
+                                )
+                            };
+
                         Some(crate::wasm_gl_emu::device::TextureBinding {
                             width: level0.width,
                             height: level0.height,
                             depth: level0.depth,
                             format: level0.internal_format,
                             bytes_per_pixel: get_bytes_per_pixel(level0.internal_format),
-                            wrap_s: tex.wrap_s,
-                            wrap_t: tex.wrap_t,
-                            wrap_r: tex.wrap_r,
+                            wrap_s,
+                            wrap_t,
+                            wrap_r,
+                            min_filter,
+                            mag_filter,
                             gpu_handle: level0.gpu_handle,
                         })
                     } else {
@@ -713,6 +832,36 @@ impl Context {
                 self.default_framebuffer.height,
                 self.default_framebuffer.internal_format,
             )
+        }
+    }
+
+    pub(crate) fn get_depth_attachment_handle(&self) -> (GpuHandle, u32, u32, u32) {
+        if let Some(fb_handle) = self.bound_draw_framebuffer {
+            if let Some(fb) = self.framebuffers.get(&fb_handle) {
+                match fb.depth_attachment {
+                    Some(Attachment::Texture(tex_handle)) => {
+                        if let Some(tex) = self.textures.get(&tex_handle) {
+                            if let Some(level0) = tex.levels.get(&0) {
+                                return (
+                                    level0.gpu_handle,
+                                    level0.width,
+                                    level0.height,
+                                    level0.internal_format,
+                                );
+                            }
+                        }
+                    }
+                    Some(Attachment::Renderbuffer(rb_handle)) => {
+                        if let Some(rb) = self.renderbuffers.get(&rb_handle) {
+                            return (rb.gpu_handle, rb.width, rb.height, rb.internal_format);
+                        }
+                    }
+                    None => {}
+                }
+            }
+            (GpuHandle::invalid(), 0, 0, 0)
+        } else {
+            (GpuHandle::invalid(), 0, 0, 0) // Default framebuffer uses Vec<f32>, handle is for GpuKernel
         }
     }
 

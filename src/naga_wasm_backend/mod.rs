@@ -106,6 +106,7 @@ pub struct CompileConfig<'a> {
     pub info: &'a ModuleInfo,
     pub source: &'a str,
     pub stage: naga::ShaderStage,
+    pub entry_point: Option<&'a str>,
     pub attribute_locations: &'a HashMap<String, u32>,
     pub uniform_locations: &'a HashMap<String, u32>,
     pub varying_locations: &'a HashMap<String, u32>,

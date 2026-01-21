@@ -4,7 +4,7 @@ use super::{output_layout, BackendError, CompileConfig, MemoryLayout, WasmBacken
 use naga::{front::Typifier, valid::ModuleInfo, Module};
 use std::collections::HashMap;
 use wasm_encoder::{
-    CodeSection, CustomSection, ExportKind, ExportSection, Function, FunctionSection,
+    BlockType, CodeSection, CustomSection, ExportKind, ExportSection, Function, FunctionSection,
     ImportSection, Instruction, MemoryType, NameMap, NameSection, TypeSection, ValType,
 };
 
@@ -40,6 +40,9 @@ struct Compiler<'a> {
     varying_types: &'a HashMap<String, (u8, u32)>,
     uniform_types: &'a HashMap<String, (u8, u32)>,
     attribute_types: &'a HashMap<String, (u8, u32)>,
+    uniform_map: HashMap<(u32, u32), (u32, output_layout::UniformLayout)>,
+    entry_point_name: Option<&'a str>,
+    exported_names: std::collections::HashSet<String>,
     name: Option<&'a str>,
     module: &'a Module,
 
@@ -92,6 +95,8 @@ impl<'a> Compiler<'a> {
             varying_types: config.varying_types,
             uniform_types: config.uniform_types,
             attribute_types: config.attribute_types,
+            uniform_map: output_layout::get_uniform_map(config.module, config.info, config.stage),
+            entry_point_name: config.entry_point,
             name,
             module: config.module,
             types: TypeSection::new(),
@@ -105,6 +110,7 @@ impl<'a> Compiler<'a> {
             naga_function_map: HashMap::new(),
             function_registry,
             global_offsets: HashMap::new(),
+            exported_names: std::collections::HashSet::new(),
             debug_step_idx: None,
             webgl_sampler_2d_idx: None,
             webgl_sampler_3d_idx: None,
@@ -172,18 +178,14 @@ impl<'a> Compiler<'a> {
         let l_layout = 9;
         let l_addr = 10;
 
-        // 1. Compute descriptor address: ptr + unit * 32
-        func.instruction(&Instruction::LocalGet(0));
+        // 1. Descriptor address is passed directly in arg 1
         func.instruction(&Instruction::LocalGet(1));
-        func.instruction(&Instruction::I32Const(32));
-        func.instruction(&Instruction::I32Mul);
-        func.instruction(&Instruction::I32Add);
         func.instruction(&Instruction::LocalSet(l_desc_addr));
 
         // 2. Load descriptor fields
         func.instruction(&Instruction::LocalGet(l_desc_addr));
         func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-            offset: 0,
+            offset: output_layout::TEX_WIDTH_OFFSET,
             align: 2,
             memory_index: 0,
         }));
@@ -191,7 +193,7 @@ impl<'a> Compiler<'a> {
 
         func.instruction(&Instruction::LocalGet(l_desc_addr));
         func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-            offset: 4,
+            offset: output_layout::TEX_HEIGHT_OFFSET,
             align: 2,
             memory_index: 0,
         }));
@@ -199,7 +201,7 @@ impl<'a> Compiler<'a> {
 
         func.instruction(&Instruction::LocalGet(l_desc_addr));
         func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-            offset: 8,
+            offset: output_layout::TEX_DATA_PTR_OFFSET,
             align: 2,
             memory_index: 0,
         }));
@@ -207,7 +209,7 @@ impl<'a> Compiler<'a> {
 
         func.instruction(&Instruction::LocalGet(l_desc_addr));
         func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-            offset: 20,
+            offset: output_layout::TEX_BPP_OFFSET,
             align: 2,
             memory_index: 0,
         }));
@@ -215,12 +217,10 @@ impl<'a> Compiler<'a> {
 
         func.instruction(&Instruction::LocalGet(l_desc_addr));
         func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-            offset: 28,
+            offset: output_layout::TEX_LAYOUT_OFFSET,
             align: 2,
             memory_index: 0,
         }));
-        func.instruction(&Instruction::I32Const(16));
-        func.instruction(&Instruction::I32ShrU);
         func.instruction(&Instruction::LocalSet(l_layout));
 
         // 3. Compute byte offset
@@ -293,6 +293,7 @@ impl<'a> Compiler<'a> {
 
     fn emit_sampler(&mut self, dim: naga::ImageDimension) -> u32 {
         let is_3d = dim == naga::ImageDimension::D3;
+        // Params: 0: texture_desc_addr, 1: sampler_desc_addr, 2: u, 3: v, [4: w]
         let mut params = vec![ValType::I32, ValType::I32, ValType::F32, ValType::F32];
         if is_3d {
             params.push(ValType::F32);
@@ -310,42 +311,54 @@ impl<'a> Compiler<'a> {
 
         let p_count = if is_3d { 5 } else { 4 };
         let mut func = Function::new(vec![
-            (15, ValType::I32), // locals: desc_addr, width, height, data_ptr, depth, format, bpp, tx, ty, tz, addr, ws, wt, wr, layout
-            (4, ValType::F32),  // locals: res_r, res_g, res_b, res_a
+            (24, ValType::I32), // locals: width... tz, addr, ws, wt, wr, layout, minf, magf, x0, y0, x1, y1, z0, z1, loop_cnt, temp
+            (11, ValType::F32), // locals: res_r, res_g, res_b, res_a, wx, wy, wz, tmp_r, tmp_g, tmp_b, tmp_a
         ]);
 
-        let l_desc_addr = p_count;
-        let l_width = p_count + 1;
-        let l_height = p_count + 2;
-        let l_ptr = p_count + 3;
-        let l_depth = p_count + 4;
-        let l_format = p_count + 5;
-        let l_bpp = p_count + 6;
-        let l_tx = p_count + 7;
-        let l_ty = p_count + 8;
-        let l_tz = p_count + 9;
-        let l_addr = p_count + 10;
-        let l_wrap_s = p_count + 11;
-        let l_wrap_t = p_count + 12;
-        let l_wrap_r = p_count + 13;
-        let l_layout = p_count + 14;
-        let l_res_r = p_count + 15;
-        let l_res_g = p_count + 16;
-        let l_res_b = p_count + 17;
-        let l_res_a = p_count + 18;
+        let l_tex_desc = 0;
+        let l_sam_desc = 1;
 
-        // 1. Compute descriptor address: ptr + unit * 32
-        func.instruction(&Instruction::LocalGet(0));
-        func.instruction(&Instruction::LocalGet(1));
-        func.instruction(&Instruction::I32Const(32));
-        func.instruction(&Instruction::I32Mul);
-        func.instruction(&Instruction::I32Add);
-        func.instruction(&Instruction::LocalSet(l_desc_addr));
+        let l_width = p_count;
+        let l_height = p_count + 1;
+        let l_ptr = p_count + 2;
+        let l_depth = p_count + 3;
+        let l_format = p_count + 4;
+        let l_bpp = p_count + 5;
+        let l_tx = p_count + 6;
+        let l_ty = p_count + 7;
+        let l_tz = p_count + 8;
+        let l_addr = p_count + 9;
+        let l_wrap_s = p_count + 10;
+        let l_wrap_t = p_count + 11;
+        let l_wrap_r = p_count + 12;
+        let l_layout = p_count + 13;
+        let l_min_filter = p_count + 14;
+        let l_mag_filter = p_count + 15;
+        let l_x0 = p_count + 16;
+        let l_y0 = p_count + 17;
+        let l_x1 = p_count + 18;
+        let l_y1 = p_count + 19;
+        let l_z0 = p_count + 20;
+        let l_z1 = p_count + 21;
+        let l_loop_cnt = p_count + 22;
+        // p_count + 23 is temp
 
-        // 2. Load metadata
+        let l_res_r = p_count + 24;
+        let l_res_g = p_count + 25;
+        let l_res_b = p_count + 26;
+        let l_res_a = p_count + 27;
+        let l_wx = p_count + 28;
+        let l_wy = p_count + 29;
+        let l_wz = p_count + 30;
+        let l_tmp_r = p_count + 31;
+        let l_tmp_g = p_count + 32;
+        let l_tmp_b = p_count + 33;
+        let l_tmp_a = p_count + 34;
+
+        // 1. Load texture metadata from l_tex_desc
         {
-            let mut load_metadata = |offset: u64, local: u32| {
-                func.instruction(&Instruction::LocalGet(l_desc_addr));
+            let mut load_tex = |func: &mut Function, offset: u64, local: u32| {
+                func.instruction(&Instruction::LocalGet(l_tex_desc));
                 func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
                     offset,
                     align: 2,
@@ -354,175 +367,399 @@ impl<'a> Compiler<'a> {
                 func.instruction(&Instruction::LocalSet(local));
             };
 
-            load_metadata(0, l_width);
-            load_metadata(4, l_height);
-            load_metadata(8, l_ptr);
-            load_metadata(12, l_depth);
-            load_metadata(16, l_format);
-            load_metadata(20, l_bpp);
+            load_tex(&mut func, output_layout::TEX_WIDTH_OFFSET, l_width);
+            load_tex(&mut func, output_layout::TEX_HEIGHT_OFFSET, l_height);
+            load_tex(&mut func, output_layout::TEX_DATA_PTR_OFFSET, l_ptr);
+            load_tex(&mut func, output_layout::TEX_DEPTH_OFFSET, l_depth);
+            load_tex(&mut func, output_layout::TEX_FORMAT_OFFSET, l_format);
+            load_tex(&mut func, output_layout::TEX_BPP_OFFSET, l_bpp);
         }
 
-        // Load packed wrap_s/t from offset 24
-        func.instruction(&Instruction::LocalGet(l_desc_addr));
-        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-            offset: 24,
-            align: 2,
-            memory_index: 0,
-        }));
-        func.instruction(&Instruction::LocalSet(l_wrap_s));
+        // 2. Load sampler metadata from l_sam_desc
+        {
+            func.instruction(&Instruction::LocalGet(l_sam_desc));
+            func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                offset: output_layout::TEX_WRAP_S_OFFSET,
+                align: 2,
+                memory_index: 0,
+            }));
+            func.instruction(&Instruction::LocalSet(l_wrap_s));
 
-        // Unpack wrap_t from l_wrap_s high bits
-        func.instruction(&Instruction::LocalGet(l_wrap_s));
-        func.instruction(&Instruction::I32Const(16));
-        func.instruction(&Instruction::I32ShrU);
-        func.instruction(&Instruction::LocalSet(l_wrap_t));
+            func.instruction(&Instruction::LocalGet(l_sam_desc));
+            func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                offset: output_layout::TEX_WRAP_T_OFFSET,
+                align: 2,
+                memory_index: 0,
+            }));
+            func.instruction(&Instruction::LocalSet(l_wrap_t));
 
-        // Mask wrap_s
-        func.instruction(&Instruction::LocalGet(l_wrap_s));
-        func.instruction(&Instruction::I32Const(0xFFFF));
+            func.instruction(&Instruction::LocalGet(l_sam_desc));
+            func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                offset: output_layout::TEX_WRAP_R_OFFSET,
+                align: 2,
+                memory_index: 0,
+            }));
+            func.instruction(&Instruction::LocalSet(l_wrap_r));
+
+            func.instruction(&Instruction::LocalGet(l_sam_desc));
+            func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                offset: output_layout::TEX_LAYOUT_OFFSET,
+                align: 2,
+                memory_index: 0,
+            }));
+            func.instruction(&Instruction::LocalSet(l_layout));
+
+            // Load filters
+            func.instruction(&Instruction::LocalGet(l_sam_desc));
+            func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                offset: output_layout::TEX_MIN_FILTER_OFFSET,
+                align: 2,
+                memory_index: 0,
+            }));
+            func.instruction(&Instruction::LocalSet(l_min_filter));
+
+            func.instruction(&Instruction::LocalGet(l_sam_desc));
+            func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                offset: output_layout::TEX_MAG_FILTER_OFFSET,
+                align: 2,
+                memory_index: 0,
+            }));
+            func.instruction(&Instruction::LocalSet(l_mag_filter));
+        }
+
+        // 3. Compute texel coords and weights
+        {
+            // Detect if linear filtering is requested
+            // 0x2601 = LINEAR
+            // 0x2701 = LINEAR_MIPMAP_NEAREST
+            // 0x2703 = LINEAR_MIPMAP_LINEAR
+            let mut is_linear = |func: &mut Function, local: u32| {
+                func.instruction(&Instruction::LocalGet(local));
+                func.instruction(&Instruction::I32Const(0x2601)); // LINEAR
+                func.instruction(&Instruction::I32Eq);
+
+                func.instruction(&Instruction::LocalGet(local));
+                func.instruction(&Instruction::I32Const(0x2701)); // LINEAR_MIPMAP_NEAREST
+                func.instruction(&Instruction::I32Eq);
+                func.instruction(&Instruction::I32Or);
+
+                func.instruction(&Instruction::LocalGet(local));
+                func.instruction(&Instruction::I32Const(0x2703)); // LINEAR_MIPMAP_LINEAR
+                func.instruction(&Instruction::I32Eq);
+                func.instruction(&Instruction::I32Or);
+            };
+
+            is_linear(&mut func, l_mag_filter);
+            is_linear(&mut func, l_min_filter);
+            func.instruction(&Instruction::I32Or);
+
+            func.instruction(&Instruction::If(BlockType::Empty));
+            let mut compute_linear = |coord_param: u32,
+                                      size_local: u32,
+                                      x0_local: u32,
+                                      x1_local: u32,
+                                      w_local: u32,
+                                      wrap_local: u32| {
+                // tx_raw = coord * size - 0.5
+                func.instruction(&Instruction::LocalGet(coord_param));
+                func.instruction(&Instruction::LocalGet(size_local));
+                func.instruction(&Instruction::F32ConvertI32S);
+                func.instruction(&Instruction::F32Mul);
+                func.instruction(&Instruction::F32Const(0.5));
+                func.instruction(&Instruction::F32Sub);
+
+                // x0 = floor(tx_raw)
+                func.instruction(&Instruction::F32Floor);
+                func.instruction(&Instruction::LocalTee(l_tmp_a)); // temp use l_tmp_a
+                func.instruction(&Instruction::I32TruncF32S);
+                func.instruction(&Instruction::LocalSet(x0_local));
+
+                // wx = tx_raw - floor(tx_raw)
+                func.instruction(&Instruction::LocalGet(coord_param));
+                func.instruction(&Instruction::LocalGet(size_local));
+                func.instruction(&Instruction::F32ConvertI32S);
+                func.instruction(&Instruction::F32Mul);
+                func.instruction(&Instruction::F32Const(0.5));
+                func.instruction(&Instruction::F32Sub); // tx_raw
+                func.instruction(&Instruction::LocalGet(l_tmp_a)); // floor(tx_raw)
+                func.instruction(&Instruction::F32Sub);
+                func.instruction(&Instruction::LocalSet(w_local)); // w_local = wx
+
+                // x1 = x0 + 1
+                func.instruction(&Instruction::LocalGet(x0_local));
+                func.instruction(&Instruction::I32Const(1));
+                func.instruction(&Instruction::I32Add);
+                func.instruction(&Instruction::LocalSet(x1_local));
+
+                // Wrap/Clamp x0 and x1
+                let mut apply_wrap = |local: u32, wrap_local: u32| {
+                    // Detect wrap mode
+                    func.instruction(&Instruction::LocalGet(wrap_local));
+                    func.instruction(&Instruction::I32Const(0x2901)); // GL_REPEAT
+                    func.instruction(&Instruction::I32Eq);
+                    func.instruction(&Instruction::If(BlockType::Empty));
+                    // Repeat: val = (val % size + size) % size
+                    func.instruction(&Instruction::LocalGet(local));
+                    func.instruction(&Instruction::LocalGet(size_local));
+                    func.instruction(&Instruction::I32RemS);
+                    func.instruction(&Instruction::LocalGet(size_local));
+                    func.instruction(&Instruction::I32Add);
+                    func.instruction(&Instruction::LocalGet(size_local));
+                    func.instruction(&Instruction::I32RemS);
+                    func.instruction(&Instruction::LocalSet(local));
+                    func.instruction(&Instruction::Else);
+                    // Clamp to Edge (and fallback)
+                    func.instruction(&Instruction::LocalGet(local));
+                    func.instruction(&Instruction::I32Const(0));
+                    func.instruction(&Instruction::LocalGet(local));
+                    func.instruction(&Instruction::I32Const(0));
+                    func.instruction(&Instruction::I32GtS);
+                    func.instruction(&Instruction::Select);
+                    func.instruction(&Instruction::LocalSet(local));
+
+                    func.instruction(&Instruction::LocalGet(local));
+                    func.instruction(&Instruction::LocalGet(size_local));
+                    func.instruction(&Instruction::I32Const(1));
+                    func.instruction(&Instruction::I32Sub);
+                    func.instruction(&Instruction::LocalGet(local));
+                    func.instruction(&Instruction::LocalGet(size_local));
+                    func.instruction(&Instruction::I32Const(1));
+                    func.instruction(&Instruction::I32Sub);
+                    func.instruction(&Instruction::I32LtS);
+                    func.instruction(&Instruction::Select);
+                    func.instruction(&Instruction::LocalSet(local));
+                    func.instruction(&Instruction::End);
+                };
+                apply_wrap(x0_local, wrap_local);
+                apply_wrap(x1_local, wrap_local);
+            };
+            compute_linear(2, l_width, l_x0, l_x1, l_wx, l_wrap_s);
+            compute_linear(3, l_height, l_y0, l_y1, l_wy, l_wrap_t);
+            if is_3d {
+                compute_linear(4, l_depth, l_z0, l_z1, l_wz, l_wrap_r);
+            } else {
+                func.instruction(&Instruction::F32Const(0.0));
+                func.instruction(&Instruction::LocalSet(l_wz));
+            }
+
+            func.instruction(&Instruction::Else);
+
+            // Nearest-neighbor
+            let mut compute_nearest =
+                |coord_param: u32, size_local: u32, res_local: u32, wrap_local: u32| {
+                    func.instruction(&Instruction::LocalGet(coord_param));
+                    func.instruction(&Instruction::LocalGet(size_local));
+                    func.instruction(&Instruction::F32ConvertI32S);
+                    func.instruction(&Instruction::F32Mul);
+                    func.instruction(&Instruction::F32Floor);
+                    func.instruction(&Instruction::I32TruncF32S);
+                    func.instruction(&Instruction::LocalSet(res_local));
+
+                    // Detect wrap mode
+                    func.instruction(&Instruction::LocalGet(wrap_local));
+                    func.instruction(&Instruction::I32Const(0x2901)); // GL_REPEAT
+                    func.instruction(&Instruction::I32Eq);
+                    func.instruction(&Instruction::If(BlockType::Empty));
+                    // Repeat: val = (val % size + size) % size
+                    func.instruction(&Instruction::LocalGet(res_local));
+                    func.instruction(&Instruction::LocalGet(size_local));
+                    func.instruction(&Instruction::I32RemS);
+                    func.instruction(&Instruction::LocalGet(size_local));
+                    func.instruction(&Instruction::I32Add);
+                    func.instruction(&Instruction::LocalGet(size_local));
+                    func.instruction(&Instruction::I32RemS);
+                    func.instruction(&Instruction::LocalSet(res_local));
+                    func.instruction(&Instruction::Else);
+                    // Clamp 0
+                    func.instruction(&Instruction::LocalGet(res_local));
+                    func.instruction(&Instruction::I32Const(0));
+                    func.instruction(&Instruction::LocalGet(res_local));
+                    func.instruction(&Instruction::I32Const(0));
+                    func.instruction(&Instruction::I32GtS);
+                    func.instruction(&Instruction::Select);
+                    func.instruction(&Instruction::LocalSet(res_local));
+
+                    // Clamp size-1
+                    func.instruction(&Instruction::LocalGet(res_local));
+                    func.instruction(&Instruction::LocalGet(size_local));
+                    func.instruction(&Instruction::I32Const(1));
+                    func.instruction(&Instruction::I32Sub);
+                    func.instruction(&Instruction::LocalGet(res_local));
+                    func.instruction(&Instruction::LocalGet(size_local));
+                    func.instruction(&Instruction::I32Const(1));
+                    func.instruction(&Instruction::I32Sub);
+                    func.instruction(&Instruction::I32LtS);
+                    func.instruction(&Instruction::Select);
+                    func.instruction(&Instruction::LocalSet(res_local));
+                    func.instruction(&Instruction::End);
+                };
+
+            compute_nearest(2, l_width, l_x0, l_wrap_s);
+            compute_nearest(3, l_height, l_y0, l_wrap_t);
+            if is_3d {
+                compute_nearest(4, l_depth, l_z0, l_wrap_r);
+            }
+            // x1 = x0, y1 = y0, wx = 0, wy = 0, wz = 0
+            func.instruction(&Instruction::LocalGet(l_x0));
+            func.instruction(&Instruction::LocalSet(l_x1));
+            func.instruction(&Instruction::LocalGet(l_y0));
+            func.instruction(&Instruction::LocalSet(l_y1));
+            if is_3d {
+                func.instruction(&Instruction::LocalGet(l_z0));
+                func.instruction(&Instruction::LocalSet(l_z1));
+            }
+            func.instruction(&Instruction::F32Const(0.0));
+            func.instruction(&Instruction::LocalSet(l_wx));
+            func.instruction(&Instruction::F32Const(0.0));
+            func.instruction(&Instruction::LocalSet(l_wy));
+            func.instruction(&Instruction::F32Const(0.0));
+            func.instruction(&Instruction::LocalSet(l_wz));
+
+            func.instruction(&Instruction::End); // End If Linear
+        }
+
+        // 4. Initialize results
+        func.instruction(&Instruction::F32Const(0.0));
+        func.instruction(&Instruction::LocalSet(l_res_r));
+        func.instruction(&Instruction::F32Const(0.0));
+        func.instruction(&Instruction::LocalSet(l_res_g));
+        func.instruction(&Instruction::F32Const(0.0));
+        func.instruction(&Instruction::LocalSet(l_res_b));
+        func.instruction(&Instruction::F32Const(0.0));
+        func.instruction(&Instruction::LocalSet(l_res_a));
+
+        func.instruction(&Instruction::I32Const(0));
+        func.instruction(&Instruction::LocalSet(l_loop_cnt));
+
+        func.instruction(&Instruction::Loop(wasm_encoder::BlockType::Empty));
+
+        // Compute curr_x, curr_y, curr_z
+        // curr_x = (cnt & 1) ? x1 : x0
+        func.instruction(&Instruction::LocalGet(l_loop_cnt));
+        func.instruction(&Instruction::I32Const(1));
         func.instruction(&Instruction::I32And);
-        func.instruction(&Instruction::LocalSet(l_wrap_s));
+        func.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        func.instruction(&Instruction::LocalGet(l_x1));
+        func.instruction(&Instruction::Else);
+        func.instruction(&Instruction::LocalGet(l_x0));
+        func.instruction(&Instruction::End);
+        func.instruction(&Instruction::LocalSet(l_tx));
 
-        // Load packed wrap_r/layout from offset 28
-        func.instruction(&Instruction::LocalGet(l_desc_addr));
-        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-            offset: 28,
-            align: 2,
-            memory_index: 0,
-        }));
-        func.instruction(&Instruction::LocalSet(l_wrap_r));
-
-        // Unpack layout from high 16 bits
-        func.instruction(&Instruction::LocalGet(l_wrap_r));
-        func.instruction(&Instruction::I32Const(16));
-        func.instruction(&Instruction::I32ShrU);
-        func.instruction(&Instruction::LocalSet(l_layout));
-
-        // Mask wrap_r
-        func.instruction(&Instruction::LocalGet(l_wrap_r));
-        func.instruction(&Instruction::I32Const(0xFFFF));
+        // curr_y = (cnt & 2) ? y1 : y0
+        func.instruction(&Instruction::LocalGet(l_loop_cnt));
+        func.instruction(&Instruction::I32Const(2));
         func.instruction(&Instruction::I32And);
-        func.instruction(&Instruction::LocalSet(l_wrap_r));
+        func.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        func.instruction(&Instruction::LocalGet(l_y1));
+        func.instruction(&Instruction::Else);
+        func.instruction(&Instruction::LocalGet(l_y0));
+        func.instruction(&Instruction::End);
+        func.instruction(&Instruction::LocalSet(l_ty));
 
-        // 3. Compute texel coords with clamping
-        let mut compute_coord = |coord_param: u32, size_local: u32, res_local: u32| {
-            func.instruction(&Instruction::LocalGet(coord_param));
-            func.instruction(&Instruction::LocalGet(size_local));
-            func.instruction(&Instruction::F32ConvertI32S);
-            func.instruction(&Instruction::F32Mul);
-            func.instruction(&Instruction::F32Floor);
-            func.instruction(&Instruction::I32TruncF32S);
-            func.instruction(&Instruction::LocalSet(res_local));
-
-            // Clamp 0
-            func.instruction(&Instruction::LocalGet(res_local));
-            func.instruction(&Instruction::I32Const(0));
-            func.instruction(&Instruction::LocalGet(res_local));
-            func.instruction(&Instruction::I32Const(0));
-            func.instruction(&Instruction::I32GtS);
-            func.instruction(&Instruction::Select);
-            func.instruction(&Instruction::LocalSet(res_local));
-
-            // Clamp size-1
-            func.instruction(&Instruction::LocalGet(res_local));
-            func.instruction(&Instruction::LocalGet(size_local));
-            func.instruction(&Instruction::I32Const(1));
-            func.instruction(&Instruction::I32Sub);
-            func.instruction(&Instruction::LocalGet(res_local));
-            func.instruction(&Instruction::LocalGet(size_local));
-            func.instruction(&Instruction::I32Const(1));
-            func.instruction(&Instruction::I32Sub);
-            func.instruction(&Instruction::I32LtS);
-            func.instruction(&Instruction::Select);
-            func.instruction(&Instruction::LocalSet(res_local));
-        };
-
-        compute_coord(2, l_width, l_tx);
-        compute_coord(3, l_height, l_ty);
         if is_3d {
-            compute_coord(4, l_depth, l_tz);
+            // curr_z = (cnt & 4) ? z1 : z0
+            func.instruction(&Instruction::LocalGet(l_loop_cnt));
+            func.instruction(&Instruction::I32Const(4));
+            func.instruction(&Instruction::I32And);
+            func.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+            func.instruction(&Instruction::LocalGet(l_z1));
+            func.instruction(&Instruction::Else);
+            func.instruction(&Instruction::LocalGet(l_z0));
+            func.instruction(&Instruction::End);
+            func.instruction(&Instruction::LocalSet(l_tz));
         }
 
-        // 4. Compute byte address based on layout
+        // Compute weight
+        // w_curr_x = (cnt & 1) ? wx : (1 - wx)
+        func.instruction(&Instruction::LocalGet(l_loop_cnt));
+        func.instruction(&Instruction::I32Const(1));
+        func.instruction(&Instruction::I32And);
+        func.instruction(&Instruction::If(BlockType::Result(ValType::F32)));
+        func.instruction(&Instruction::LocalGet(l_wx));
+        func.instruction(&Instruction::Else);
+        func.instruction(&Instruction::F32Const(1.0));
+        func.instruction(&Instruction::LocalGet(l_wx));
+        func.instruction(&Instruction::F32Sub);
+        func.instruction(&Instruction::End);
+
+        // w_curr_y = (cnt & 2) ? wy : (1 - wy)
+        func.instruction(&Instruction::LocalGet(l_loop_cnt));
+        func.instruction(&Instruction::I32Const(2));
+        func.instruction(&Instruction::I32And);
+        func.instruction(&Instruction::If(BlockType::Result(ValType::F32)));
+        func.instruction(&Instruction::LocalGet(l_wy));
+        func.instruction(&Instruction::Else);
+        func.instruction(&Instruction::F32Const(1.0));
+        func.instruction(&Instruction::LocalGet(l_wy));
+        func.instruction(&Instruction::F32Sub);
+        func.instruction(&Instruction::End);
+        func.instruction(&Instruction::F32Mul);
+
+        if is_3d {
+            // w_curr_z = (cnt & 4) ? wz : (1 - wz)
+            func.instruction(&Instruction::LocalGet(l_loop_cnt));
+            func.instruction(&Instruction::I32Const(4));
+            func.instruction(&Instruction::I32And);
+            func.instruction(&Instruction::If(BlockType::Result(ValType::F32)));
+            func.instruction(&Instruction::LocalGet(l_wz));
+            func.instruction(&Instruction::Else);
+            func.instruction(&Instruction::F32Const(1.0));
+            func.instruction(&Instruction::LocalGet(l_wz));
+            func.instruction(&Instruction::F32Sub);
+            func.instruction(&Instruction::End);
+            func.instruction(&Instruction::F32Mul);
+        }
+
+        func.instruction(&Instruction::LocalSet(l_tmp_a)); // weight
+
+        // 4b. Compute byte address
         func.instruction(&Instruction::LocalGet(l_layout));
         func.instruction(&Instruction::I32Const(1)); // Tiled8x8
         func.instruction(&Instruction::I32Eq);
-        func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
-        // tiles_w = (width + 7) >> 3
+        func.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        // Tiled Logic (Z-aware for 3D)
         func.instruction(&Instruction::LocalGet(l_width));
         func.instruction(&Instruction::I32Const(7));
         func.instruction(&Instruction::I32Add);
         func.instruction(&Instruction::I32Const(3));
-        func.instruction(&Instruction::I32ShrU);
+        func.instruction(&Instruction::I32ShrU); // width_in_tiles
 
-        // tile_y = ty >> 3
-        func.instruction(&Instruction::LocalGet(l_ty));
-        func.instruction(&Instruction::I32Const(3));
-        func.instruction(&Instruction::I32ShrU);
-
-        // tile_y * tiles_w
+        if is_3d {
+            func.instruction(&Instruction::LocalGet(l_tz));
+            func.instruction(&Instruction::LocalGet(l_height));
+            func.instruction(&Instruction::I32Const(7));
+            func.instruction(&Instruction::I32Add);
+            func.instruction(&Instruction::I32Const(3));
+            func.instruction(&Instruction::I32ShrU); // height_in_tiles
+            func.instruction(&Instruction::I32Mul);
+            func.instruction(&Instruction::LocalGet(l_ty));
+            func.instruction(&Instruction::I32Const(3));
+            func.instruction(&Instruction::I32ShrU);
+            func.instruction(&Instruction::I32Add);
+        } else {
+            func.instruction(&Instruction::LocalGet(l_ty));
+            func.instruction(&Instruction::I32Const(3));
+            func.instruction(&Instruction::I32ShrU);
+        }
         func.instruction(&Instruction::I32Mul);
-
-        // tile_x = tx >> 3
         func.instruction(&Instruction::LocalGet(l_tx));
         func.instruction(&Instruction::I32Const(3));
         func.instruction(&Instruction::I32ShrU);
-
-        // (tile_y * tiles_w + tile_x)
         func.instruction(&Instruction::I32Add);
-
-        // * 64
         func.instruction(&Instruction::I32Const(6));
-        func.instruction(&Instruction::I32Shl);
-
-        // inner_y = ty & 7
+        func.instruction(&Instruction::I32Shl); // * 64
         func.instruction(&Instruction::LocalGet(l_ty));
         func.instruction(&Instruction::I32Const(7));
         func.instruction(&Instruction::I32And);
         func.instruction(&Instruction::I32Const(3));
         func.instruction(&Instruction::I32Shl); // * 8
-
-        // inner_x = tx & 7
         func.instruction(&Instruction::LocalGet(l_tx));
         func.instruction(&Instruction::I32Const(7));
         func.instruction(&Instruction::I32And);
-
-        // inner_idx = inner_y * 8 + inner_x
         func.instruction(&Instruction::I32Add);
-
-        // total_idx = tile_idx * 64 + inner_idx
         func.instruction(&Instruction::I32Add);
-
-        if is_3d {
-            // Save idx to addr temporarily
-            func.instruction(&Instruction::LocalSet(l_addr));
-
-            // tiles_w = (width + 7) >> 3
-            func.instruction(&Instruction::LocalGet(l_width));
-            func.instruction(&Instruction::I32Const(7));
-            func.instruction(&Instruction::I32Add);
-            func.instruction(&Instruction::I32Const(3));
-            func.instruction(&Instruction::I32ShrU);
-
-            // tiles_h = (height + 7) >> 3
-            func.instruction(&Instruction::LocalGet(l_height));
-            func.instruction(&Instruction::I32Const(7));
-            func.instruction(&Instruction::I32Add);
-            func.instruction(&Instruction::I32Const(3));
-            func.instruction(&Instruction::I32ShrU);
-
-            func.instruction(&Instruction::I32Mul);
-            func.instruction(&Instruction::I32Const(6));
-            func.instruction(&Instruction::I32Shl); // * 64
-
-            func.instruction(&Instruction::LocalGet(l_tz));
-            func.instruction(&Instruction::I32Mul);
-            func.instruction(&Instruction::LocalGet(l_addr));
-            func.instruction(&Instruction::I32Add);
-        }
-        func.instruction(&Instruction::LocalSet(l_addr));
         func.instruction(&Instruction::Else);
-        // Linear
+        // Linear Logic
         if is_3d {
             func.instruction(&Instruction::LocalGet(l_tz));
             func.instruction(&Instruction::LocalGet(l_height));
@@ -540,23 +777,21 @@ impl<'a> Compiler<'a> {
             func.instruction(&Instruction::LocalGet(l_tx));
             func.instruction(&Instruction::I32Add);
         }
-        func.instruction(&Instruction::LocalSet(l_addr));
-        func.instruction(&Instruction::End);
+        func.instruction(&Instruction::End); // End If Tiled
 
-        func.instruction(&Instruction::LocalGet(l_addr));
+        // Convert index to absolute address
         func.instruction(&Instruction::LocalGet(l_bpp));
         func.instruction(&Instruction::I32Mul);
         func.instruction(&Instruction::LocalGet(l_ptr));
         func.instruction(&Instruction::I32Add);
-        func.instruction(&Instruction::LocalSet(l_addr));
+        func.instruction(&Instruction::LocalSet(l_addr)); // REAL address
 
-        // 5. Load and branch on format
-        // RGBA8 (0x8058 or 0x1908)
+        // 5. Load and accumulate
         func.instruction(&Instruction::LocalGet(l_format));
-        func.instruction(&Instruction::I32Const(0x8058));
+        func.instruction(&Instruction::I32Const(0x8058)); // RGBA8
         func.instruction(&Instruction::I32Eq);
         func.instruction(&Instruction::LocalGet(l_format));
-        func.instruction(&Instruction::I32Const(0x1908)); // GL_RGBA
+        func.instruction(&Instruction::I32Const(0x1908)); // RGBA
         func.instruction(&Instruction::I32Eq);
         func.instruction(&Instruction::I32Or);
         func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
@@ -570,13 +805,15 @@ impl<'a> Compiler<'a> {
             func.instruction(&Instruction::F32ConvertI32U);
             func.instruction(&Instruction::F32Const(255.0));
             func.instruction(&Instruction::F32Div);
+            func.instruction(&Instruction::LocalGet(l_tmp_a)); // weight
+            func.instruction(&Instruction::F32Mul);
+            func.instruction(&Instruction::LocalGet(l_res_r + i as u32));
+            func.instruction(&Instruction::F32Add);
             func.instruction(&Instruction::LocalSet(l_res_r + i as u32));
         }
         func.instruction(&Instruction::Else);
-
-        // RGBA32F (0x8814)
         func.instruction(&Instruction::LocalGet(l_format));
-        func.instruction(&Instruction::I32Const(0x8814));
+        func.instruction(&Instruction::I32Const(0x8814)); // RGBA32F
         func.instruction(&Instruction::I32Eq);
         func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
         for i in 0..4 {
@@ -586,13 +823,16 @@ impl<'a> Compiler<'a> {
                 align: 2,
                 memory_index: 0,
             }));
+            func.instruction(&Instruction::LocalGet(l_tmp_a)); // weight
+            func.instruction(&Instruction::F32Mul);
+            func.instruction(&Instruction::LocalGet(l_res_r + i as u32));
+            func.instruction(&Instruction::F32Add);
             func.instruction(&Instruction::LocalSet(l_res_r + i as u32));
         }
         func.instruction(&Instruction::Else);
-
-        // R32F (0x822E)
+        // Handle R32F (0x822E), RG32F simplified
         func.instruction(&Instruction::LocalGet(l_format));
-        func.instruction(&Instruction::I32Const(0x822E));
+        func.instruction(&Instruction::I32Const(0x822E)); // R32F
         func.instruction(&Instruction::I32Eq);
         func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
         func.instruction(&Instruction::LocalGet(l_addr));
@@ -601,56 +841,30 @@ impl<'a> Compiler<'a> {
             align: 2,
             memory_index: 0,
         }));
+        func.instruction(&Instruction::LocalGet(l_tmp_a)); // weight
+        func.instruction(&Instruction::F32Mul);
+        func.instruction(&Instruction::LocalGet(l_res_r));
+        func.instruction(&Instruction::F32Add);
         func.instruction(&Instruction::LocalSet(l_res_r));
-        func.instruction(&Instruction::F32Const(0.0));
-        func.instruction(&Instruction::LocalSet(l_res_g));
-        func.instruction(&Instruction::F32Const(0.0));
-        func.instruction(&Instruction::LocalSet(l_res_b));
-        func.instruction(&Instruction::F32Const(1.0));
+
+        func.instruction(&Instruction::LocalGet(l_tmp_a)); // weight (for alpha)
+        func.instruction(&Instruction::LocalGet(l_res_a));
+        func.instruction(&Instruction::F32Add);
         func.instruction(&Instruction::LocalSet(l_res_a));
-        func.instruction(&Instruction::Else);
+        func.instruction(&Instruction::End);
+        func.instruction(&Instruction::End);
+        func.instruction(&Instruction::End);
 
-        // RG32F (0x8230)
-        func.instruction(&Instruction::LocalGet(l_format));
-        func.instruction(&Instruction::I32Const(0x8230));
-        func.instruction(&Instruction::I32Eq);
-        func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
-        func.instruction(&Instruction::LocalGet(l_addr));
-        func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
-            offset: 0,
-            align: 2,
-            memory_index: 0,
-        }));
-        func.instruction(&Instruction::LocalSet(l_res_r));
-        func.instruction(&Instruction::LocalGet(l_addr));
-        func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
-            offset: 4,
-            align: 2,
-            memory_index: 0,
-        }));
-        func.instruction(&Instruction::LocalSet(l_res_g));
-        func.instruction(&Instruction::F32Const(0.0));
-        func.instruction(&Instruction::LocalSet(l_res_b));
-        func.instruction(&Instruction::F32Const(1.0));
-        func.instruction(&Instruction::LocalSet(l_res_a));
-        func.instruction(&Instruction::Else);
+        // Loop management
+        func.instruction(&Instruction::LocalGet(l_loop_cnt));
+        func.instruction(&Instruction::I32Const(1));
+        func.instruction(&Instruction::I32Add);
+        func.instruction(&Instruction::LocalTee(l_loop_cnt));
+        func.instruction(&Instruction::I32Const(if is_3d { 8 } else { 4 }));
+        func.instruction(&Instruction::I32LtU);
+        func.instruction(&Instruction::BrIf(0));
+        func.instruction(&Instruction::End); // End Loop
 
-        // Default: Red (to signal unknown format)
-        func.instruction(&Instruction::F32Const(1.0));
-        func.instruction(&Instruction::LocalSet(l_res_r));
-        func.instruction(&Instruction::F32Const(0.0));
-        func.instruction(&Instruction::LocalSet(l_res_g));
-        func.instruction(&Instruction::F32Const(1.0));
-        func.instruction(&Instruction::LocalSet(l_res_b));
-        func.instruction(&Instruction::F32Const(1.0));
-        func.instruction(&Instruction::LocalSet(l_res_a));
-
-        func.instruction(&Instruction::End); // RG32F
-        func.instruction(&Instruction::End); // R32F
-        func.instruction(&Instruction::End); // RGBA32F
-        func.instruction(&Instruction::End); // RGBA8
-
-        // Push result to stack
         func.instruction(&Instruction::LocalGet(l_res_r));
         func.instruction(&Instruction::LocalGet(l_res_g));
         func.instruction(&Instruction::LocalGet(l_res_b));
@@ -668,7 +882,7 @@ impl<'a> Compiler<'a> {
             "env",
             "memory",
             MemoryType {
-                minimum: 10, // 640KB
+                minimum: 100, // 6.4MB
                 maximum: None,
                 memory64: false,
                 shared: false,
@@ -755,21 +969,19 @@ impl<'a> Compiler<'a> {
         let mut varying_offset = 0;
         let _attr_offset = 0;
 
-        // First pass: find gl_Position and put it at the start of varying buffer
+        // First pass: find gl_Position and gl_PointSize and put them at fixed offsets
         for (handle, var) in self.module.global_variables.iter() {
-            let is_position = if let Some(name) = &var.name {
-                name == "gl_Position" || name == "gl_Position_1"
-            } else {
-                false
-            };
-
-            if is_position {
-                self.global_offsets
-                    .insert(handle, (0, output_layout::VARYING_PTR_GLOBAL));
-                varying_offset = 16; // gl_Position is vec4 (16 bytes)
-                break;
+            if let Some(name) = &var.name {
+                if name == "gl_Position" || name == "gl_Position_1" {
+                    self.global_offsets
+                        .insert(handle, (0, output_layout::VARYING_PTR_GLOBAL));
+                } else if name == "gl_PointSize" {
+                    self.global_offsets
+                        .insert(handle, (16, output_layout::VARYING_PTR_GLOBAL));
+                }
             }
         }
+        varying_offset = 32; // User varyings start after Position and PointSize (16+16=32)
 
         // We need to know which variables are inputs/outputs
         // For now, let's look at the first entry point
@@ -789,14 +1001,34 @@ impl<'a> Compiler<'a> {
 
             let (offset, base_ptr) = match var.space {
                 naga::AddressSpace::Uniform | naga::AddressSpace::Handle => {
-                    if let Some(name) = &var.name {
+                    // For both Uniform and Handle (in index model), storage is in uniform memory.
+                    // Handles (samplers/images) store their unit index as an i32 in WebGL.
+                    let default_base_ptr = output_layout::UNIFORM_PTR_GLOBAL;
+
+                    // Try to match by binding first (preferred for WebGPU)
+                    let found_by_binding = if let Some(rb) = &var.binding {
+                        self.uniform_map
+                            .get(&(rb.group, rb.binding))
+                            .map(|(offset, _)| (*offset, default_base_ptr))
+                    } else {
+                        None
+                    };
+
+                    if let Some(res) = found_by_binding {
+                        res
+                    } else if let Some(name) = &var.name {
                         if let Some(&loc) = self.uniform_locations.get(name) {
-                            output_layout::compute_uniform_offset(loc)
+                            let off = if matches!(var.space, naga::AddressSpace::Handle) {
+                                output_layout::get_webgl_uniform_data_offset(loc)
+                            } else {
+                                output_layout::compute_uniform_offset(loc).0
+                            };
+                            (off, default_base_ptr)
                         } else {
-                            (0, output_layout::UNIFORM_PTR_GLOBAL)
+                            (0, default_base_ptr)
                         }
                     } else {
-                        (0, output_layout::UNIFORM_PTR_GLOBAL)
+                        (0, default_base_ptr)
                     }
                 }
                 naga::AddressSpace::Private | naga::AddressSpace::Function => {
@@ -885,6 +1117,14 @@ impl<'a> Compiler<'a> {
 
         // Compile each entry point
         for (idx, entry_point) in self.module.entry_points.iter().enumerate() {
+            if entry_point.stage != self.stage {
+                continue;
+            }
+            if let Some(target) = self.entry_point_name {
+                if entry_point.name != target {
+                    continue;
+                }
+            }
             self.compile_entry_point(entry_point, idx)?;
         }
         Ok(())
@@ -1174,9 +1414,13 @@ impl<'a> Compiler<'a> {
             }
 
             // Initialize frame stack pointer to base address
+            // Calculate base relative to private_ptr (arg 6)
+            // FRAME_STACK_BASE = private_ptr + (FRAME_STACK_OFFSET - PRIVATE_PTR_OFFSET)
+            wasm_func.instruction(&Instruction::LocalGet(6)); // private_ptr
             wasm_func.instruction(&Instruction::I32Const(
-                output_layout::FRAME_STACK_BASE as i32,
+                (output_layout::FRAME_STACK_OFFSET - output_layout::PRIVATE_PTR_OFFSET) as i32,
             ));
+            wasm_func.instruction(&Instruction::I32Add);
             wasm_func.instruction(&Instruction::GlobalSet(output_layout::FRAME_SP_GLOBAL));
         }
 
@@ -1316,8 +1560,10 @@ impl<'a> Compiler<'a> {
 
         // Export internal functions in debug mode
         if entry_point.is_none() && self._backend.config.debug_shaders {
-            self.exports
-                .export(&format!("func_{}", func_idx), ExportKind::Func, func_idx);
+            let name = format!("func_{}", func_idx);
+            if self.exported_names.insert(name.clone()) {
+                self.exports.export(&name, ExportKind::Func, func_idx);
+            }
         }
 
         Ok(func_idx)
@@ -1330,9 +1576,22 @@ impl<'a> Compiler<'a> {
     ) -> Result<(), BackendError> {
         let func_idx = self.compile_function(&entry_point.function, Some(entry_point), None)?;
 
-        // Export the function
-        self.exports
-            .export(&entry_point.name, ExportKind::Func, func_idx);
+        // Export the function as its original name if not already exported
+        if self.exported_names.insert(entry_point.name.clone()) {
+            self.exports
+                .export(&entry_point.name, ExportKind::Func, func_idx);
+        }
+
+        // Alias to "main" only if it matches our target entry point,
+        // or if no target was specified and it's the first one.
+        let is_target = match self.entry_point_name {
+            Some(target) => entry_point.name == target,
+            None => true, // Default to first available if not specified
+        };
+
+        if is_target && self.exported_names.insert("main".to_string()) {
+            self.exports.export("main", ExportKind::Func, func_idx);
+        }
 
         self.entry_points.insert(entry_point.name.clone(), func_idx);
 

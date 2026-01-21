@@ -47,7 +47,7 @@ test('ABI: single internal function with scalar param (flattened)', async () => 
   (type (;18;) (func (param f32)))
   (type (;19;) (func))
   (type (;20;) (func (param i32 i32 i32 i32 i32 i32 i32 i32)))
-  (import "env" "memory" (memory (;0;) 10))
+  (import "env" "memory" (memory (;0;) 100))
   (import "env" "gl_sin" (func (;0;) (type 0)))
   (import "env" "gl_cos" (func (;1;) (type 1)))
   (import "env" "gl_tan" (func (;2;) (type 2)))
@@ -122,7 +122,9 @@ test('ABI: single internal function with scalar param (flattened)', async () => 
     global.set 3
     local.get 7
     global.set 4
-    i32.const 524288
+    local.get 6
+    i32.const 81920
+    i32.add
     global.set 5
     call 19
     global.get 3
@@ -208,7 +210,7 @@ test('ABI: internal function with vec2 param (flattened)', async () => {
   (type (;18;) (func (param f32 f32) (result f32)))
   (type (;19;) (func))
   (type (;20;) (func (param i32 i32 i32 i32 i32 i32 i32 i32)))
-  (import "env" "memory" (memory (;0;) 10))
+  (import "env" "memory" (memory (;0;) 100))
   (import "env" "gl_sin" (func (;0;) (type 0)))
   (import "env" "gl_cos" (func (;1;) (type 1)))
   (import "env" "gl_tan" (func (;2;) (type 2)))
@@ -299,7 +301,9 @@ test('ABI: internal function with vec2 param (flattened)', async () => {
     global.set 3
     local.get 7
     global.set 4
-    i32.const 524288
+    local.get 6
+    i32.const 81920
+    i32.add
     global.set 5
     call 19
     global.get 3
@@ -385,7 +389,7 @@ test('ABI: internal function with scalar return value', async () => {
   (type (;18;) (func (result f32)))
   (type (;19;) (func))
   (type (;20;) (func (param i32 i32 i32 i32 i32 i32 i32 i32)))
-  (import "env" "memory" (memory (;0;) 10))
+  (import "env" "memory" (memory (;0;) 100))
   (import "env" "gl_sin" (func (;0;) (type 0)))
   (import "env" "gl_cos" (func (;1;) (type 1)))
   (import "env" "gl_tan" (func (;2;) (type 2)))
@@ -460,7 +464,9 @@ test('ABI: internal function with scalar return value', async () => {
     global.set 3
     local.get 7
     global.set 4
-    i32.const 524288
+    local.get 6
+    i32.const 81920
+    i32.add
     global.set 5
     call 19
     global.get 3
@@ -546,7 +552,7 @@ test('ABI: internal function with vec3 return (flattened)', async () => {
   (type (;18;) (func (result f32 f32 f32)))
   (type (;19;) (func))
   (type (;20;) (func (param i32 i32 i32 i32 i32 i32 i32 i32)))
-  (import "env" "memory" (memory (;0;) 10))
+  (import "env" "memory" (memory (;0;) 100))
   (import "env" "gl_sin" (func (;0;) (type 0)))
   (import "env" "gl_cos" (func (;1;) (type 1)))
   (import "env" "gl_tan" (func (;2;) (type 2)))
@@ -639,7 +645,9 @@ test('ABI: internal function with vec3 return (flattened)', async () => {
     global.set 3
     local.get 7
     global.set 4
-    i32.const 524288
+    local.get 6
+    i32.const 81920
+    i32.add
     global.set 5
     call 19
     global.get 3

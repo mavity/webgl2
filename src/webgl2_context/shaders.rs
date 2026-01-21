@@ -226,33 +226,7 @@ pub fn ctx_create_program(ctx: u32) -> u32 {
         }
     };
     let program_id = ctx_obj.allocate_program_handle();
-    ctx_obj.programs.insert(
-        program_id,
-        Program {
-            attached_shaders: Vec::new(),
-            linked: false,
-            info_log: String::new(),
-            attributes: HashMap::new(),
-            attribute_bindings: HashMap::new(),
-            uniforms: HashMap::new(),
-            uniform_types: HashMap::new(),
-            active_attributes: Vec::new(),
-            active_uniforms: Vec::new(),
-            vs_module: None,
-            fs_module: None,
-            vs_info: None,
-            fs_info: None,
-            vs_wasm: None,
-            fs_wasm: None,
-            vs_stub: None,
-            fs_stub: None,
-            varying_locations: HashMap::new(),
-            varying_types: HashMap::new(),
-            attribute_types: HashMap::new(),
-            vs_table_idx: None,
-            fs_table_idx: None,
-        },
-    );
+    ctx_obj.programs.insert(program_id, Program::default());
     program_id
 }
 
@@ -547,17 +521,21 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
             }
 
             // Collect uniforms and varyings from globals _and_ from entry point args/results
-            for (_, var) in vs.global_variables.iter() {
+            let mut vs_globals: Vec<_> = vs.global_variables.iter().collect();
+            vs_globals.sort_by_key(|(handle, _)| handle.index());
+
+            for (handle, var) in vs_globals {
                 if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
                     if let Some(name) = &var.name {
                         if !p.uniforms.contains_key(name) {
-                            p.uniforms.insert(name.clone(), next_uniform_loc as i32);
-                            uniform_locations.insert(name.clone(), next_uniform_loc);
+                            let location = next_uniform_loc as i32;
+                            next_uniform_loc += 1;
+                            p.uniforms.insert(name.clone(), location);
+                            uniform_locations.insert(name.clone(), location as u32);
                             // Record uniform type info
                             let ty = &vs.types[var.ty];
                             let type_info = get_type_info(ty);
                             p.uniform_types.insert(name.clone(), type_info);
-                            next_uniform_loc += 1;
                         }
                     }
                 } else {
@@ -654,17 +632,21 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                 }
             }
 
-            for (_, var) in fs.global_variables.iter() {
+            let mut fs_globals: Vec<_> = fs.global_variables.iter().collect();
+            fs_globals.sort_by_key(|(handle, _)| handle.index());
+
+            for (handle, var) in fs_globals {
                 if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
                     if let Some(name) = &var.name {
                         if !p.uniforms.contains_key(name) {
-                            p.uniforms.insert(name.clone(), next_uniform_loc as i32);
-                            uniform_locations.insert(name.clone(), next_uniform_loc);
+                            let location = next_uniform_loc as i32;
+                            next_uniform_loc += 1;
+                            p.uniforms.insert(name.clone(), location);
+                            uniform_locations.insert(name.clone(), location as u32);
                             // Record uniform type info
                             let ty = &fs.types[var.ty];
                             let type_info = get_type_info(ty);
                             p.uniform_types.insert(name.clone(), type_info);
-                            next_uniform_loc += 1;
                         }
                     }
                 } else {
@@ -733,6 +715,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                     info: vsi,
                     source: &vs_source,
                     stage: naga::ShaderStage::Vertex,
+                    entry_point: Some("main"),
                     attribute_locations: &attribute_locations,
                     uniform_locations: &uniform_locations,
                     varying_locations: &varying_locations,
@@ -762,6 +745,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                     info: fsi,
                     source: &fs_source,
                     stage: naga::ShaderStage::Fragment,
+                    entry_point: Some("main"),
                     attribute_locations: &attribute_locations,
                     uniform_locations: &uniform_locations,
                     varying_locations: &varying_locations,
@@ -947,6 +931,13 @@ pub fn ctx_get_uniform_location(ctx: u32, program: u32, name_ptr: u32, name_len:
     if let Some(p) = ctx_obj.programs.get(&program) {
         if let Some(&loc) = p.uniforms.get(&name) {
             loc
+        } else if name.ends_with("[0]") {
+            let base_name = &name[0..name.len() - 3];
+            if let Some(&loc) = p.uniforms.get(base_name) {
+                loc
+            } else {
+                -1
+            }
         } else {
             -1
         }
@@ -1019,9 +1010,9 @@ pub fn ctx_uniform1f(ctx: u32, location: i32, x: f32) -> u32 {
         return ERR_OK;
     }
 
-    let (offset_u, _) =
-        crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
-    let offset = offset_u as usize;
+    let offset =
+        crate::naga_wasm_backend::output_layout::get_webgl_uniform_data_offset(location as u32)
+            as usize;
     if (offset + 4) <= ctx_obj.uniform_data.len() {
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
         ERR_OK
@@ -1044,9 +1035,9 @@ pub fn ctx_uniform2f(ctx: u32, location: i32, x: f32, y: f32) -> u32 {
         return ERR_OK;
     }
 
-    let (offset_u, _) =
-        crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
-    let offset = offset_u as usize;
+    let offset =
+        crate::naga_wasm_backend::output_layout::get_webgl_uniform_data_offset(location as u32)
+            as usize;
     if (offset + 8) <= ctx_obj.uniform_data.len() {
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
         ctx_obj.uniform_data[offset + 4..offset + 8].copy_from_slice(&y.to_le_bytes());
@@ -1070,9 +1061,9 @@ pub fn ctx_uniform3f(ctx: u32, location: i32, x: f32, y: f32, z: f32) -> u32 {
         return ERR_OK;
     }
 
-    let (offset_u, _) =
-        crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
-    let offset = offset_u as usize;
+    let offset =
+        crate::naga_wasm_backend::output_layout::get_webgl_uniform_data_offset(location as u32)
+            as usize;
     if (offset + 12) <= ctx_obj.uniform_data.len() {
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
         ctx_obj.uniform_data[offset + 4..offset + 8].copy_from_slice(&y.to_le_bytes());
@@ -1097,9 +1088,9 @@ pub fn ctx_uniform4f(ctx: u32, location: i32, x: f32, y: f32, z: f32, w: f32) ->
         return ERR_OK;
     }
 
-    let (offset_u, _) =
-        crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
-    let offset = offset_u as usize;
+    let offset =
+        crate::naga_wasm_backend::output_layout::get_webgl_uniform_data_offset(location as u32)
+            as usize;
     if (offset + 16) <= ctx_obj.uniform_data.len() {
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
         ctx_obj.uniform_data[offset + 4..offset + 8].copy_from_slice(&y.to_le_bytes());
@@ -1125,9 +1116,9 @@ pub fn ctx_uniform1i(ctx: u32, location: i32, x: i32) -> u32 {
         return ERR_OK;
     }
 
-    let (offset_u, _) =
-        crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
-    let offset = offset_u as usize;
+    let offset =
+        crate::naga_wasm_backend::output_layout::get_webgl_uniform_data_offset(location as u32)
+            as usize;
     if (offset + 4) <= ctx_obj.uniform_data.len() {
         ctx_obj.uniform_data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
         ERR_OK
@@ -1155,9 +1146,9 @@ pub fn ctx_uniform_matrix_4fv(ctx: u32, location: i32, transpose: bool, ptr: u32
         return ERR_INVALID_ARGS;
     }
 
-    let (offset_u, _) =
-        crate::naga_wasm_backend::output_layout::compute_uniform_offset(location as u32);
-    let offset = offset_u as usize;
+    let offset =
+        crate::naga_wasm_backend::output_layout::get_webgl_uniform_data_offset(location as u32)
+            as usize;
     if (offset + len as usize * 4) <= ctx_obj.uniform_data.len() {
         let src_slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, (len * 4) as usize) };
         ctx_obj.uniform_data[offset..offset + (len * 4) as usize].copy_from_slice(src_slice);
@@ -1336,6 +1327,9 @@ fn reflect_program_resources(p: &mut Program) {
     use naga::{AddressSpace, Binding, ScalarKind, ShaderStage, TypeInner, VectorSize};
     p.active_attributes.clear();
     p.active_uniforms.clear();
+    // Do NOT clear p.uniforms and p.attributes here, as they were populated during linkProgram
+    // with the correct locations used by the WASM backend.
+    // We only need to ensure ActiveInfo is populated for introspection APIs.
 
     fn map_type(ty: &naga::Type, arena: &naga::UniqueArena<naga::Type>) -> (u32, i32) {
         let gl_float: u32 = 0x1406;
@@ -1431,37 +1425,54 @@ fn reflect_program_resources(p: &mut Program) {
 
     let mut uni_map = HashMap::new();
 
-    let mut extract_uniforms = |module: &naga::Module| {
-        for (_, var) in module.global_variables.iter() {
-            if matches!(var.space, AddressSpace::Uniform | AddressSpace::Handle) {
-                if let Some(name) = &var.name {
-                    let ty = &module.types[var.ty];
-                    let (gl_type, size) = map_type(ty, &module.types);
-                    if gl_type != 0 {
-                        let final_name = if size > 1 {
-                            format!("{}[0]", name)
-                        } else {
-                            name.clone()
-                        };
-                        uni_map.insert(
-                            final_name.clone(),
-                            ActiveInfo {
-                                name: final_name,
-                                size,
-                                type_: gl_type,
-                            },
-                        );
+    let mut extract_active_uniforms =
+        |module: &naga::Module, program_uniforms: &mut HashMap<String, i32>| {
+            let mut globals: Vec<_> = module.global_variables.iter().collect();
+            globals.sort_by_key(|(handle, _)| handle.index());
+
+            for (handle, var) in globals {
+                if matches!(var.space, AddressSpace::Uniform | AddressSpace::Handle) {
+                    if let Some(name) = &var.name {
+                        let ty = &module.types[var.ty];
+                        let (gl_type, size) = map_type(ty, &module.types);
+                        if gl_type != 0 {
+                            let final_name = if size > 1 {
+                                format!("{}[0]", name)
+                            } else {
+                                name.clone()
+                            };
+
+                            let location = handle.index() as i32;
+
+                            if !uni_map.contains_key(&final_name) {
+                                uni_map.insert(
+                                    final_name.clone(),
+                                    ActiveInfo {
+                                        name: final_name.clone(),
+                                        size,
+                                        type_: gl_type,
+                                    },
+                                );
+
+                                // Map both 'name' and 'name[0]' to the same location
+                                if !program_uniforms.contains_key(name) {
+                                    program_uniforms.insert(name.clone(), location);
+                                    if size > 1 {
+                                        program_uniforms.insert(final_name, location);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
-        }
-    };
+        };
 
     if let Some(vs) = &p.vs_module {
-        extract_uniforms(vs);
+        extract_active_uniforms(vs, &mut p.uniforms);
     }
     if let Some(fs) = &p.fs_module {
-        extract_uniforms(fs);
+        extract_active_uniforms(fs, &mut p.uniforms);
     }
 
     let mut uniforms: Vec<ActiveInfo> = uni_map.into_values().collect();

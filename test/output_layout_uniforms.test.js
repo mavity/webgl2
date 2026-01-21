@@ -41,16 +41,16 @@ test('output_layout_uniforms: verify uniform offsets in WASM', async (t) => {
       const wasm = gl.getProgramWasm(prog, gl.VERTEX_SHADER);
       assert.ok(wasm, 'WASM should be available for linked vertex shader');
       // u_data should be at location 2 (assigned sequentially)
-      // location 2 * 64 = 128
-      // I32Const(128) -> 0x41 0x80 0x01
+      // context block offset: location 2 * 4 = 8
+      // I32Const(8) -> 0x41 0x08
       let found = false;
-      for (let i = 0; i < wasm.length - 2; i++) {
-        if (wasm[i] === 0x41 && wasm[i+1] === 0x80 && wasm[i+2] === 0x01) {
+      for (let i = 0; i < wasm.length - 1; i++) {
+        if (wasm[i] === 0x41 && wasm[i+1] === 0x08) {
           found = true;
           break;
         }
       }
-      assert.ok(found, 'WASM should contain I32Const(128) [0x41 0x80 0x01] for uniform at location 2');
+      assert.ok(found, 'WASM should contain I32Const(8) [0x41 0x08] for uniform at location 2');
     });
   } finally {
     gl.destroy();

@@ -97,11 +97,12 @@ pub fn ctx_draw_arrays_instanced(
     // Create pipeline configuration
     let mask = ctx_get_program_flat_varyings_mask(ctx_obj);
     // Build pipeline and include varying debug info if shaders debugging is enabled
+    let base = crate::wasm_get_scratch_base();
     let pipeline = RasterPipeline {
         flat_varyings_mask: mask,
         vs_table_idx,
         fs_table_idx,
-        ..Default::default()
+        ..RasterPipeline::new(base)
     };
 
     // Prepare textures once
@@ -109,8 +110,8 @@ pub fn ctx_draw_arrays_instanced(
 
     let state = RenderState {
         ctx_handle: ctx,
-        memory: ShaderMemoryLayout::default(),
-        viewport: (vx, vy, vw, vh),
+        memory: ShaderMemoryLayout::new(base),
+        viewport: (vx, vy, vw as u32, vh as u32),
         scissor: ctx_obj.scissor_box,
         scissor_enabled: ctx_obj.scissor_test_enabled,
         uniform_data: &ctx_obj.uniform_data,
@@ -119,6 +120,9 @@ pub fn ctx_draw_arrays_instanced(
         color_mask: ctx_obj.color_mask,
         depth: ctx_obj.depth_state,
         stencil: ctx_obj.stencil_state,
+        cull_face_enabled: ctx_obj.cull_face_enabled,
+        cull_face_mode: ctx_obj.cull_face_mode,
+        front_face: ctx_obj.front_face,
     };
 
     let fetcher = WebGLVertexFetcher {
@@ -135,16 +139,25 @@ pub fn ctx_draw_arrays_instanced(
     // If we want start from 'first', we should probably pass indices.
 
     let (target_handle, target_w, target_h, target_fmt) = ctx_obj.get_color_attachment_info(false);
+    let (ds_handle, _, _, _) = ctx_obj.get_depth_attachment_handle();
+
+    let depth_stencil_target = if ds_handle.is_valid() {
+        crate::wasm_gl_emu::rasterizer::DepthStencilTarget::Handle(ds_handle)
+    } else {
+        crate::wasm_gl_emu::rasterizer::DepthStencilTarget::Raw {
+            depth: &mut ctx_obj.default_framebuffer.depth,
+            stencil: &mut ctx_obj.default_framebuffer.stencil,
+        }
+    };
 
     ctx_obj.rasterizer.draw(
         &mut ctx_obj.kernel,
         crate::wasm_gl_emu::rasterizer::DrawConfig {
             color_target: crate::wasm_gl_emu::rasterizer::ColorTarget::Handle(target_handle),
+            depth_stencil_target,
             width: target_w,
             height: target_h,
             internal_format: target_fmt,
-            depth: &mut ctx_obj.default_framebuffer.depth,
-            stencil: &mut ctx_obj.default_framebuffer.stencil,
             pipeline: &pipeline,
             state: &state,
             vertex_fetcher: &fetcher,
@@ -214,11 +227,12 @@ pub fn ctx_draw_elements_instanced(
     let (vx, vy, vw, vh) = ctx_obj.viewport;
 
     // Create pipeline configuration
+    let base = crate::wasm_get_scratch_base();
     let pipeline = RasterPipeline {
         flat_varyings_mask: ctx_get_program_flat_varyings_mask(ctx_obj),
         vs_table_idx,
         fs_table_idx,
-        ..Default::default()
+        ..RasterPipeline::new(base)
     };
 
     // Prepare textures once
@@ -226,7 +240,7 @@ pub fn ctx_draw_elements_instanced(
 
     let state = RenderState {
         ctx_handle: ctx,
-        memory: ShaderMemoryLayout::default(),
+        memory: ShaderMemoryLayout::new(base),
         viewport: (vx, vy, vw, vh),
         scissor: ctx_obj.scissor_box,
         scissor_enabled: ctx_obj.scissor_test_enabled,
@@ -236,6 +250,9 @@ pub fn ctx_draw_elements_instanced(
         color_mask: ctx_obj.color_mask,
         depth: ctx_obj.depth_state,
         stencil: ctx_obj.stencil_state,
+        cull_face_enabled: ctx_obj.cull_face_enabled,
+        cull_face_mode: ctx_obj.cull_face_mode,
+        front_face: ctx_obj.front_face,
     };
 
     let fetcher = WebGLVertexFetcher {
@@ -243,6 +260,7 @@ pub fn ctx_draw_elements_instanced(
     };
 
     let (target_handle, target_w, target_h, target_fmt) = ctx_obj.get_color_attachment_info(false);
+    let (ds_handle, _, _, _) = ctx_obj.get_depth_attachment_handle();
 
     // Prepare indices lazily if EBO is bound
     let lazy_indices = ebo_handle
@@ -256,15 +274,23 @@ pub fn ctx_draw_elements_instanced(
             count: count as u32,
         });
 
+    let depth_stencil_target = if ds_handle.is_valid() {
+        crate::wasm_gl_emu::rasterizer::DepthStencilTarget::Handle(ds_handle)
+    } else {
+        crate::wasm_gl_emu::rasterizer::DepthStencilTarget::Raw {
+            depth: &mut ctx_obj.default_framebuffer.depth,
+            stencil: &mut ctx_obj.default_framebuffer.stencil,
+        }
+    };
+
     ctx_obj.rasterizer.draw(
         &mut ctx_obj.kernel,
         crate::wasm_gl_emu::rasterizer::DrawConfig {
             color_target: crate::wasm_gl_emu::rasterizer::ColorTarget::Handle(target_handle),
+            depth_stencil_target,
             width: target_w,
             height: target_h,
             internal_format: target_fmt,
-            depth: &mut ctx_obj.default_framebuffer.depth,
-            stencil: &mut ctx_obj.default_framebuffer.stencil,
             pipeline: &pipeline,
             state: &state,
             vertex_fetcher: &fetcher,
