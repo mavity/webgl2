@@ -38,7 +38,13 @@ pub fn ctx_create_framebuffer(ctx: u32) -> u32 {
     ctx_obj.framebuffers.insert(
         fb_id,
         FramebufferObj {
-            color_attachment: None,
+            color_attachments: [None; MAX_DRAW_BUFFERS],
+            draw_buffers: {
+                let mut db = [GL_NONE; MAX_DRAW_BUFFERS];
+                db[0] = GL_COLOR_ATTACHMENT0;
+                db
+            },
+            read_buffer: GL_COLOR_ATTACHMENT0,
             depth_attachment: None,
             stencil_attachment: None,
         },
@@ -180,23 +186,18 @@ pub fn ctx_framebuffer_texture2d(
         Some(Attachment::Texture(tex))
     };
 
-    if attachment_enum == 0x8CE0 {
-        // GL_COLOR_ATTACHMENT0
-        fb.color_attachment = attachment_obj;
-    } else if attachment_enum == 0x8D00 {
-        // GL_DEPTH_ATTACHMENT
+    if attachment_enum >= GL_COLOR_ATTACHMENT0 && attachment_enum <= GL_COLOR_ATTACHMENT7 {
+        let idx = (attachment_enum - GL_COLOR_ATTACHMENT0) as usize;
+        fb.color_attachments[idx] = attachment_obj;
+    } else if attachment_enum == GL_DEPTH_ATTACHMENT {
         fb.depth_attachment = attachment_obj;
-    } else if attachment_enum == 0x8D20 {
-        // GL_STENCIL_ATTACHMENT
+    } else if attachment_enum == GL_STENCIL_ATTACHMENT {
         fb.stencil_attachment = attachment_obj;
-    } else if attachment_enum == 0x821A {
-        // GL_DEPTH_STENCIL_ATTACHMENT
+    } else if attachment_enum == GL_DEPTH_STENCIL_ATTACHMENT {
         fb.depth_attachment = attachment_obj;
         fb.stencil_attachment = attachment_obj;
     } else {
-        // For now, just set color attachment if unknown, or maybe error?
-        // The original code just set color_attachment.
-        fb.color_attachment = attachment_obj;
+        fb.color_attachments[0] = attachment_obj;
     }
 
     ERR_OK
@@ -257,17 +258,14 @@ pub fn ctx_framebuffer_renderbuffer(
         Some(Attachment::Renderbuffer(renderbuffer))
     };
 
-    if attachment == 0x8CE0 {
-        // GL_COLOR_ATTACHMENT0
-        fb.color_attachment = attachment_obj;
-    } else if attachment == 0x8D00 {
-        // GL_DEPTH_ATTACHMENT
+    if attachment >= GL_COLOR_ATTACHMENT0 && attachment <= GL_COLOR_ATTACHMENT7 {
+        let idx = (attachment - GL_COLOR_ATTACHMENT0) as usize;
+        fb.color_attachments[idx] = attachment_obj;
+    } else if attachment == GL_DEPTH_ATTACHMENT {
         fb.depth_attachment = attachment_obj;
-    } else if attachment == 0x8D20 {
-        // GL_STENCIL_ATTACHMENT
+    } else if attachment == GL_STENCIL_ATTACHMENT {
         fb.stencil_attachment = attachment_obj;
-    } else if attachment == 0x821A {
-        // GL_DEPTH_STENCIL_ATTACHMENT
+    } else if attachment == GL_DEPTH_STENCIL_ATTACHMENT {
         fb.depth_attachment = attachment_obj;
         fb.stencil_attachment = attachment_obj;
     } else {
@@ -315,6 +313,98 @@ pub fn ctx_blit_framebuffer(
     }
 
     // TODO: support depth/stencil blit
+
+    ERR_OK
+}
+
+/// Set draw buffers for the current framebuffer.
+pub fn ctx_draw_buffers(ctx: u32, ptr: u32, count: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => return ERR_INVALID_HANDLE,
+    };
+
+    let fb_handle = match ctx_obj.bound_draw_framebuffer {
+        Some(h) => h,
+        None => {
+            // Default framebuffer
+            if count != 1 {
+                set_last_error("default framebuffer only supports one draw buffer");
+                return GL_INVALID_VALUE;
+            }
+            let buf_slice = unsafe { std::slice::from_raw_parts(ptr as *const u32, 1) };
+            let db = buf_slice[0];
+            if db != 0 && db != 0x0405 { // GL_NONE or GL_BACK
+                set_last_error("invalid draw buffer for default framebuffer");
+                return ERR_INVALID_OPERATION;
+            }
+            ctx_obj.default_draw_buffers = vec![db];
+            return ERR_OK;
+        }
+    };
+
+    let fb = match ctx_obj.framebuffers.get_mut(&fb_handle) {
+        Some(f) => f,
+        None => return ERR_INTERNAL,
+    };
+
+    if count as usize > MAX_DRAW_BUFFERS {
+        set_last_error("too many draw buffers");
+        return GL_INVALID_VALUE;
+    }
+
+    let buf_slice = unsafe { std::slice::from_raw_parts(ptr as *const u32, count as usize) };
+    let mut new_draw_buffers = [GL_NONE; MAX_DRAW_BUFFERS];
+    for (i, &buf) in buf_slice.iter().enumerate() {
+        if buf != 0 && buf != 0x8CE0 + i as u32 { // GL_NONE or GL_COLOR_ATTACHMENTi
+            set_last_error("invalid draw buffer enum for framebuffer object");
+            return ERR_INVALID_OPERATION;
+        }
+        new_draw_buffers[i] = buf;
+    }
+
+    fb.draw_buffers = new_draw_buffers;
+    ERR_OK
+}
+
+/// Set read buffer.
+pub fn ctx_read_buffer(ctx: u32, mode: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => return ERR_INVALID_HANDLE,
+    };
+
+    if let Some(fb_handle) = ctx_obj.bound_read_framebuffer {
+        if let Some(fb) = ctx_obj.framebuffers.get_mut(&fb_handle) {
+            if mode == 0x0405 {
+                // GL_BACK
+                set_last_error("invalid read buffer BACK for framebuffer object");
+                return ERR_INVALID_OPERATION;
+            }
+            // GL_NONE (0) or GL_COLOR_ATTACHMENTi
+            if mode != 0 && (mode < 0x8CE0 || mode >= 0x8CE0 + MAX_DRAW_BUFFERS as u32) {
+                set_last_error("invalid read buffer enum");
+                return ERR_INVALID_ENUM;
+            }
+            fb.read_buffer = mode;
+        }
+    } else {
+        // Default framebuffer
+        if mode >= 0x8CE0 && mode <= 0x8CE7 {
+            set_last_error("invalid read buffer color attachment for default framebuffer");
+            return ERR_INVALID_OPERATION;
+        }
+        if mode != 0 && mode != 0x0405 {
+            // GL_NONE or GL_BACK
+            set_last_error("invalid read buffer for default framebuffer");
+            return ERR_INVALID_ENUM;
+        }
+        ctx_obj.default_read_buffer = mode;
+    }
 
     ERR_OK
 }

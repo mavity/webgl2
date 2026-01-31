@@ -63,8 +63,10 @@ impl OwnedFramebuffer {
         Framebuffer {
             width: buffer.width,
             height: buffer.height,
-            internal_format: self.internal_format,
-            color: &mut buffer.data,
+            color_attachments: vec![Some(ColorAttachment {
+                data: &mut buffer.data,
+                internal_format: self.internal_format,
+            })],
             depth: &mut self.depth,
             stencil: &mut self.stencil,
             layout: self.layout,
@@ -89,11 +91,15 @@ impl OwnedFramebuffer {
 }
 
 /// Framebuffer that borrows its data
+pub struct ColorAttachment<'a> {
+    pub data: &'a mut [u8],
+    pub internal_format: u32,
+}
+
 pub struct Framebuffer<'a> {
     pub width: u32,
     pub height: u32,
-    pub internal_format: u32,
-    pub color: &'a mut [u8],
+    pub color_attachments: Vec<Option<ColorAttachment<'a>>>,
     pub depth: &'a mut [f32],
     pub stencil: &'a mut [u8],
     pub layout: StorageLayout,
@@ -103,8 +109,7 @@ impl<'a> Framebuffer<'a> {
     pub fn new(
         width: u32,
         height: u32,
-        internal_format: u32,
-        color: &'a mut [u8],
+        color_attachments: Vec<Option<ColorAttachment<'a>>>,
         depth: &'a mut [f32],
         stencil: &'a mut [u8],
         layout: StorageLayout,
@@ -112,22 +117,33 @@ impl<'a> Framebuffer<'a> {
         Self {
             width,
             height,
-            internal_format,
-            color,
+            color_attachments,
             depth,
             stencil,
             layout,
         }
     }
 
-    pub fn get_pixel_offset(&self, x: u32, y: u32, z: u32) -> usize {
-        let format = match self.internal_format {
+    pub fn get_pixel_offset_params(
+        x: u32,
+        y: u32,
+        z: u32,
+        internal_format: u32,
+        width: u32,
+        height: u32,
+        layout: StorageLayout,
+    ) -> usize {
+        let format = match internal_format {
             0x822E => wgt::TextureFormat::R32Float,
             0x8230 => wgt::TextureFormat::Rg32Float,
             0x8814 => wgt::TextureFormat::Rgba32Float,
             _ => wgt::TextureFormat::Rgba8Unorm,
         };
-        GpuBuffer::offset_for_layout(x, y, z, self.width, self.height, 1, format, self.layout)
+        GpuBuffer::offset_for_layout(x, y, z, width, height, 1, format, layout)
+    }
+
+    pub fn get_pixel_offset(&self, x: u32, y: u32, z: u32, internal_format: u32) -> usize {
+        Self::get_pixel_offset_params(x, y, z, internal_format, self.width, self.height, self.layout)
     }
 
     pub fn get_pixel_index(&self, x: u32, y: u32, z: u32) -> usize {

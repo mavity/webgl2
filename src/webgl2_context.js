@@ -125,6 +125,13 @@ export class WasmWebGL2RenderingContext {
   RGBA8 = 0x8058;
   STENCIL_INDEX8 = 0x8D48;
   COLOR_ATTACHMENT0 = 0x8CE0;
+  COLOR_ATTACHMENT1 = 0x8CE1;
+  COLOR_ATTACHMENT2 = 0x8CE2;
+  COLOR_ATTACHMENT3 = 0x8CE3;
+  COLOR_ATTACHMENT4 = 0x8CE4;
+  COLOR_ATTACHMENT5 = 0x8CE5;
+  COLOR_ATTACHMENT6 = 0x8CE6;
+  COLOR_ATTACHMENT7 = 0x8CE7;
   DEPTH_ATTACHMENT = 0x8D00;
   STENCIL_ATTACHMENT = 0x8D20;
   DEPTH_STENCIL_ATTACHMENT = 0x821A;
@@ -1525,7 +1532,38 @@ export class WasmWebGL2RenderingContext {
     _checkErr(code, this._instance);
   }
   drawRangeElements(mode, start, end, count, type, offset) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  drawBuffers(buffers) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  drawBuffers(buffers) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_draw_buffers !== 'function') {
+      throw new Error('wasm_ctx_draw_buffers not found');
+    }
+
+    const count = buffers.length;
+    const bufs = new Uint32Array(count);
+    for (let i = 0; i < count; i++) {
+        bufs[i] = buffers[i];
+    }
+
+    const ptr = ex.wasm_alloc(count * 4);
+    const view = new Uint32Array(ex.memory.buffer, ptr, count);
+    view.set(bufs);
+
+    const code = ex.wasm_ctx_draw_buffers(this._ctxHandle, ptr, count);
+    ex.wasm_free(ptr, count * 4);
+    _checkErr(code, this._instance);
+  }
+
+  readBuffer(mode) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_read_buffer !== 'function') {
+      throw new Error('wasm_ctx_read_buffer not found');
+    }
+
+    const code = ex.wasm_ctx_read_buffer(this._ctxHandle, mode);
+    _checkErr(code, this._instance);
+  }
 
   createVertexArray() {
     this._assertNotDestroyed();
@@ -1711,7 +1749,6 @@ export class WasmWebGL2RenderingContext {
     );
     _checkErr(code, this._instance);
   }
-  readBuffer(src) { this._assertNotDestroyed(); throw new Error('not implemented'); }
 
   pixelStorei(pname, param) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   getExtension(name) { this._assertNotDestroyed(); throw new Error('not implemented'); }

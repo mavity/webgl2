@@ -138,7 +138,7 @@ pub fn ctx_draw_arrays_instanced(
     // It passes i as vertex_id.
     // If we want start from 'first', we should probably pass indices.
 
-    let (target_handle, target_w, target_h, target_fmt) = ctx_obj.get_color_attachment_info(false);
+    let (target_handles, target_formats, target_w, target_h) = ctx_obj.get_draw_targets();
     let (ds_handle, _, _, _) = ctx_obj.get_depth_attachment_handle();
 
     let depth_stencil_target = if ds_handle.is_valid() {
@@ -150,14 +150,19 @@ pub fn ctx_draw_arrays_instanced(
         }
     };
 
+    let color_targets = target_handles
+        .into_iter()
+        .map(|h| crate::wasm_gl_emu::rasterizer::ColorTarget::Handle(h))
+        .collect();
+
     ctx_obj.rasterizer.draw(
         &mut ctx_obj.kernel,
         crate::wasm_gl_emu::rasterizer::DrawConfig {
-            color_target: crate::wasm_gl_emu::rasterizer::ColorTarget::Handle(target_handle),
+            color_targets,
             depth_stencil_target,
             width: target_w,
             height: target_h,
-            internal_format: target_fmt,
+            internal_formats: target_formats,
             pipeline: &pipeline,
             state: &state,
             vertex_fetcher: &fetcher,
@@ -259,9 +264,6 @@ pub fn ctx_draw_elements_instanced(
         bindings: ctx_obj.get_attribute_bindings(),
     };
 
-    let (target_handle, target_w, target_h, target_fmt) = ctx_obj.get_color_attachment_info(false);
-    let (ds_handle, _, _, _) = ctx_obj.get_depth_attachment_handle();
-
     // Prepare indices lazily if EBO is bound
     let lazy_indices = ebo_handle
         .and_then(|h| ctx_obj.buffers.get(&h))
@@ -274,6 +276,9 @@ pub fn ctx_draw_elements_instanced(
             count: count as u32,
         });
 
+    let (target_handles, target_formats, target_w, target_h) = ctx_obj.get_draw_targets();
+    let (ds_handle, _, _, _) = ctx_obj.get_depth_attachment_handle();
+
     let depth_stencil_target = if ds_handle.is_valid() {
         crate::wasm_gl_emu::rasterizer::DepthStencilTarget::Handle(ds_handle)
     } else {
@@ -283,14 +288,19 @@ pub fn ctx_draw_elements_instanced(
         }
     };
 
+    let color_targets = target_handles
+        .into_iter()
+        .map(|h| crate::wasm_gl_emu::rasterizer::ColorTarget::Handle(h))
+        .collect();
+
     ctx_obj.rasterizer.draw(
         &mut ctx_obj.kernel,
         crate::wasm_gl_emu::rasterizer::DrawConfig {
-            color_target: crate::wasm_gl_emu::rasterizer::ColorTarget::Handle(target_handle),
+            color_targets,
             depth_stencil_target,
             width: target_w,
             height: target_h,
-            internal_format: target_fmt,
+            internal_formats: target_formats,
             pipeline: &pipeline,
             state: &state,
             vertex_fetcher: &fetcher,

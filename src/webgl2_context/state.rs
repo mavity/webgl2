@@ -41,15 +41,80 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
     };
 
     if (mask & GL_COLOR_BUFFER_BIT) != 0 {
-        let (handle, _, _, _) = ctx_obj.get_color_attachment_info(false);
-        if handle.is_valid() {
-            if ctx_obj.scissor_test_enabled {
-                let (sx, sy, sw, sh) = ctx_obj.scissor_box;
-                ctx_obj
-                    .kernel
-                    .clear_rect(handle, ctx_obj.clear_color, sx, sy, sw, sh);
-            } else {
-                ctx_obj.kernel.clear(handle, ctx_obj.clear_color);
+        let fb_draw_buffers = if let Some(fb_handle) = ctx_obj.bound_draw_framebuffer {
+            ctx_obj
+                .framebuffers
+                .get(&fb_handle)
+                .map(|fb| fb.draw_buffers)
+        } else {
+            None
+        };
+
+        if let Some(draw_buffers) = fb_draw_buffers {
+            for i in 0..8 {
+                let mode = draw_buffers[i];
+                if mode >= 0x8CE0 {
+                    // GL_COLOR_ATTACHMENTi
+                    let idx = (mode - 0x8CE0) as usize;
+                    let handle = if let Some(fb_handle) = ctx_obj.bound_draw_framebuffer {
+                        ctx_obj.framebuffers.get(&fb_handle).and_then(|fb| {
+                            if idx < fb.color_attachments.len() {
+                                fb.color_attachments[idx].and_then(|att| match att {
+                                    Attachment::Texture(t) => ctx_obj
+                                        .textures
+                                        .get(&t)
+                                        .and_then(|tex| tex.levels.get(&0))
+                                        .map(|l| l.gpu_handle),
+                                    Attachment::Renderbuffer(r) => ctx_obj
+                                        .renderbuffers
+                                        .get(&r)
+                                        .map(|rb| rb.gpu_handle),
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                    } else {
+                        None
+                    };
+
+                    if let Some(h) = handle {
+                        if h.is_valid() {
+                            if ctx_obj.scissor_test_enabled {
+                                let (sx, sy, sw, sh) = ctx_obj.scissor_box;
+                                ctx_obj.kernel.clear_rect(
+                                    h,
+                                    ctx_obj.clear_color,
+                                    sx,
+                                    sy,
+                                    sw,
+                                    sh,
+                                );
+                            } else {
+                                ctx_obj.kernel.clear(h, ctx_obj.clear_color);
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Default framebuffer
+            if ctx_obj.default_draw_buffers[0] != 0 {
+                // GL_NONE
+                let handle = ctx_obj.default_framebuffer.gpu_handle;
+                if ctx_obj.scissor_test_enabled {
+                    let (sx, sy, sw, sh) = ctx_obj.scissor_box;
+                    ctx_obj.kernel.clear_rect(
+                        handle,
+                        ctx_obj.clear_color,
+                        sx,
+                        sy,
+                        sw,
+                        sh,
+                    );
+                } else {
+                    ctx_obj.kernel.clear(handle, ctx_obj.clear_color);
+                }
             }
         }
     }

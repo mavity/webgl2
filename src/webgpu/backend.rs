@@ -1425,10 +1425,11 @@ impl hal::Queue for SoftQueue {
                                             rasterizer.draw(
                                                 &mut dummy_kernel,
                                                 wasm_gl_emu::rasterizer::DrawConfig {
-                                                    color_target:
+                                                    color_targets: vec![
                                                         wasm_gl_emu::rasterizer::ColorTarget::Raw(
                                                             &mut data,
-                                                        ),
+                                                        )
+                                                    ],
                                                     depth_stencil_target:
                                                         wasm_gl_emu::rasterizer::DepthStencilTarget::Raw {
                                                             depth: &mut dummy_depth,
@@ -1436,7 +1437,7 @@ impl hal::Queue for SoftQueue {
                                                         },
                                                     width: width,
                                                     height: height,
-                                                    internal_format: internal_format,
+                                                    internal_formats: vec![internal_format],
                                                     pipeline: &raster_pipeline,
                                                     state: &state,
                                                     vertex_fetcher: &fetcher,
@@ -1858,14 +1859,14 @@ impl hal::Queue for SoftQueue {
 
                                             let mut dummy_kernel = wasm_gl_emu::GpuKernel::new();
                                             rasterizer.draw(&mut dummy_kernel, wasm_gl_emu::rasterizer::DrawConfig {
-                                                color_target: wasm_gl_emu::rasterizer::ColorTarget::Raw(&mut data),
+                                                color_targets: vec![wasm_gl_emu::rasterizer::ColorTarget::Raw(&mut data)],
                                                 depth_stencil_target: wasm_gl_emu::rasterizer::DepthStencilTarget::Raw {
                                                     depth: &mut dummy_depth,
                                                     stencil: &mut dummy_stencil,
                                                 },
                                                 width: width,
                                                 height: height,
-                                                internal_format: internal_format,
+                                                internal_formats: vec![internal_format],
                                                 pipeline: &raster_pipeline,
                                                 state: &state,
                                                 vertex_fetcher: &fetcher,

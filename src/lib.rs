@@ -605,6 +605,16 @@ pub extern "C" fn wasm_ctx_blit_framebuffer(
     )
 }
 
+#[no_mangle]
+pub extern "C" fn wasm_ctx_draw_buffers(ctx: u32, ptr: u32, count: u32) -> u32 {
+    webgl2_context::ctx_draw_buffers(ctx, ptr, count)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_read_buffer(ctx: u32, mode: u32) -> u32 {
+    webgl2_context::ctx_read_buffer(ctx, mode)
+}
+
 // ---- Pixel Operations ----
 
 /// Read pixels from the bound framebuffer into dest_ptr.

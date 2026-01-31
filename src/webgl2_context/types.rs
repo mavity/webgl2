@@ -109,6 +109,25 @@ pub const GL_REPEAT: u32 = 0x2901;
 pub const GL_CLAMP_TO_EDGE: u32 = 0x812F;
 pub const GL_MIRRORED_REPEAT: u32 = 0x8370;
 
+pub const GL_COLOR_ATTACHMENT0: u32 = 0x8CE0;
+pub const GL_COLOR_ATTACHMENT1: u32 = 0x8CE1;
+pub const GL_COLOR_ATTACHMENT2: u32 = 0x8CE2;
+pub const GL_COLOR_ATTACHMENT3: u32 = 0x8CE3;
+pub const GL_COLOR_ATTACHMENT4: u32 = 0x8CE4;
+pub const GL_COLOR_ATTACHMENT5: u32 = 0x8CE5;
+pub const GL_COLOR_ATTACHMENT6: u32 = 0x8CE6;
+pub const GL_COLOR_ATTACHMENT7: u32 = 0x8CE7;
+pub const GL_DEPTH_ATTACHMENT: u32 = 0x8D00;
+pub const GL_STENCIL_ATTACHMENT: u32 = 0x8D20;
+pub const GL_DEPTH_STENCIL_ATTACHMENT: u32 = 0x821A;
+
+pub const GL_DRAW_FRAMEBUFFER: u32 = 0x8CA9;
+pub const GL_READ_FRAMEBUFFER: u32 = 0x8CA8;
+
+pub const GL_MAX_COLOR_ATTACHMENTS: u32 = 0x8CDF;
+pub const GL_MAX_DRAW_BUFFERS: u32 = 0x8824;
+pub const GL_NONE: u32 = 0;
+
 pub const GL_VERTEX_SHADER: u32 = 0x8B31;
 pub const GL_FRAGMENT_SHADER: u32 = 0x8B30;
 
@@ -216,9 +235,13 @@ pub(crate) enum Attachment {
     Renderbuffer(u32),
 }
 
+pub(crate) const MAX_DRAW_BUFFERS: usize = 8;
+
 #[derive(Clone)]
 pub(crate) struct FramebufferObj {
-    pub(crate) color_attachment: Option<Attachment>,
+    pub(crate) color_attachments: [Option<Attachment>; MAX_DRAW_BUFFERS],
+    pub(crate) draw_buffers: [u32; MAX_DRAW_BUFFERS],
+    pub(crate) read_buffer: u32,
     pub(crate) depth_attachment: Option<Attachment>,
     pub(crate) stencil_attachment: Option<Attachment>,
 }
@@ -417,6 +440,8 @@ pub struct Context {
     pub(crate) queries: HashMap<u32, ()>,
     pub(crate) syncs: HashMap<u32, ()>,
     pub(crate) transform_feedbacks: HashMap<u32, ()>,
+    pub(crate) default_draw_buffers: Vec<u32>,
+    pub(crate) default_read_buffer: u32,
     pub debug_shaders: bool,
 }
 
@@ -519,6 +544,8 @@ impl Context {
             queries: HashMap::new(),
             syncs: HashMap::new(),
             transform_feedbacks: HashMap::new(),
+            default_draw_buffers: vec![0x0405], // GL_BACK
+            default_read_buffer: 0x0405, // GL_BACK
             debug_shaders: false,
         }
     }
@@ -795,6 +822,84 @@ impl Context {
         self.kernel.write_texture_metadata(&bindings, dest_ptr);
     }
 
+    pub(crate) fn get_draw_targets(&self) -> (Vec<GpuHandle>, Vec<u32>, u32, u32) {
+        if let Some(fb_handle) = self.bound_draw_framebuffer {
+            if let Some(fb) = self.framebuffers.get(&fb_handle) {
+                let mut handles = Vec::new();
+                let mut formats = Vec::new();
+                let mut width = 0;
+                let mut height = 0;
+
+                for &db in &fb.draw_buffers {
+                    if db == GL_NONE || db == 0 {
+                        handles.push(GpuHandle::invalid());
+                        formats.push(0);
+                    } else {
+                        let i = (db - GL_COLOR_ATTACHMENT0) as usize;
+                        if i < fb.color_attachments.len() {
+                            match &fb.color_attachments[i] {
+                                Some(Attachment::Texture(tex_handle)) => {
+                                    if let Some(tex) = self.textures.get(tex_handle) {
+                                        if let Some(level0) = tex.levels.get(&0) {
+                                            handles.push(level0.gpu_handle);
+                                            formats.push(level0.internal_format);
+                                            width = level0.width;
+                                            height = level0.height;
+                                        } else {
+                                            handles.push(GpuHandle::invalid());
+                                            formats.push(0);
+                                        }
+                                    } else {
+                                        handles.push(GpuHandle::invalid());
+                                        formats.push(0);
+                                    }
+                                }
+                                Some(Attachment::Renderbuffer(rb_handle)) => {
+                                    if let Some(rb) = self.renderbuffers.get(rb_handle) {
+                                        handles.push(rb.gpu_handle);
+                                        formats.push(rb.internal_format);
+                                        width = rb.width;
+                                        height = rb.height;
+                                    } else {
+                                        handles.push(GpuHandle::invalid());
+                                        formats.push(0);
+                                    }
+                                }
+                                None => {
+                                    handles.push(GpuHandle::invalid());
+                                    formats.push(0);
+                                }
+                            }
+                        } else {
+                            handles.push(GpuHandle::invalid());
+                            formats.push(0);
+                        }
+                    }
+                }
+                return (handles, formats, width, height);
+            }
+        }
+        // Default FB
+        let mut handles = Vec::with_capacity(self.default_draw_buffers.len());
+        let mut formats = Vec::with_capacity(self.default_draw_buffers.len());
+        for &db in &self.default_draw_buffers {
+            if db == 0x0405 { // GL_BACK
+                handles.push(self.default_framebuffer.gpu_handle);
+                formats.push(self.default_framebuffer.internal_format);
+            } else {
+                handles.push(GpuHandle::invalid());
+                formats.push(0);
+            }
+        }
+
+        (
+            handles,
+            formats,
+            self.default_framebuffer.width,
+            self.default_framebuffer.height,
+        )
+    }
+
     pub(crate) fn get_color_attachment_info(&self, read: bool) -> (GpuHandle, u32, u32, u32) {
         let fb_handle = if read {
             self.bound_read_framebuffer
@@ -803,29 +908,60 @@ impl Context {
         };
         if let Some(fb_handle) = fb_handle {
             if let Some(fb) = self.framebuffers.get(&fb_handle) {
-                match fb.color_attachment {
-                    Some(Attachment::Texture(tex_handle)) => {
-                        if let Some(tex) = self.textures.get(&tex_handle) {
-                            if let Some(level0) = tex.levels.get(&0) {
-                                return (
-                                    level0.gpu_handle,
-                                    level0.width,
-                                    level0.height,
-                                    level0.internal_format,
-                                );
+                let attachment_idx = if read {
+                    if fb.read_buffer == 0 {
+                        return (GpuHandle::invalid(), 0, 0, 0);
+                    }
+                    if fb.read_buffer >= 0x8CE0 {
+                        (fb.read_buffer - 0x8CE0) as usize
+                    } else {
+                        0
+                    }
+                } else {
+                    // For draw: use draw_buffers[0] if it's GL_COLOR_ATTACHMENTi
+                    if fb.draw_buffers[0] == 0 {
+                        return (GpuHandle::invalid(), 0, 0, 0);
+                    }
+                    if fb.draw_buffers[0] >= 0x8CE0 {
+                        (fb.draw_buffers[0] - 0x8CE0) as usize
+                    } else {
+                        0
+                    }
+                };
+
+                if attachment_idx < fb.color_attachments.len() {
+                    match &fb.color_attachments[attachment_idx] {
+                        Some(Attachment::Texture(tex_handle)) => {
+                            if let Some(tex) = self.textures.get(&tex_handle) {
+                                if let Some(level0) = tex.levels.get(&0) {
+                                    return (
+                                        level0.gpu_handle,
+                                        level0.width,
+                                        level0.height,
+                                        level0.internal_format,
+                                    );
+                                }
                             }
                         }
-                    }
-                    Some(Attachment::Renderbuffer(rb_handle)) => {
-                        if let Some(rb) = self.renderbuffers.get(&rb_handle) {
-                            return (rb.gpu_handle, rb.width, rb.height, rb.internal_format);
+                        Some(Attachment::Renderbuffer(rb_handle)) => {
+                            if let Some(rb) = self.renderbuffers.get(&rb_handle) {
+                                return (rb.gpu_handle, rb.width, rb.height, rb.internal_format);
+                            }
                         }
+                        None => {}
                     }
-                    None => {}
                 }
             }
             (GpuHandle::invalid(), 0, 0, 0)
         } else {
+            let mode = if read {
+                self.default_read_buffer
+            } else {
+                self.default_draw_buffers[0]
+            };
+            if mode == 0 {
+                return (GpuHandle::invalid(), 0, 0, 0);
+            }
             (
                 self.default_framebuffer.gpu_handle,
                 self.default_framebuffer.width,

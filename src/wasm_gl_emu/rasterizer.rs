@@ -4,7 +4,8 @@
 //! by both WebGL2 and WebGPU implementations. It handles vertex fetching,
 //! barycentric interpolation, and fragment shading.
 
-use crate::wasm_gl_emu::device::{GpuBuffer, GpuKernel, StorageLayout};
+use crate::wasm_gl_emu::device::{GpuHandle, GpuKernel, StorageLayout};
+use crate::wasm_gl_emu::framebuffer::ColorAttachment;
 use crate::webgl2_context::types::*;
 
 /// Vertex data after vertex shader execution
@@ -507,11 +508,11 @@ impl IndexBuffer for Vec<u32> {
 }
 
 pub struct DrawConfig<'a> {
-    pub color_target: ColorTarget<'a>,
+    pub color_targets: Vec<ColorTarget<'a>>,
     pub depth_stencil_target: DepthStencilTarget<'a>,
     pub width: u32,
     pub height: u32,
-    pub internal_format: u32,
+    pub internal_formats: Vec<u32>,
     pub pipeline: &'a RasterPipeline,
     pub state: &'a RenderState<'a>,
     pub vertex_fetcher: &'a dyn VertexFetcher,
@@ -527,53 +528,50 @@ impl Rasterizer {
     /// Draw a single point to the framebuffer
     pub fn draw_point(
         &self,
-        fb: &mut super::Framebuffer,
+        fb: &mut crate::wasm_gl_emu::Framebuffer,
         x: f32,
         y: f32,
-        color: &[u8],
+        colors: &[Vec<u8>],
         state: &RenderState,
     ) {
         let ix = x as i32;
         let iy = y as i32;
         if ix >= 0 && ix < fb.width as i32 && iy >= 0 && iy < fb.height as i32 {
-            let idx = GpuBuffer::offset_for_layout(
-                ix as u32,
-                iy as u32,
-                0,
-                fb.width,
-                fb.height,
-                1,
-                gl_to_wgt_format(fb.internal_format),
-                fb.layout,
-            );
-            if idx + color.len() <= fb.color.len() {
-                if fb.internal_format == GL_RGBA8 {
-                    // GL_RGBA8: Use quantized blending
-                    let existing = [
-                        fb.color[idx],
-                        fb.color[idx + 1],
-                        fb.color[idx + 2],
-                        fb.color[idx + 3],
-                    ];
-                    let color_arr = [color[0], color[1], color[2], color[3]];
-                    let blended = blend_pixel(color_arr, existing, &state.blend);
+            let width = fb.width;
+            let height = fb.height;
+            let layout = fb.layout;
 
-                    // Color Mask
-                    if state.color_mask.r {
-                        fb.color[idx + 0] = blended[0];
+            for (i, attachment) in fb.color_attachments.iter_mut().enumerate() {
+                if let Some(att) = attachment {
+                    let color = &colors[i];
+                    let color_idx = crate::wasm_gl_emu::Framebuffer::get_pixel_offset_params(
+                        ix as u32,
+                        iy as u32,
+                        0,
+                        att.internal_format,
+                        width,
+                        height,
+                        layout,
+                    );
+                    if color_idx + color.len() <= att.data.len() {
+                        if att.internal_format == GL_RGBA8 {
+                            let existing = [
+                                att.data[color_idx],
+                                att.data[color_idx + 1],
+                                att.data[color_idx + 2],
+                                att.data[color_idx + 3],
+                            ];
+                            let color_arr = [color[0], color[1], color[2], color[3]];
+                            let blended = blend_pixel(color_arr, existing, &state.blend);
+
+                            if state.color_mask.r { att.data[color_idx + 0] = blended[0]; }
+                            if state.color_mask.g { att.data[color_idx + 1] = blended[1]; }
+                            if state.color_mask.b { att.data[color_idx + 2] = blended[2]; }
+                            if state.color_mask.a { att.data[color_idx + 3] = blended[3]; }
+                        } else {
+                            att.data[color_idx..color_idx + color.len()].copy_from_slice(color);
+                        }
                     }
-                    if state.color_mask.g {
-                        fb.color[idx + 1] = blended[1];
-                    }
-                    if state.color_mask.b {
-                        fb.color[idx + 2] = blended[2];
-                    }
-                    if state.color_mask.a {
-                        fb.color[idx + 3] = blended[3];
-                    }
-                } else {
-                    // Float formats: Direct write
-                    fb.color[idx..idx + color.len()].copy_from_slice(color);
                 }
             }
         }
@@ -582,16 +580,20 @@ impl Rasterizer {
     /// Draw a triangle to the framebuffer (simple, no interpolation)
     pub fn draw_triangle(
         &self,
-        fb: &mut super::Framebuffer,
+        fb: &mut crate::wasm_gl_emu::Framebuffer,
         p0: (f32, f32),
         p1: (f32, f32),
         p2: (f32, f32),
-        color: [u8; 4],
+        colors: &[Vec<u8>],
     ) {
         let min_x = p0.0.min(p1.0).min(p2.0).max(0.0).floor() as i32;
         let max_x = p0.0.max(p1.0).max(p2.0).min(fb.width as f32 - 1.0).ceil() as i32;
         let min_y = p0.1.min(p1.1).min(p2.1).max(0.0).floor() as i32;
         let max_y = p0.1.max(p1.1).max(p2.1).min(fb.height as f32 - 1.0).ceil() as i32;
+
+        let fb_w = fb.width;
+        let fb_h = fb.height;
+        let fb_layout = fb.layout;
 
         for y in min_y..=max_y {
             for x in min_x..=max_x {
@@ -599,20 +601,22 @@ impl Rasterizer {
                 let py = y as f32 + 0.5;
 
                 if is_inside(px, py, p0, p1, p2) {
-                    let bytes_per_pixel = get_bytes_per_pixel(fb.internal_format);
-                    let idx = GpuBuffer::offset_for_layout(
-                        x as u32,
-                        y as u32,
-                        0,
-                        fb.width,
-                        fb.height,
-                        1,
-                        gl_to_wgt_format(fb.internal_format),
-                        fb.layout,
-                    );
-                    if idx + bytes_per_pixel as usize <= fb.color.len() {
-                        fb.color[idx..idx + bytes_per_pixel as usize]
-                            .copy_from_slice(&color[0..bytes_per_pixel as usize]);
+                    for (i, attachment) in fb.color_attachments.iter_mut().enumerate() {
+                        if let Some(att) = attachment {
+                            let color = &colors[i];
+                            let idx = crate::wasm_gl_emu::Framebuffer::get_pixel_offset_params(
+                                x as u32,
+                                y as u32,
+                                0,
+                                att.internal_format,
+                                fb_w,
+                                fb_h,
+                                fb_layout,
+                            );
+                            if idx + color.len() <= att.data.len() {
+                                att.data[idx..idx + color.len()].copy_from_slice(color);
+                            }
+                        }
                     }
                 }
             }
@@ -623,12 +627,13 @@ impl Rasterizer {
     /// This is the core rasterization function extracted from drawing.rs
     pub fn rasterize_triangle(
         &self,
-        fb: &mut super::Framebuffer,
+        fb: &mut crate::wasm_gl_emu::Framebuffer,
         v0: &ProcessedVertex,
         v1: &ProcessedVertex,
         v2: &ProcessedVertex,
         pipeline: &RasterPipeline,
         state: &RenderState,
+        internal_formats: &[u32],
     ) {
         let (vx, vy, vw, vh) = state.viewport;
 
@@ -710,7 +715,7 @@ impl Rasterizer {
                     let fb_idx = fb.get_pixel_index(x as u32, y as u32, 0);
 
                     // --- Stencil Test ---
-                    if state.stencil.enabled {
+                    if state.stencil.enabled && !fb.stencil.is_empty() {
                         let current_stencil = fb.stencil[fb_idx];
                         let face_state = if is_front {
                             &state.stencil.front
@@ -744,7 +749,6 @@ impl Rasterizer {
                     let z2 = v2.position[2] / v2.position[3];
                     let depth_ndc = u * z0 + v * z1 + w * z2;
                     let depth = (depth_ndc + 1.0) * 0.5;
-                    let current_depth = fb.depth[fb_idx];
 
                     // Check bounds [0,1]
                     if !(0.0..=1.0).contains(&depth) {
@@ -752,15 +756,15 @@ impl Rasterizer {
                     }
 
                     // Determine depth comparison result
-                    let depth_pass = if state.depth.enabled {
-                        compare_depth(state.depth.func, depth, current_depth)
+                    let depth_pass = if state.depth.enabled && !fb.depth.is_empty() {
+                        compare_depth(state.depth.func, depth, fb.depth[fb_idx])
                     } else {
-                        // When depth test is disabled, it always passes
+                        // When depth test is disabled or no buffer exists, it always passes
                         true
                     };
 
                     // Handle Depth Fail / Pass for Stencil
-                    if state.stencil.enabled {
+                    if state.stencil.enabled && !fb.stencil.is_empty() {
                         let current_stencil = fb.stencil[fb_idx];
                         let face_state = if is_front {
                             &state.stencil.front
@@ -794,7 +798,7 @@ impl Rasterizer {
 
                     // --- Write Depth ---
                     // Write depth when mask is true AND depth test passed
-                    if state.depth.mask && depth_pass {
+                    if state.depth.mask && depth_pass && !fb.depth.is_empty() {
                         fb.depth[fb_idx] = depth;
                     }
 
@@ -820,204 +824,218 @@ impl Rasterizer {
                     }
 
                     // Execute fragment shader and get color
-                    let color = self.execute_fragment_shader(
+                    let colors = self.execute_fragment_shader(
                         &interp_varyings,
                         pipeline,
                         state,
-                        fb.internal_format,
+                        internal_formats,
                     );
 
-                    // Write color to framebuffer (format-aware)
-                    let color_idx = GpuBuffer::offset_for_layout(
-                        x as u32,
-                        y as u32,
-                        0,
-                        fb.width,
-                        fb.height,
-                        1,
-                        gl_to_wgt_format(fb.internal_format),
-                        fb.layout,
-                    );
+                    let fb_w = fb.width;
+                    let fb_h = fb.height;
+                    let fb_layout = fb.layout;
 
-                    if color_idx + color.len() <= fb.color.len() {
-                        // For float formats, write directly with optional blending
-                        if fb.internal_format == GL_R32F
-                            || fb.internal_format == GL_RG32F
-                            || fb.internal_format == GL_RGBA32F
-                        {
-                            // GL_R32F, GL_RG32F, GL_RGBA32F
-                            if state.blend.enabled {
-                                let existing: [f32; 4] = match fb.internal_format {
-                                    GL_R32F => {
-                                        let v = f32::from_ne_bytes(
-                                            fb.color[color_idx..color_idx + 4].try_into().unwrap(),
-                                        );
-                                        [v, 0.0, 0.0, 1.0]
-                                    }
-                                    GL_RG32F => {
-                                        let v0 = f32::from_ne_bytes(
-                                            fb.color[color_idx..color_idx + 4].try_into().unwrap(),
-                                        );
-                                        let v1 = f32::from_ne_bytes(
-                                            fb.color[color_idx + 4..color_idx + 8]
-                                                .try_into()
-                                                .unwrap(),
-                                        );
-                                        [v0, v1, 0.0, 1.0]
-                                    }
-                                    GL_RGBA32F => {
-                                        let v0 = f32::from_ne_bytes(
-                                            fb.color[color_idx..color_idx + 4].try_into().unwrap(),
-                                        );
-                                        let v1 = f32::from_ne_bytes(
-                                            fb.color[color_idx + 4..color_idx + 8]
-                                                .try_into()
-                                                .unwrap(),
-                                        );
-                                        let v2 = f32::from_ne_bytes(
-                                            fb.color[color_idx + 8..color_idx + 12]
-                                                .try_into()
-                                                .unwrap(),
-                                        );
-                                        let v3 = f32::from_ne_bytes(
-                                            fb.color[color_idx + 12..color_idx + 16]
-                                                .try_into()
-                                                .unwrap(),
-                                        );
-                                        [v0, v1, v2, v3]
-                                    }
-                                    _ => [0.0, 0.0, 0.0, 1.0],
-                                };
+                    for (i, attachment) in fb.color_attachments.iter_mut().enumerate() {
+                        if let Some(att) = attachment {
+                            let color = &colors[i];
+                            let color_idx = crate::wasm_gl_emu::Framebuffer::get_pixel_offset_params(
+                                x as u32,
+                                y as u32,
+                                0,
+                                att.internal_format,
+                                fb_w,
+                                fb_h,
+                                fb_layout,
+                            );
 
-                                let src_color: [f32; 4] = match fb.internal_format {
-                                    GL_R32F => [
-                                        f32::from_ne_bytes(color[0..4].try_into().unwrap()),
-                                        0.0,
-                                        0.0,
-                                        1.0,
-                                    ],
-                                    GL_RG32F => [
-                                        f32::from_ne_bytes(color[0..4].try_into().unwrap()),
-                                        f32::from_ne_bytes(color[4..8].try_into().unwrap()),
-                                        0.0,
-                                        1.0,
-                                    ],
-                                    GL_RGBA32F => [
-                                        f32::from_ne_bytes(color[0..4].try_into().unwrap()),
-                                        f32::from_ne_bytes(color[4..8].try_into().unwrap()),
-                                        f32::from_ne_bytes(color[8..12].try_into().unwrap()),
-                                        f32::from_ne_bytes(color[12..16].try_into().unwrap()),
-                                    ],
-                                    _ => [0.0, 0.0, 0.0, 1.0],
-                                };
+                            if color_idx + color.len() <= att.data.len() {
+                                // For float formats, write directly with optional blending
+                                if att.internal_format == GL_R32F
+                                    || att.internal_format == GL_RG32F
+                                    || att.internal_format == GL_RGBA32F
+                                {
+                                    // GL_R32F, GL_RG32F, GL_RGBA32F
+                                    if state.blend.enabled {
+                                        let existing: [f32; 4] = match att.internal_format {
+                                            GL_R32F => {
+                                                let v = f32::from_ne_bytes(
+                                                    att.data[color_idx..color_idx + 4]
+                                                        .try_into()
+                                                        .unwrap(),
+                                                );
+                                                [v, 0.0, 0.0, 1.0]
+                                            }
+                                            GL_RG32F => {
+                                                let v0 = f32::from_ne_bytes(
+                                                    att.data[color_idx..color_idx + 4]
+                                                        .try_into()
+                                                        .unwrap(),
+                                                );
+                                                let v1 = f32::from_ne_bytes(
+                                                    att.data[color_idx + 4..color_idx + 8]
+                                                        .try_into()
+                                                        .unwrap(),
+                                                );
+                                                [v0, v1, 0.0, 1.0]
+                                            }
+                                            GL_RGBA32F => {
+                                                let v0 = f32::from_ne_bytes(
+                                                    att.data[color_idx..color_idx + 4]
+                                                        .try_into()
+                                                        .unwrap(),
+                                                );
+                                                let v1 = f32::from_ne_bytes(
+                                                    att.data[color_idx + 4..color_idx + 8]
+                                                        .try_into()
+                                                        .unwrap(),
+                                                );
+                                                let v2 = f32::from_ne_bytes(
+                                                    att.data[color_idx + 8..color_idx + 12]
+                                                        .try_into()
+                                                        .unwrap(),
+                                                );
+                                                let v3 = f32::from_ne_bytes(
+                                                    att.data[color_idx + 12..color_idx + 16]
+                                                        .try_into()
+                                                        .unwrap(),
+                                                );
+                                                [v0, v1, v2, v3]
+                                            }
+                                            _ => [0.0, 0.0, 0.0, 1.0],
+                                        };
 
-                                let blended = blend_pixel_f32(src_color, existing, &state.blend);
+                                        let src_color: [f32; 4] = match att.internal_format {
+                                            GL_R32F => [
+                                                f32::from_ne_bytes(color[0..4].try_into().unwrap()),
+                                                0.0,
+                                                0.0,
+                                                1.0,
+                                            ],
+                                            GL_RG32F => [
+                                                f32::from_ne_bytes(color[0..4].try_into().unwrap()),
+                                                f32::from_ne_bytes(color[4..8].try_into().unwrap()),
+                                                0.0,
+                                                1.0,
+                                            ],
+                                            GL_RGBA32F => [
+                                                f32::from_ne_bytes(color[0..4].try_into().unwrap()),
+                                                f32::from_ne_bytes(color[4..8].try_into().unwrap()),
+                                                f32::from_ne_bytes(color[8..12].try_into().unwrap()),
+                                                f32::from_ne_bytes(color[12..16].try_into().unwrap()),
+                                            ],
+                                            _ => [0.0, 0.0, 0.0, 1.0],
+                                        };
 
-                                // Write back blended
-                                match fb.internal_format {
-                                    GL_R32F => {
-                                        if state.color_mask.r {
-                                            fb.color[color_idx..color_idx + 4]
-                                                .copy_from_slice(&blended[0].to_ne_bytes());
+                                        let blended = blend_pixel_f32(src_color, existing, &state.blend);
+
+                                        // Write back blended
+                                        match att.internal_format {
+                                            GL_R32F => {
+                                                if state.color_mask.r {
+                                                    att.data[color_idx..color_idx + 4]
+                                                        .copy_from_slice(&blended[0].to_ne_bytes());
+                                                }
+                                            }
+                                            GL_RG32F => {
+                                                if state.color_mask.r {
+                                                    att.data[color_idx..color_idx + 4]
+                                                        .copy_from_slice(&blended[0].to_ne_bytes());
+                                                }
+                                                if state.color_mask.g {
+                                                    att.data[color_idx + 4..color_idx + 8]
+                                                        .copy_from_slice(&blended[1].to_ne_bytes());
+                                                }
+                                            }
+                                            GL_RGBA32F => {
+                                                if state.color_mask.r {
+                                                    att.data[color_idx..color_idx + 4]
+                                                        .copy_from_slice(&blended[0].to_ne_bytes());
+                                                }
+                                                if state.color_mask.g {
+                                                    att.data[color_idx + 4..color_idx + 8]
+                                                        .copy_from_slice(&blended[1].to_ne_bytes());
+                                                }
+                                                if state.color_mask.b {
+                                                    att.data[color_idx + 8..color_idx + 12]
+                                                        .copy_from_slice(&blended[2].to_ne_bytes());
+                                                }
+                                                if state.color_mask.a {
+                                                    att.data[color_idx + 12..color_idx + 16]
+                                                        .copy_from_slice(&blended[3].to_ne_bytes());
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    } else {
+                                        // Clamp to mask if not blending
+                                        match att.internal_format {
+                                            GL_R32F => {
+                                                if state.color_mask.r {
+                                                    att.data[color_idx..color_idx + 4]
+                                                        .copy_from_slice(&color[0..4]);
+                                                }
+                                            }
+                                            GL_RG32F => {
+                                                if state.color_mask.r {
+                                                    att.data[color_idx..color_idx + 4]
+                                                        .copy_from_slice(&color[0..4]);
+                                                }
+                                                if state.color_mask.g {
+                                                    att.data[color_idx + 4..color_idx + 8]
+                                                        .copy_from_slice(&color[4..8]);
+                                                }
+                                            }
+                                            GL_RGBA32F => {
+                                                if state.color_mask.r {
+                                                    att.data[color_idx..color_idx + 4]
+                                                        .copy_from_slice(&color[0..4]);
+                                                }
+                                                if state.color_mask.g {
+                                                    att.data[color_idx + 4..color_idx + 8]
+                                                        .copy_from_slice(&color[4..8]);
+                                                }
+                                                if state.color_mask.b {
+                                                    att.data[color_idx + 8..color_idx + 12]
+                                                        .copy_from_slice(&color[8..12]);
+                                                }
+                                                if state.color_mask.a {
+                                                    att.data[color_idx + 12..color_idx + 16]
+                                                        .copy_from_slice(&color[12..16]);
+                                                }
+                                            }
+                                            _ => {}
                                         }
                                     }
-                                    GL_RG32F => {
-                                        if state.color_mask.r {
-                                            fb.color[color_idx..color_idx + 4]
-                                                .copy_from_slice(&blended[0].to_ne_bytes());
-                                        }
-                                        if state.color_mask.g {
-                                            fb.color[color_idx + 4..color_idx + 8]
-                                                .copy_from_slice(&blended[1].to_ne_bytes());
-                                        }
+                                } else if att.internal_format == GL_RGBA8 {
+                                    // GL_RGBA8: Use quantized blending
+                                    let existing = [
+                                        att.data[color_idx],
+                                        att.data[color_idx + 1],
+                                        att.data[color_idx + 2],
+                                        att.data[color_idx + 3],
+                                    ];
+                                    let color_arr = [color[0], color[1], color[2], color[3]];
+                                    let blended = blend_pixel(color_arr, existing, &state.blend);
+
+                                    // Color Mask
+                                    if state.color_mask.r {
+                                        att.data[color_idx + 0] = blended[0];
                                     }
-                                    GL_RGBA32F => {
-                                        if state.color_mask.r {
-                                            fb.color[color_idx..color_idx + 4]
-                                                .copy_from_slice(&blended[0].to_ne_bytes());
-                                        }
-                                        if state.color_mask.g {
-                                            fb.color[color_idx + 4..color_idx + 8]
-                                                .copy_from_slice(&blended[1].to_ne_bytes());
-                                        }
-                                        if state.color_mask.b {
-                                            fb.color[color_idx + 8..color_idx + 12]
-                                                .copy_from_slice(&blended[2].to_ne_bytes());
-                                        }
-                                        if state.color_mask.a {
-                                            fb.color[color_idx + 12..color_idx + 16]
-                                                .copy_from_slice(&blended[3].to_ne_bytes());
-                                        }
+                                    if state.color_mask.g {
+                                        att.data[color_idx + 1] = blended[1];
                                     }
-                                    _ => {}
+                                    if state.color_mask.b {
+                                        att.data[color_idx + 2] = blended[2];
+                                    }
+                                    if state.color_mask.a {
+                                        att.data[color_idx + 3] = blended[3];
+                                    }
+                                } else {
+                                    // Float formats: Direct write (no blending yet)
+                                    att.data[color_idx..color_idx + color.len()]
+                                        .copy_from_slice(&color);
                                 }
-                            } else {
-                                // Clamp to mask if not blending
-                                match fb.internal_format {
-                                    GL_R32F => {
-                                        if state.color_mask.r {
-                                            fb.color[color_idx..color_idx + 4]
-                                                .copy_from_slice(&color[0..4]);
-                                        }
-                                    }
-                                    GL_RG32F => {
-                                        if state.color_mask.r {
-                                            fb.color[color_idx..color_idx + 4]
-                                                .copy_from_slice(&color[0..4]);
-                                        }
-                                        if state.color_mask.g {
-                                            fb.color[color_idx + 4..color_idx + 8]
-                                                .copy_from_slice(&color[4..8]);
-                                        }
-                                    }
-                                    GL_RGBA32F => {
-                                        if state.color_mask.r {
-                                            fb.color[color_idx..color_idx + 4]
-                                                .copy_from_slice(&color[0..4]);
-                                        }
-                                        if state.color_mask.g {
-                                            fb.color[color_idx + 4..color_idx + 8]
-                                                .copy_from_slice(&color[4..8]);
-                                        }
-                                        if state.color_mask.b {
-                                            fb.color[color_idx + 8..color_idx + 12]
-                                                .copy_from_slice(&color[8..12]);
-                                        }
-                                        if state.color_mask.a {
-                                            fb.color[color_idx + 12..color_idx + 16]
-                                                .copy_from_slice(&color[12..16]);
-                                        }
-                                    }
-                                    _ => {}
-                                }
                             }
-                        } else if fb.internal_format == GL_RGBA8 {
-                            // GL_RGBA8: Use quantized blending
-                            let existing = [
-                                fb.color[color_idx],
-                                fb.color[color_idx + 1],
-                                fb.color[color_idx + 2],
-                                fb.color[color_idx + 3],
-                            ];
-                            let color_arr = [color[0], color[1], color[2], color[3]];
-                            let blended = blend_pixel(color_arr, existing, &state.blend);
-
-                            // Color Mask
-                            if state.color_mask.r {
-                                fb.color[color_idx + 0] = blended[0];
-                            }
-                            if state.color_mask.g {
-                                fb.color[color_idx + 1] = blended[1];
-                            }
-                            if state.color_mask.b {
-                                fb.color[color_idx + 2] = blended[2];
-                            }
-                            if state.color_mask.a {
-                                fb.color[color_idx + 3] = blended[3];
-                            }
-                        } else {
-                            // Float formats: Direct write (no blending yet)
-                            fb.color[color_idx..color_idx + color.len()].copy_from_slice(&color);
                         }
                     }
                 }
@@ -1031,8 +1049,8 @@ impl Rasterizer {
         varyings: &[u32],
         pipeline: &RasterPipeline,
         state: &RenderState,
-        target_format: u32,
-    ) -> Vec<u8> {
+        target_formats: &[u32],
+    ) -> Vec<Vec<u8>> {
         // Copy varyings to shader memory as raw bits
         unsafe {
             std::ptr::copy_nonoverlapping(
@@ -1043,8 +1061,6 @@ impl Rasterizer {
         }
 
         // Execute fragment shader
-        // Fallback: JS trampoline (direct call is currently broken in Rust-WASM)
-
         crate::js_execute_shader(
             state.ctx_handle,
             pipeline.fragment_shader_type,
@@ -1056,50 +1072,57 @@ impl Rasterizer {
             pipeline.memory.texture_ptr,
         );
 
-        // Read color from private memory
-        let mut color_bytes = [0u8; 16];
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                pipeline.memory.private_ptr as *const u8,
-                color_bytes.as_mut_ptr(),
-                16,
-            );
+        let mut results = Vec::with_capacity(target_formats.len());
+
+        for (i, &format) in target_formats.iter().enumerate() {
+            // Read color from private memory (each location is 16 bytes)
+            let mut color_bytes = [0u8; 16];
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    (pipeline.memory.private_ptr + (i as u32 * 16)) as *const u8,
+                    color_bytes.as_mut_ptr(),
+                    16,
+                );
+            }
+
+            let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
+
+            // Format-aware output
+            let output = match format {
+                0x822E => {
+                    // GL_R32F: 1 channel × 4 bytes
+                    c[0].to_ne_bytes().to_vec()
+                }
+                0x8230 => {
+                    // GL_RG32F: 2 channels × 4 bytes
+                    let mut result = Vec::with_capacity(8);
+                    result.extend_from_slice(&c[0].to_ne_bytes());
+                    result.extend_from_slice(&c[1].to_ne_bytes());
+                    result
+                }
+                0x8814 => {
+                    // GL_RGBA32F: 4 channels × 4 bytes
+                    let mut result = Vec::with_capacity(16);
+                    result.extend_from_slice(&c[0].to_ne_bytes());
+                    result.extend_from_slice(&c[1].to_ne_bytes());
+                    result.extend_from_slice(&c[2].to_ne_bytes());
+                    result.extend_from_slice(&c[3].to_ne_bytes());
+                    result
+                }
+                _ => {
+                    // GL_RGBA8: Quantize to u8
+                    vec![
+                        (c[0].clamp(0.0, 1.0) * 255.0) as u8,
+                        (c[1].clamp(0.0, 1.0) * 255.0) as u8,
+                        (c[2].clamp(0.0, 1.0) * 255.0) as u8,
+                        (c[3].clamp(0.0, 1.0) * 255.0) as u8,
+                    ]
+                }
+            };
+            results.push(output);
         }
 
-        let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
-
-        // Format-aware output
-        match target_format {
-            0x822E => {
-                // GL_R32F: 1 channel × 4 bytes
-                c[0].to_ne_bytes().to_vec()
-            }
-            0x8230 => {
-                // GL_RG32F: 2 channels × 4 bytes
-                let mut result = Vec::with_capacity(8);
-                result.extend_from_slice(&c[0].to_ne_bytes());
-                result.extend_from_slice(&c[1].to_ne_bytes());
-                result
-            }
-            0x8814 => {
-                // GL_RGBA32F: 4 channels × 4 bytes
-                let mut result = Vec::with_capacity(16);
-                result.extend_from_slice(&c[0].to_ne_bytes());
-                result.extend_from_slice(&c[1].to_ne_bytes());
-                result.extend_from_slice(&c[2].to_ne_bytes());
-                result.extend_from_slice(&c[3].to_ne_bytes());
-                result
-            }
-            _ => {
-                // GL_RGBA8: Quantize to u8
-                vec![
-                    (c[0].clamp(0.0, 1.0) * 255.0) as u8,
-                    (c[1].clamp(0.0, 1.0) * 255.0) as u8,
-                    (c[2].clamp(0.0, 1.0) * 255.0) as u8,
-                    (c[3].clamp(0.0, 1.0) * 255.0) as u8,
-                ]
-            }
-        }
+        results
     }
 
     /// Draw primitives
@@ -1213,16 +1236,60 @@ impl Rasterizer {
                 });
             }
 
-            let (target_color, target_layout) = match &mut config.color_target {
-                ColorTarget::Handle(handle) => {
-                    let color_buffer = kernel.get_buffer_mut(*handle).expect("color buffer lost");
-                    (
-                        color_buffer.data.as_mut_slice() as *mut [u8],
-                        color_buffer.layout,
-                    )
+            let mut fb_attachments = Vec::with_capacity(config.color_targets.len());
+            let fb_layout = if config.color_targets.is_empty() {
+                StorageLayout::Linear
+            } else {
+                match &config.color_targets[0] {
+                    ColorTarget::Handle(handle) => {
+                        if handle.is_valid() {
+                            kernel.get_buffer(*handle).expect("buffer lost").layout
+                        } else {
+                            StorageLayout::Linear
+                        }
+                    }
+                    ColorTarget::Raw(_) => StorageLayout::Linear,
+                };
+                // Re-match because of borrow checker (we used kernel immutably above)
+                match &config.color_targets[0] {
+                    ColorTarget::Handle(handle) => {
+                        if handle.is_valid() {
+                            kernel.get_buffer(*handle).expect("buffer lost").layout
+                        } else {
+                            StorageLayout::Linear
+                        }
+                    }
+                    ColorTarget::Raw(_) => StorageLayout::Linear,
                 }
-                ColorTarget::Raw(data) => (*data as *mut [u8], StorageLayout::Linear),
             };
+
+            // Use unsafe to circumvent borrow checker for multi-target buffer access.
+            // This is safe as long as the handles in config.color_targets are distinct.
+            let kernel_raw = kernel as *mut GpuKernel;
+            for (i, target) in config.color_targets.iter_mut().enumerate() {
+                let attachment = match target {
+                    ColorTarget::Handle(handle) => {
+                        if !handle.is_valid() {
+                            None
+                        } else {
+                            let color_buffer = unsafe {
+                                (*kernel_raw)
+                                    .get_buffer_mut(*handle)
+                                    .expect("color buffer lost")
+                            };
+                            Some(ColorAttachment {
+                                data: color_buffer.data.as_mut_slice(),
+                                internal_format: config.internal_formats[i],
+                            })
+                        }
+                    }
+                    ColorTarget::Raw(data) => Some(ColorAttachment {
+                        data: *data,
+                        internal_format: config.internal_formats[i],
+                    }),
+                };
+                fb_attachments.push(attachment);
+            }
 
             let (target_depth, target_stencil) = match &mut config.depth_stencil_target {
                 DepthStencilTarget::Handle(handle) => {
@@ -1232,9 +1299,9 @@ impl Rasterizer {
                     let data = &mut ds_buffer.data;
 
                     if data.len() >= width * height * 4 {
-                        let d_ptr = data.as_mut_ptr() as *mut f32;
-                        let d_slice =
-                            unsafe { std::slice::from_raw_parts_mut(d_ptr, data.len() / 4) };
+                        let d_slice = unsafe {
+                            std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut f32, data.len() / 4)
+                        };
                         let s_slice = if data.len() >= width * height * 5 {
                             &mut data[width * height * 4..width * height * 5]
                         } else {
@@ -1253,11 +1320,10 @@ impl Rasterizer {
             let mut fb = crate::wasm_gl_emu::Framebuffer {
                 width: config.width,
                 height: config.height,
-                internal_format: config.internal_format,
-                color: unsafe { &mut *target_color },
+                color_attachments: fb_attachments,
                 depth: target_depth,
                 stencil: target_stencil,
-                layout: target_layout,
+                layout: fb_layout,
             };
 
             self.rasterize_all(
@@ -1266,6 +1332,7 @@ impl Rasterizer {
                 config.mode,
                 config.pipeline,
                 config.state,
+                &config.internal_formats,
             );
         }
     }
@@ -1277,6 +1344,7 @@ impl Rasterizer {
         mode: u32,
         pipeline: &RasterPipeline,
         state: &RenderState,
+        internal_formats: &[u32],
     ) {
         if mode == GL_POINTS {
             // GL_POINTS
@@ -1288,9 +1356,9 @@ impl Rasterizer {
                     _vy as f32 + (v.position[1] / v.position[3] + 1.0) * 0.5 * _vh as f32;
 
                 // Run FS
-                let color =
-                    self.execute_fragment_shader(&v.varyings, pipeline, state, fb.internal_format);
-                self.draw_point(fb, screen_x, screen_y, &color, state);
+                let colors =
+                    self.execute_fragment_shader(&v.varyings, pipeline, state, internal_formats);
+                self.draw_point(fb, screen_x, screen_y, &colors, state);
             }
         } else if mode == GL_TRIANGLES {
             // GL_TRIANGLES
@@ -1302,7 +1370,7 @@ impl Rasterizer {
                 let v1 = &vertices[i + 1];
                 let v2 = &vertices[i + 2];
 
-                self.rasterize_triangle(fb, v0, v1, v2, pipeline, state);
+                self.rasterize_triangle(fb, v0, v1, v2, pipeline, state, internal_formats);
             }
         } else if mode == GL_TRIANGLE_STRIP {
             // GL_TRIANGLE_STRIP
@@ -1312,7 +1380,7 @@ impl Rasterizer {
                 } else {
                     (&vertices[i + 1], &vertices[i], &vertices[i + 2])
                 };
-                self.rasterize_triangle(fb, v0, v1, v2, pipeline, state);
+                self.rasterize_triangle(fb, v0, v1, v2, pipeline, state, internal_formats);
             }
         }
     }
