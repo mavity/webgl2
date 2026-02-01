@@ -90,7 +90,7 @@ define_language! {
 pub struct ConstantAnalysis;
 
 /// Data tracked for each e-class: optional constant value.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConstantData {
     pub constant: Option<Constant>,
 }
@@ -100,12 +100,6 @@ pub struct ConstantData {
 pub enum Constant {
     Int(i64),
     Float(f64),
-}
-
-impl Default for ConstantData {
-    fn default() -> Self {
-        Self { constant: None }
-    }
 }
 
 impl Analysis<WasmLang> for ConstantAnalysis {
@@ -501,21 +495,37 @@ fn build_rec_expr(expr: &Expr, rec: &mut RecExpr<WasmLang>) -> Id {
                 let c2 = build_rec_expr(&components[2], rec);
                 rec.add(WasmLang::Vec3([c0, c1, c2]))
             }
-            4 | _ => {
+            _ => {
                 let c0 = build_rec_expr(
-                    &components.get(0).cloned().unwrap_or(Expr::ConstF32(0.0)),
+                    components
+                        .first()
+                        .cloned()
+                        .as_ref()
+                        .unwrap_or(&Expr::ConstF32(0.0)),
                     rec,
                 );
                 let c1 = build_rec_expr(
-                    &components.get(1).cloned().unwrap_or(Expr::ConstF32(0.0)),
+                    components
+                        .get(1)
+                        .cloned()
+                        .as_ref()
+                        .unwrap_or(&Expr::ConstF32(0.0)),
                     rec,
                 );
                 let c2 = build_rec_expr(
-                    &components.get(2).cloned().unwrap_or(Expr::ConstF32(0.0)),
+                    components
+                        .get(2)
+                        .cloned()
+                        .as_ref()
+                        .unwrap_or(&Expr::ConstF32(0.0)),
                     rec,
                 );
                 let c3 = build_rec_expr(
-                    &components.get(3).cloned().unwrap_or(Expr::ConstF32(0.0)),
+                    components
+                        .get(3)
+                        .cloned()
+                        .as_ref()
+                        .unwrap_or(&Expr::ConstF32(0.0)),
                     rec,
                 );
                 rec.add(WasmLang::Vec4([c0, c1, c2, c3]))
@@ -577,13 +587,13 @@ fn rec_expr_node_to_expr(rec: &RecExpr<WasmLang>, id: Id) -> Expr {
         WasmLang::Float(f) => Expr::ConstF64(f.into_inner()),
         WasmLang::Symbol(s) => {
             let s_str = s.as_str();
-            if s_str.starts_with('v') {
-                if let Ok(idx) = s_str[1..].parse::<u32>() {
+            if let Some(stripped) = s_str.strip_prefix('v') {
+                if let Ok(idx) = stripped.parse::<u32>() {
                     return Expr::LocalGet(idx);
                 }
             }
-            if s_str.starts_with('g') {
-                if let Ok(idx) = s_str[1..].parse::<u32>() {
+            if let Some(stripped) = s_str.strip_prefix('g') {
+                if let Ok(idx) = stripped.parse::<u32>() {
                     return Expr::GlobalGet(idx);
                 }
             }

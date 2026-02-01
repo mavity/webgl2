@@ -248,8 +248,7 @@ pub fn translate_statement(
         }
         naga::Statement::Break => {
             // Find the depth to the nearest breakable block/loop
-            let mut depth = 0;
-            for label in ctx.block_stack.iter().rev() {
+            for (depth, label) in ctx.block_stack.iter().rev().enumerate() {
                 match label {
                     super::BlockLabel::Block | super::BlockLabel::If => {
                         // Skip simple blocks and ifs, they are just scopes
@@ -257,17 +256,16 @@ pub fn translate_statement(
                     super::BlockLabel::Loop { break_depth, .. } => {
                         // Found a loop, use its break depth
                         ctx.wasm_func
-                            .instruction(&Instruction::Br(*break_depth + depth));
+                            .instruction(&Instruction::Br(*break_depth + depth as u32));
                         return Ok(());
                     }
                     super::BlockLabel::Switch { break_depth } => {
                         // Found a switch, use its break depth
                         ctx.wasm_func
-                            .instruction(&Instruction::Br(*break_depth + depth));
+                            .instruction(&Instruction::Br(*break_depth + depth as u32));
                         return Ok(());
                     }
                 }
-                depth += 1;
             }
             // If we get here, there's no enclosing breakable block - this is an error
             return Err(BackendError::UnsupportedFeature(
@@ -276,17 +274,12 @@ pub fn translate_statement(
         }
         naga::Statement::Continue => {
             // Find enclosing Loop and jump to continue_depth
-            let mut depth = 0;
-            for label in ctx.block_stack.iter().rev() {
-                match label {
-                    super::BlockLabel::Loop { continue_depth, .. } => {
-                        ctx.wasm_func
-                            .instruction(&Instruction::Br(*continue_depth + depth));
-                        return Ok(());
-                    }
-                    _ => {}
+            for (depth, label) in ctx.block_stack.iter().rev().enumerate() {
+                if let super::BlockLabel::Loop { continue_depth, .. } = label {
+                    ctx.wasm_func
+                        .instruction(&Instruction::Br(*continue_depth + depth as u32));
+                    return Ok(());
                 }
-                depth += 1;
             }
             return Err(BackendError::UnsupportedFeature(
                 "Continue statement outside of loop".to_string(),

@@ -18,6 +18,8 @@ use crate::wasm_sync_turbo_globals;
 type VsEntryFn = extern "C" fn(i32, i32, i32);
 type FsEntryFn = extern "C" fn(i32, i32);
 
+pub type PrepareTexturesFn<'a> = dyn Fn(&ShaderMemoryLayout) + 'a;
+
 /// Vertex data after vertex shader execution
 #[derive(Clone)]
 pub struct ProcessedVertex {
@@ -31,7 +33,7 @@ pub struct ProcessedVertex {
 
 /// Memory pointers for shader execution
 /// This replaces hardcoded memory offsets with flexible pointers
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ShaderMemoryLayout {
     /// Pointer to attribute data (vertex shader input)
     pub attr_ptr: u32,
@@ -49,14 +51,7 @@ pub struct ShaderMemoryLayout {
 
 impl ShaderMemoryLayout {
     pub fn new() -> Self {
-        Self {
-            attr_ptr: 0,
-            uniform_ptr: 0,
-            varying_ptr: 0,
-            private_ptr: 0,
-            texture_ptr: 0,
-            frame_sp: 0,
-        }
+        Self::default()
     }
 }
 
@@ -75,7 +70,7 @@ pub struct RenderState<'a> {
     /// Uniform data buffer
     pub uniform_data: &'a [u8],
     /// Texture metadata preparation callback
-    pub prepare_textures: Option<Box<dyn Fn(&ShaderMemoryLayout) + 'a>>,
+    pub prepare_textures: Option<Box<PrepareTexturesFn<'a>>>,
     /// Blend state
     pub blend: BlendState,
     /// Color mask
@@ -315,6 +310,12 @@ impl RasterPipeline {
     }
 }
 
+impl Default for RasterPipeline {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RasterPipeline {
     pub fn new() -> Self {
         Self {
@@ -492,6 +493,9 @@ impl Default for Rasterizer {
 /// Interface for fetching indices
 pub trait IndexBuffer {
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     fn get(&self, i: usize) -> u32;
 }
 
@@ -571,7 +575,7 @@ impl Rasterizer {
                             let blended = blend_pixel(color_arr, existing, &state.blend);
 
                             if state.color_mask.r {
-                                att.data[color_idx + 0] = blended[0];
+                                att.data[color_idx] = blended[0];
                             }
                             if state.color_mask.g {
                                 att.data[color_idx + 1] = blended[1];
@@ -639,6 +643,7 @@ impl Rasterizer {
 
     /// Rasterize a triangle with perspective-correct interpolation
     /// This is the core rasterization function extracted from drawing.rs
+    #[allow(clippy::too_many_arguments)]
     pub fn rasterize_triangle(
         &self,
         fb: &mut crate::wasm_gl_emu::Framebuffer,
@@ -695,10 +700,8 @@ impl Rasterizer {
                 is_front
             } else if state.cull_face_mode == crate::webgl2_context::types::GL_BACK {
                 !is_front
-            } else if state.cull_face_mode == crate::webgl2_context::types::GL_FRONT_AND_BACK {
-                true
             } else {
-                false
+                state.cull_face_mode == crate::webgl2_context::types::GL_FRONT_AND_BACK
             };
             if should_cull {
                 return;
@@ -1122,7 +1125,7 @@ impl Rasterizer {
 
                                     // Color Mask
                                     if state.color_mask.r {
-                                        att.data[color_idx + 0] = blended[0];
+                                        att.data[color_idx] = blended[0];
                                     }
                                     if state.color_mask.g {
                                         att.data[color_idx + 1] = blended[1];
@@ -1136,7 +1139,7 @@ impl Rasterizer {
                                 } else {
                                     // Float formats: Direct write (no blending yet)
                                     att.data[color_idx..color_idx + color.len()]
-                                        .copy_from_slice(&color);
+                                        .copy_from_slice(color);
                                 }
                             }
                         }
@@ -1313,14 +1316,14 @@ impl Rasterizer {
             let mut vertices = Vec::with_capacity(config.vertex_count);
 
             // 1. Run Vertex Shader for all vertices
-            let count = if let Some(ref idxs) = config.indices {
+            let count = if let Some(idxs) = config.indices {
                 idxs.len()
             } else {
                 config.vertex_count
             };
 
             for i in 0..count {
-                let vertex_id = if let Some(ref idxs) = config.indices {
+                let vertex_id = if let Some(idxs) = config.indices {
                     idxs.get(i)
                 } else {
                     (config.first_vertex + i) as u32
@@ -1414,7 +1417,7 @@ impl Rasterizer {
                         }
                     }
                     ColorTarget::Raw(data) => Some(ColorAttachment {
-                        data: *data,
+                        data,
                         internal_format: config.internal_formats[i],
                     }),
                 };

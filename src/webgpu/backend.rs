@@ -79,6 +79,12 @@ impl SoftInstance {
     }
 }
 
+impl Default for SoftInstance {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl hal::Instance for SoftInstance {
     type A = SoftApi;
 
@@ -254,8 +260,10 @@ impl SoftDevice {
             )
         })?;
 
-        let mut backend_config = crate::naga_wasm_backend::WasmBackendConfig::default();
-        backend_config.debug_shaders = false; // Source not available from hal::ShaderInput
+        let backend_config = crate::naga_wasm_backend::WasmBackendConfig {
+            debug_shaders: false,
+            ..Default::default()
+        };
 
         let backend = crate::naga_wasm_backend::WasmBackend::new(backend_config);
 
@@ -449,7 +457,7 @@ impl hal::Device for SoftDevice {
             vertex_layouts,
             color_targets: desc.color_targets.to_vec(),
             depth_stencil: desc.depth_stencil.clone(),
-            primitive: desc.primitive.clone(),
+            primitive: desc.primitive,
             multisample: desc.multisample,
         })
     }
@@ -711,7 +719,7 @@ pub struct SoftRenderPassDepthStencilAttachment {
 
 #[derive(Debug, Clone)]
 pub enum SoftRenderCommand {
-    SetPipeline(SoftRenderPipeline),
+    SetPipeline(Box<SoftRenderPipeline>),
     SetBindGroup {
         index: u32,
         group: SoftBindGroup,
@@ -995,453 +1003,451 @@ impl hal::Queue for SoftQueue {
         // Pass 2: Execute render passes and other non-copy commands
         for cmd_buf in command_buffers {
             for cmd in &cmd_buf.commands {
-                match cmd {
-                    SoftCommand::RenderPass { desc, commands } => {
-                        // 1. Handle LoadOps (Clearing)
-                        for att in desc.color_attachments.iter().flatten() {
-                            if let wgt::LoadOp::Clear(color) = att.load_op {
-                                let mut data = att.view.texture.lock().unwrap();
-                                let format = att.view.texture_desc.format;
+                if let SoftCommand::RenderPass { desc, commands } = cmd {
+                    // 1. Handle LoadOps (Clearing)
+                    for att in desc.color_attachments.iter().flatten() {
+                        if let wgt::LoadOp::Clear(color) = att.load_op {
+                            let mut data = att.view.texture.lock().unwrap();
+                            let format = att.view.texture_desc.format;
 
-                                // TODO: Handle other formats properly
-                                match format {
-                                    wgt::TextureFormat::Rgba8Unorm
-                                    | wgt::TextureFormat::Bgra8Unorm => {
-                                        let r = (color.r * 255.0) as u8;
-                                        let g = (color.g * 255.0) as u8;
-                                        let b = (color.b * 255.0) as u8;
-                                        let a = (color.a * 255.0) as u8;
-                                        let pixel = [r, g, b, a];
+                            // TODO: Handle other formats properly
+                            match format {
+                                wgt::TextureFormat::Rgba8Unorm | wgt::TextureFormat::Bgra8Unorm => {
+                                    let r = (color.r * 255.0) as u8;
+                                    let g = (color.g * 255.0) as u8;
+                                    let b = (color.b * 255.0) as u8;
+                                    let a = (color.a * 255.0) as u8;
+                                    let pixel = [r, g, b, a];
 
-                                        for chunk in data.chunks_mut(4) {
-                                            if chunk.len() == 4 {
-                                                chunk.copy_from_slice(&pixel);
-                                            }
+                                    for chunk in data.chunks_mut(4) {
+                                        if chunk.len() == 4 {
+                                            chunk.copy_from_slice(&pixel);
                                         }
                                     }
-                                    _ => {
-                                        eprintln!(
-                                            "SoftGPU: Unsupported format for clear: {:?}",
-                                            format
-                                        );
-                                    }
+                                }
+                                _ => {
+                                    eprintln!(
+                                        "SoftGPU: Unsupported format for clear: {:?}",
+                                        format
+                                    );
                                 }
                             }
                         }
+                    }
 
-                        if let Some(att) = &desc.depth_stencil_attachment {
-                            let _data = att.view.texture.lock().unwrap();
-                            // TODO: Implement depth/stencil clearing
-                            // This requires knowing the depth/stencil layout in memory
-                        }
+                    if let Some(att) = &desc.depth_stencil_attachment {
+                        let _data = att.view.texture.lock().unwrap();
+                        // TODO: Implement depth/stencil clearing
+                        // This requires knowing the depth/stencil layout in memory
+                    }
 
-                        // 2. Execute commands
-                        let mut current_pipeline: Option<&SoftRenderPipeline> = None;
-                        let mut vertex_buffers: Vec<VertexBufferEntry> = vec![None; 16];
-                        let mut index_buffer: IndexBufferEntry = None;
-                        let mut bind_groups: Vec<Option<SoftBindGroup>> = vec![None; 4];
+                    // 2. Execute commands
+                    let mut current_pipeline: Option<&SoftRenderPipeline> = None;
+                    let mut vertex_buffers: Vec<VertexBufferEntry> = vec![None; 16];
+                    let mut index_buffer: IndexBufferEntry = None;
+                    let mut bind_groups: Vec<Option<SoftBindGroup>> = vec![None; 4];
 
-                        let mut viewport = (0i32, 0i32, 0u32, 0u32);
-                        let mut scissor = (0i32, 0i32, 0u32, 0u32);
-                        let mut scissor_enabled = false;
+                    let mut viewport = (0i32, 0i32, 0u32, 0u32);
+                    let mut scissor = (0i32, 0i32, 0u32, 0u32);
+                    let mut scissor_enabled = false;
 
-                        if let Some(Some(att)) = desc.color_attachments.first() {
-                            viewport = (
-                                0,
-                                0,
-                                att.view.texture_desc.size.width,
-                                att.view.texture_desc.size.height,
-                            );
-                            scissor = (
-                                0,
-                                0,
-                                att.view.texture_desc.size.width,
-                                att.view.texture_desc.size.height,
-                            );
-                        }
+                    if let Some(Some(att)) = desc.color_attachments.first() {
+                        viewport = (
+                            0,
+                            0,
+                            att.view.texture_desc.size.width,
+                            att.view.texture_desc.size.height,
+                        );
+                        scissor = (
+                            0,
+                            0,
+                            att.view.texture_desc.size.width,
+                            att.view.texture_desc.size.height,
+                        );
+                    }
 
-                        for command in commands {
-                            match command {
-                                SoftRenderCommand::SetViewport {
-                                    x,
-                                    y,
-                                    width,
-                                    height,
-                                    ..
-                                } => {
-                                    viewport =
-                                        (*x as i32, *y as i32, *width as u32, *height as u32);
+                    for command in commands {
+                        match command {
+                            SoftRenderCommand::SetViewport {
+                                x,
+                                y,
+                                width,
+                                height,
+                                ..
+                            } => {
+                                viewport = (*x as i32, *y as i32, *width as u32, *height as u32);
+                            }
+                            SoftRenderCommand::SetScissorRect {
+                                x,
+                                y,
+                                width,
+                                height,
+                            } => {
+                                scissor = (*x as i32, *y as i32, *width, *height);
+                                scissor_enabled = true;
+                            }
+                            SoftRenderCommand::SetPipeline(pipeline) => {
+                                current_pipeline = Some(pipeline);
+                            }
+                            SoftRenderCommand::SetBindGroup {
+                                index,
+                                group,
+                                dynamic_offsets: _,
+                            } => {
+                                if (*index as usize) < bind_groups.len() {
+                                    bind_groups[*index as usize] = Some(group.clone());
                                 }
-                                SoftRenderCommand::SetScissorRect {
-                                    x,
-                                    y,
-                                    width,
-                                    height,
-                                } => {
-                                    scissor = (*x as i32, *y as i32, *width, *height);
-                                    scissor_enabled = true;
+                            }
+                            SoftRenderCommand::SetVertexBuffer {
+                                index,
+                                buffer,
+                                offset,
+                                size: _,
+                            } => {
+                                if (*index as usize) < vertex_buffers.len() {
+                                    vertex_buffers[*index as usize] =
+                                        Some((buffer.data.clone(), *offset));
                                 }
-                                SoftRenderCommand::SetPipeline(pipeline) => {
-                                    current_pipeline = Some(pipeline);
-                                }
-                                SoftRenderCommand::SetBindGroup {
-                                    index,
-                                    group,
-                                    dynamic_offsets: _,
-                                } => {
-                                    if (*index as usize) < bind_groups.len() {
-                                        bind_groups[*index as usize] = Some(group.clone());
-                                    }
-                                }
-                                SoftRenderCommand::SetVertexBuffer {
-                                    index,
-                                    buffer,
-                                    offset,
-                                    size: _,
-                                } => {
-                                    if (*index as usize) < vertex_buffers.len() {
-                                        vertex_buffers[*index as usize] =
-                                            Some((buffer.data.clone(), *offset));
-                                    }
-                                }
-                                SoftRenderCommand::SetIndexBuffer {
-                                    buffer,
-                                    offset,
-                                    size: _,
-                                    format,
-                                } => {
-                                    index_buffer = Some((buffer.data.clone(), *offset, *format));
-                                }
-                                SoftRenderCommand::Draw {
-                                    vertex_count,
-                                    instance_count,
-                                    first_vertex,
-                                    first_instance,
-                                } => {
-                                    if let Some(pipeline) = current_pipeline {
-                                        // Only handle the first color attachment for now
-                                        if let Some(Some(att)) = desc.color_attachments.first() {
-                                            let mut data = att.view.texture.lock().unwrap();
-                                            let width = att.view.texture_desc.size.width;
-                                            let height = att.view.texture_desc.size.height;
+                            }
+                            SoftRenderCommand::SetIndexBuffer {
+                                buffer,
+                                offset,
+                                size: _,
+                                format,
+                            } => {
+                                index_buffer = Some((buffer.data.clone(), *offset, *format));
+                            }
+                            SoftRenderCommand::Draw {
+                                vertex_count,
+                                instance_count,
+                                first_vertex,
+                                first_instance,
+                            } => {
+                                if let Some(pipeline) = current_pipeline {
+                                    // Only handle the first color attachment for now
+                                    if let Some(Some(att)) = desc.color_attachments.first() {
+                                        let mut data = att.view.texture.lock().unwrap();
+                                        let width = att.view.texture_desc.size.width;
+                                        let height = att.view.texture_desc.size.height;
 
-                                            let internal_format = match att.view.texture_desc.format
+                                        let internal_format = match att.view.texture_desc.format {
+                                            wgt::TextureFormat::R32Float => 0x822E,    // GL_R32F
+                                            wgt::TextureFormat::Rg32Float => 0x8230,   // GL_RG32F
+                                            wgt::TextureFormat::Rgba32Float => 0x8814, // GL_RGBA32F
+                                            wgt::TextureFormat::Rgba8Unorm
+                                            | wgt::TextureFormat::Bgra8Unorm => 0x8058, // GL_RGBA8
+                                            _ => 0x8058,
+                                        };
+
+                                        let mut dummy_depth = vec![1.0; (width * height) as usize];
+                                        let mut dummy_stencil =
+                                            vec![0u8; (width * height) as usize];
+
+                                        let rasterizer = wasm_gl_emu::Rasterizer::new();
+
+                                        let fetcher = SoftVertexFetcher {
+                                            vertex_buffers: &vertex_buffers,
+                                            vertex_layouts: &pipeline.vertex_layouts,
+                                        };
+
+                                        let mut combined_uniforms = vec![0u8; 4096];
+                                        self.scalarize_into(
+                                            &mut combined_uniforms,
+                                            &bind_groups,
+                                            &[&pipeline.vertex_stage, &pipeline.fragment_stage],
+                                        );
+
+                                        // Pre-lock textures to keep pointers valid during draw
+                                        type TexMetadata = (
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                        );
+                                        let mut texture_metas: HashMap<u32, TexMetadata> =
+                                            HashMap::new();
+                                        let mut _texture_guards = Vec::new();
+                                        let mut _already_locked = HashMap::new();
+
+                                        for stage in
+                                            &[&pipeline.vertex_stage, &pipeline.fragment_stage]
+                                        {
+                                            for (&(group, binding), &(offset, _)) in
+                                                &stage.uniform_map
                                             {
-                                                wgt::TextureFormat::R32Float => 0x822E,    // GL_R32F
-                                                wgt::TextureFormat::Rg32Float => 0x8230, // GL_RG32F
-                                                wgt::TextureFormat::Rgba32Float => 0x8814, // GL_RGBA32F
-                                                wgt::TextureFormat::Rgba8Unorm
-                                                | wgt::TextureFormat::Bgra8Unorm => 0x8058, // GL_RGBA8
-                                                _ => 0x8058,
-                                            };
-
-                                            let mut dummy_depth =
-                                                vec![1.0; (width * height) as usize];
-                                            let mut dummy_stencil =
-                                                vec![0u8; (width * height) as usize];
-
-                                            let rasterizer = wasm_gl_emu::Rasterizer::new();
-
-                                            let fetcher = SoftVertexFetcher {
-                                                vertex_buffers: &vertex_buffers,
-                                                vertex_layouts: &pipeline.vertex_layouts,
-                                            };
-
-                                            let mut combined_uniforms = vec![0u8; 4096];
-                                            self.scalarize_into(
-                                                &mut combined_uniforms,
-                                                &bind_groups,
-                                                &[&pipeline.vertex_stage, &pipeline.fragment_stage],
-                                            );
-
-                                            // Pre-lock textures to keep pointers valid during draw
-                                            type TexMetadata = (
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                            );
-                                            let mut texture_metas: HashMap<u32, TexMetadata> =
-                                                HashMap::new();
-                                            let mut _texture_guards = Vec::new();
-                                            let mut _already_locked = HashMap::new();
-
-                                            for stage in
-                                                &[&pipeline.vertex_stage, &pipeline.fragment_stage]
-                                            {
-                                                for (&(group, binding), &(offset, _)) in
-                                                    &stage.uniform_map
+                                                if let Some(Some(bg)) =
+                                                    bind_groups.get(group as usize)
                                                 {
-                                                    if let Some(Some(bg)) =
-                                                        bind_groups.get(group as usize)
-                                                    {
-                                                        match bg.resources.get(&binding) {
-                                                            Some(SoftResource::TextureView(
-                                                                view,
-                                                            )) => {
-                                                                let tex_ptr =
-                                                                    Arc::as_ptr(&view.texture)
-                                                                        as usize;
-                                                                let data_ptr = if let Some(&p) =
-                                                                    _already_locked.get(&tex_ptr)
-                                                                {
-                                                                    p
-                                                                } else {
-                                                                    let guard = view
-                                                                        .texture
-                                                                        .lock()
-                                                                        .unwrap();
-                                                                    let p = guard.as_ptr() as u32;
-                                                                    _texture_guards.push(guard);
-                                                                    _already_locked
-                                                                        .insert(tex_ptr, p);
-                                                                    p
-                                                                };
+                                                    match bg.resources.get(&binding) {
+                                                        Some(SoftResource::TextureView(view)) => {
+                                                            let tex_ptr =
+                                                                Arc::as_ptr(&view.texture) as usize;
+                                                            let data_ptr = if let Some(&p) =
+                                                                _already_locked.get(&tex_ptr)
+                                                            {
+                                                                p
+                                                            } else {
+                                                                let guard =
+                                                                    view.texture.lock().unwrap();
+                                                                let p = guard.as_ptr() as u32;
+                                                                _texture_guards.push(guard);
+                                                                _already_locked.insert(tex_ptr, p);
+                                                                p
+                                                            };
 
-                                                                let format = match view.texture_desc.format {
-                                                                    wgt::TextureFormat::R32Float => 0x822E,
-                                                                    wgt::TextureFormat::Rg32Float => 0x8230,
-                                                                    wgt::TextureFormat::Rgba32Float => 0x8814,
-                                                                    wgt::TextureFormat::Rgba8Unorm | wgt::TextureFormat::Bgra8Unorm => 0x8058,
-                                                                    _ => 0x8058,
-                                                                };
-                                                                let bpp = match format {
-                                                                    0x822E => 4,
-                                                                    0x8230 => 8,
-                                                                    0x8814 => 16,
-                                                                    _ => 4,
-                                                                };
+                                                            let format = match view
+                                                                .texture_desc
+                                                                .format
+                                                            {
+                                                                wgt::TextureFormat::R32Float => {
+                                                                    0x822E
+                                                                }
+                                                                wgt::TextureFormat::Rg32Float => {
+                                                                    0x8230
+                                                                }
+                                                                wgt::TextureFormat::Rgba32Float => {
+                                                                    0x8814
+                                                                }
+                                                                wgt::TextureFormat::Rgba8Unorm
+                                                                | wgt::TextureFormat::Bgra8Unorm => {
+                                                                    0x8058
+                                                                }
+                                                                _ => 0x8058,
+                                                            };
+                                                            let bpp = match format {
+                                                                0x822E => 4,
+                                                                0x8230 => 8,
+                                                                0x8814 => 16,
+                                                                _ => 4,
+                                                            };
 
-                                                                texture_metas.insert(
-                                                                    offset as u32,
-                                                                    (
-                                                                        view.texture_desc
-                                                                            .size
-                                                                            .width,
-                                                                        view.texture_desc
-                                                                            .size
-                                                                            .height,
-                                                                        data_ptr,
-                                                                        view.texture_desc
-                                                                            .size
-                                                                            .depth_or_array_layers,
-                                                                        format,
-                                                                        bpp,
-                                                                        0x2901, // GL_REPEAT
-                                                                        0x2901, // GL_REPEAT
-                                                                        0x2901, // Default wrap_r
-                                                                        0,      // Layout: Linear
-                                                                        0x2601, // min_filter: Linear
-                                                                        0x2601, // mag_filter: Linear
-                                                                    ),
-                                                                );
-                                                            }
-                                                            Some(SoftResource::Sampler(
-                                                                sampler,
-                                                            )) => {
-                                                                let wrap_s = match sampler.desc.address_modes[0] {
-                                                                    wgt::AddressMode::Repeat => 0x2901,
-                                                                    wgt::AddressMode::MirrorRepeat => 0x8370,
-                                                                    wgt::AddressMode::ClampToEdge => 0x812F,
-                                                                    _ => 0x2901,
-                                                                };
-                                                                let wrap_t = match sampler.desc.address_modes[1] {
-                                                                    wgt::AddressMode::Repeat => 0x2901,
-                                                                    wgt::AddressMode::MirrorRepeat => 0x8370,
-                                                                    wgt::AddressMode::ClampToEdge => 0x812F,
-                                                                    _ => 0x2901,
-                                                                };
-                                                                let wrap_r = match sampler.desc.address_modes[2] {
-                                                                    wgt::AddressMode::Repeat => 0x2901,
-                                                                    wgt::AddressMode::MirrorRepeat => 0x8370,
-                                                                    _ => 0x2901,
-                                                                };
-                                                                let min_filter = match sampler
-                                                                    .desc
-                                                                    .min_filter
-                                                                {
-                                                                    wgt::FilterMode::Nearest => {
-                                                                        0x2600
-                                                                    }
-                                                                    wgt::FilterMode::Linear => {
-                                                                        0x2601
-                                                                    }
-                                                                };
-                                                                let mag_filter = match sampler
-                                                                    .desc
-                                                                    .mag_filter
-                                                                {
-                                                                    wgt::FilterMode::Nearest => {
-                                                                        0x2600
-                                                                    }
-                                                                    wgt::FilterMode::Linear => {
-                                                                        0x2601
-                                                                    }
-                                                                };
-
-                                                                texture_metas.insert(
-                                                                    offset as u32,
-                                                                    (
-                                                                        0, 0, 0, 0, 0, 0, wrap_s,
-                                                                        wrap_t, wrap_r,
-                                                                        0, // Layout
-                                                                        min_filter, mag_filter,
-                                                                    ),
-                                                                );
-                                                            }
-                                                            _ => {}
+                                                            texture_metas.insert(
+                                                                offset,
+                                                                (
+                                                                    view.texture_desc.size.width,
+                                                                    view.texture_desc.size.height,
+                                                                    data_ptr,
+                                                                    view.texture_desc
+                                                                        .size
+                                                                        .depth_or_array_layers,
+                                                                    format,
+                                                                    bpp,
+                                                                    0x2901, // GL_REPEAT
+                                                                    0x2901, // GL_REPEAT
+                                                                    0x2901, // Default wrap_r
+                                                                    0,      // Layout: Linear
+                                                                    0x2601, // min_filter: Linear
+                                                                    0x2601, // mag_filter: Linear
+                                                                ),
+                                                            );
                                                         }
+                                                        Some(SoftResource::Sampler(sampler)) => {
+                                                            let wrap_s = match sampler
+                                                                .desc
+                                                                .address_modes[0]
+                                                            {
+                                                                wgt::AddressMode::Repeat => 0x2901,
+                                                                wgt::AddressMode::MirrorRepeat => {
+                                                                    0x8370
+                                                                }
+                                                                wgt::AddressMode::ClampToEdge => {
+                                                                    0x812F
+                                                                }
+                                                                _ => 0x2901,
+                                                            };
+                                                            let wrap_t = match sampler
+                                                                .desc
+                                                                .address_modes[1]
+                                                            {
+                                                                wgt::AddressMode::Repeat => 0x2901,
+                                                                wgt::AddressMode::MirrorRepeat => {
+                                                                    0x8370
+                                                                }
+                                                                wgt::AddressMode::ClampToEdge => {
+                                                                    0x812F
+                                                                }
+                                                                _ => 0x2901,
+                                                            };
+                                                            let wrap_r = match sampler
+                                                                .desc
+                                                                .address_modes[2]
+                                                            {
+                                                                wgt::AddressMode::Repeat => 0x2901,
+                                                                wgt::AddressMode::MirrorRepeat => {
+                                                                    0x8370
+                                                                }
+                                                                _ => 0x2901,
+                                                            };
+                                                            let min_filter = match sampler
+                                                                .desc
+                                                                .min_filter
+                                                            {
+                                                                wgt::FilterMode::Nearest => 0x2600,
+                                                                wgt::FilterMode::Linear => 0x2601,
+                                                            };
+                                                            let mag_filter = match sampler
+                                                                .desc
+                                                                .mag_filter
+                                                            {
+                                                                wgt::FilterMode::Nearest => 0x2600,
+                                                                wgt::FilterMode::Linear => 0x2601,
+                                                            };
+
+                                                            texture_metas.insert(
+                                                                offset,
+                                                                (
+                                                                    0, 0, 0, 0, 0, 0, wrap_s,
+                                                                    wrap_t, wrap_r,
+                                                                    0, // Layout
+                                                                    min_filter, mag_filter,
+                                                                ),
+                                                            );
+                                                        }
+                                                        _ => {}
                                                     }
                                                 }
                                             }
+                                        }
 
-                                            let prepare_textures = Box::new(
-                                                move |mem: &wasm_gl_emu::ShaderMemoryLayout| {
-                                                    for (&offset, meta) in &texture_metas {
-                                                        // Place metadata after the 256-byte context block in the texture region.
-                                                        // Each binding gets 64 bytes for its metadata.
-                                                        let data_offset = 256 + (offset / 4) * 64;
-                                                        let data_addr =
-                                                            mem.texture_ptr + data_offset;
-                                                        unsafe {
-                                                            // 1. Write the pointer to the UNIFORM context block (where the shader looks)
-                                                            let ctx_ptr = (mem.uniform_ptr + offset)
-                                                                as *mut u32;
-                                                            *ctx_ptr = data_addr;
+                                        let prepare_textures = Box::new(
+                                            move |mem: &wasm_gl_emu::ShaderMemoryLayout| {
+                                                for (&offset, meta) in &texture_metas {
+                                                    // Place metadata after the 256-byte context block in the texture region.
+                                                    // Each binding gets 64 bytes for its metadata.
+                                                    let data_offset = 256 + (offset / 4) * 64;
+                                                    let data_addr = mem.texture_ptr + data_offset;
+                                                    unsafe {
+                                                        // 1. Write the pointer to the UNIFORM context block (where the shader looks)
+                                                        let ctx_ptr =
+                                                            (mem.uniform_ptr + offset) as *mut u32;
+                                                        *ctx_ptr = data_addr;
 
-                                                            // 2. Write metadata to the pointed-to location (in the texture region)
-                                                            let base = data_addr as *mut i32;
-                                                            *base.offset(0) = meta.0 as i32; // width
-                                                            *base.offset(1) = meta.1 as i32; // height
-                                                            *base.offset(2) = meta.2 as i32; // data_ptr
-                                                            *base.offset(3) = meta.3 as i32; // depth
-                                                            *base.offset(4) = meta.4 as i32; // format
-                                                            *base.offset(5) = meta.5 as i32; // bpp
-                                                            *base.offset(6) = meta.6 as i32; // wrap_s
-                                                            *base.offset(7) = meta.7 as i32; // wrap_t
-                                                            *base.offset(8) = meta.8 as i32; // wrap_r
-                                                            *base.offset(9) = meta.9 as i32; // layout
-                                                            *base.offset(10) = meta.10 as i32; // min_filter
-                                                            *base.offset(11) = meta.11 as i32;
-                                                            // mag_filter
-                                                        }
+                                                        // 2. Write metadata to the pointed-to location (in the texture region)
+                                                        let base = data_addr as *mut i32;
+                                                        *base.offset(0) = meta.0 as i32; // width
+                                                        *base.offset(1) = meta.1 as i32; // height
+                                                        *base.offset(2) = meta.2 as i32; // data_ptr
+                                                        *base.offset(3) = meta.3 as i32; // depth
+                                                        *base.offset(4) = meta.4 as i32; // format
+                                                        *base.offset(5) = meta.5 as i32; // bpp
+                                                        *base.offset(6) = meta.6 as i32; // wrap_s
+                                                        *base.offset(7) = meta.7 as i32; // wrap_t
+                                                        *base.offset(8) = meta.8 as i32; // wrap_r
+                                                        *base.offset(9) = meta.9 as i32; // layout
+                                                        *base.offset(10) = meta.10 as i32; // min_filter
+                                                        *base.offset(11) = meta.11 as i32;
+                                                        // mag_filter
                                                     }
-                                                },
-                                            );
+                                                }
+                                            },
+                                        );
 
-                                            let mut raster_pipeline =
-                                                wasm_gl_emu::RasterPipeline::new();
-                                            raster_pipeline.memory = self.memory;
-                                            raster_pipeline.memory.uniform_ptr =
-                                                combined_uniforms.as_ptr() as u32;
-                                            raster_pipeline.vs_table_idx =
-                                                Some(pipeline.vertex_stage.wasm_module.table_index);
-                                            raster_pipeline.fs_table_idx = Some(
-                                                pipeline.fragment_stage.wasm_module.table_index,
-                                            );
+                                        let mut raster_pipeline =
+                                            wasm_gl_emu::RasterPipeline::new();
+                                        raster_pipeline.memory = self.memory;
+                                        raster_pipeline.memory.uniform_ptr =
+                                            combined_uniforms.as_ptr() as u32;
+                                        raster_pipeline.vs_table_idx =
+                                            Some(pipeline.vertex_stage.wasm_module.table_index);
+                                        raster_pipeline.fs_table_idx =
+                                            Some(pipeline.fragment_stage.wasm_module.table_index);
 
-                                            let mut state = wasm_gl_emu::RenderState {
-                                                ctx_handle: 0,
-                                                memory: self.memory,
-                                                viewport,
-                                                scissor,
-                                                scissor_enabled,
-                                                uniform_data: &combined_uniforms,
-                                                prepare_textures: Some(prepare_textures),
-                                                blend: wasm_gl_emu::rasterizer::BlendState::default(
-                                                ),
-                                                color_mask:
-                                                    wasm_gl_emu::rasterizer::ColorMaskState::default(
-                                                    ),
-                                                depth: wasm_gl_emu::rasterizer::DepthState::default(
-                                                ),
-                                                stencil:
-                                                    wasm_gl_emu::rasterizer::StencilState::default(),
-                                                cull_face_enabled: false,
-                                                cull_face_mode: GL_BACK,
-                                                front_face: GL_CCW,
+                                        let mut state = wasm_gl_emu::RenderState {
+                                            ctx_handle: 0,
+                                            memory: self.memory,
+                                            viewport,
+                                            scissor,
+                                            scissor_enabled,
+                                            uniform_data: &combined_uniforms,
+                                            prepare_textures: Some(prepare_textures),
+                                            blend: wasm_gl_emu::rasterizer::BlendState::default(),
+                                            color_mask:
+                                                wasm_gl_emu::rasterizer::ColorMaskState::default(),
+                                            depth: wasm_gl_emu::rasterizer::DepthState::default(),
+                                            stencil: wasm_gl_emu::rasterizer::StencilState::default(
+                                            ),
+                                            cull_face_enabled: false,
+                                            cull_face_mode: GL_BACK,
+                                            front_face: GL_CCW,
+                                        };
+                                        state.memory.uniform_ptr =
+                                            combined_uniforms.as_ptr() as u32;
+
+                                        // Map depth/blend state
+                                        if let Some(ds) = &pipeline.depth_stencil {
+                                            state.depth.enabled = true;
+                                            state.depth.mask = ds.depth_write_enabled;
+                                            state.depth.func = match ds.depth_compare {
+                                                wgt::CompareFunction::Never => GL_NEVER,
+                                                wgt::CompareFunction::Less => GL_LESS,
+                                                wgt::CompareFunction::Equal => GL_EQUAL,
+                                                wgt::CompareFunction::LessEqual => GL_LEQUAL,
+                                                wgt::CompareFunction::Greater => GL_GREATER,
+                                                wgt::CompareFunction::NotEqual => GL_NOTEQUAL,
+                                                wgt::CompareFunction::GreaterEqual => GL_GEQUAL,
+                                                wgt::CompareFunction::Always => GL_ALWAYS,
                                             };
-                                            state.memory.uniform_ptr =
-                                                combined_uniforms.as_ptr() as u32;
+                                        }
 
-                                            // Map depth/blend state
-                                            if let Some(ds) = &pipeline.depth_stencil {
-                                                state.depth.enabled = true;
-                                                state.depth.mask = ds.depth_write_enabled;
-                                                state.depth.func = match ds.depth_compare {
-                                                    wgt::CompareFunction::Never => GL_NEVER,
-                                                    wgt::CompareFunction::Less => GL_LESS,
-                                                    wgt::CompareFunction::Equal => GL_EQUAL,
-                                                    wgt::CompareFunction::LessEqual => GL_LEQUAL,
-                                                    wgt::CompareFunction::Greater => GL_GREATER,
-                                                    wgt::CompareFunction::NotEqual => GL_NOTEQUAL,
-                                                    wgt::CompareFunction::GreaterEqual => GL_GEQUAL,
-                                                    wgt::CompareFunction::Always => GL_ALWAYS,
+                                        if let Some(Some(target)) = pipeline.color_targets.first() {
+                                            if let Some(blend) = &target.blend {
+                                                state.blend.enabled = true;
+                                                let map_factor = |f| match f {
+                                                    wgt::BlendFactor::Zero => GL_ZERO,
+                                                    wgt::BlendFactor::One => GL_ONE,
+                                                    wgt::BlendFactor::Src => GL_SRC_COLOR,
+                                                    wgt::BlendFactor::OneMinusSrc => {
+                                                        GL_ONE_MINUS_SRC_COLOR
+                                                    }
+                                                    wgt::BlendFactor::SrcAlpha => GL_SRC_ALPHA,
+                                                    wgt::BlendFactor::OneMinusSrcAlpha => {
+                                                        GL_ONE_MINUS_SRC_ALPHA
+                                                    }
+                                                    wgt::BlendFactor::Dst => GL_DST_COLOR,
+                                                    wgt::BlendFactor::OneMinusDst => {
+                                                        GL_ONE_MINUS_DST_COLOR
+                                                    }
+                                                    wgt::BlendFactor::DstAlpha => GL_DST_ALPHA,
+                                                    wgt::BlendFactor::OneMinusDstAlpha => {
+                                                        GL_ONE_MINUS_DST_ALPHA
+                                                    }
+                                                    _ => GL_ONE,
                                                 };
+                                                let map_op = |o| match o {
+                                                    wgt::BlendOperation::Add => GL_FUNC_ADD,
+                                                    wgt::BlendOperation::Subtract => {
+                                                        GL_FUNC_SUBTRACT
+                                                    }
+                                                    wgt::BlendOperation::ReverseSubtract => {
+                                                        GL_FUNC_REVERSE_SUBTRACT
+                                                    }
+                                                    wgt::BlendOperation::Min => GL_MIN,
+                                                    wgt::BlendOperation::Max => GL_MAX,
+                                                };
+                                                state.blend.src_rgb =
+                                                    map_factor(blend.color.src_factor);
+                                                state.blend.dst_rgb =
+                                                    map_factor(blend.color.dst_factor);
+                                                state.blend.eq_rgb = map_op(blend.color.operation);
+                                                state.blend.src_alpha =
+                                                    map_factor(blend.alpha.src_factor);
+                                                state.blend.dst_alpha =
+                                                    map_factor(blend.alpha.dst_factor);
+                                                state.blend.eq_alpha =
+                                                    map_op(blend.alpha.operation);
                                             }
+                                        }
 
-                                            if let Some(Some(target)) =
-                                                pipeline.color_targets.first()
-                                            {
-                                                if let Some(blend) = &target.blend {
-                                                    state.blend.enabled = true;
-                                                    let map_factor = |f| match f {
-                                                        wgt::BlendFactor::Zero => GL_ZERO,
-                                                        wgt::BlendFactor::One => GL_ONE,
-                                                        wgt::BlendFactor::Src => GL_SRC_COLOR,
-                                                        wgt::BlendFactor::OneMinusSrc => {
-                                                            GL_ONE_MINUS_SRC_COLOR
-                                                        }
-                                                        wgt::BlendFactor::SrcAlpha => GL_SRC_ALPHA,
-                                                        wgt::BlendFactor::OneMinusSrcAlpha => {
-                                                            GL_ONE_MINUS_SRC_ALPHA
-                                                        }
-                                                        wgt::BlendFactor::Dst => GL_DST_COLOR,
-                                                        wgt::BlendFactor::OneMinusDst => {
-                                                            GL_ONE_MINUS_DST_COLOR
-                                                        }
-                                                        wgt::BlendFactor::DstAlpha => GL_DST_ALPHA,
-                                                        wgt::BlendFactor::OneMinusDstAlpha => {
-                                                            GL_ONE_MINUS_DST_ALPHA
-                                                        }
-                                                        _ => GL_ONE,
-                                                    };
-                                                    let map_op = |o| match o {
-                                                        wgt::BlendOperation::Add => GL_FUNC_ADD,
-                                                        wgt::BlendOperation::Subtract => {
-                                                            GL_FUNC_SUBTRACT
-                                                        }
-                                                        wgt::BlendOperation::ReverseSubtract => {
-                                                            GL_FUNC_REVERSE_SUBTRACT
-                                                        }
-                                                        wgt::BlendOperation::Min => GL_MIN,
-                                                        wgt::BlendOperation::Max => GL_MAX,
-                                                    };
-                                                    state.blend.src_rgb =
-                                                        map_factor(blend.color.src_factor);
-                                                    state.blend.dst_rgb =
-                                                        map_factor(blend.color.dst_factor);
-                                                    state.blend.eq_rgb =
-                                                        map_op(blend.color.operation);
-                                                    state.blend.src_alpha =
-                                                        map_factor(blend.alpha.src_factor);
-                                                    state.blend.dst_alpha =
-                                                        map_factor(blend.alpha.dst_factor);
-                                                    state.blend.eq_alpha =
-                                                        map_op(blend.alpha.operation);
-                                                }
-                                            }
-
-                                            let mut dummy_kernel = wasm_gl_emu::GpuKernel::new();
-                                            rasterizer.draw(
+                                        let mut dummy_kernel = wasm_gl_emu::GpuKernel::new();
+                                        rasterizer.draw(
                                                 &mut dummy_kernel,
                                                 wasm_gl_emu::rasterizer::DrawConfig {
                                                     color_targets: vec![
@@ -1454,8 +1460,8 @@ impl hal::Queue for SoftQueue {
                                                             depth: &mut dummy_depth,
                                                             stencil: &mut dummy_stencil,
                                                         },
-                                                    width: width,
-                                                    height: height,
+                                                    width,
+                                                    height,
                                                     internal_formats: vec![internal_format],
                                                     pipeline: &raster_pipeline,
                                                     state: &state,
@@ -1484,405 +1490,404 @@ impl hal::Queue for SoftQueue {
                                                     },
                                                 },
                                             );
-                                        }
                                     }
                                 }
-                                SoftRenderCommand::DrawIndexed {
-                                    index_count,
-                                    instance_count,
-                                    first_index,
-                                    base_vertex,
-                                    first_instance,
-                                } => {
-                                    if let Some(pipeline) = current_pipeline {
-                                        if let Some(Some(att)) = desc.color_attachments.first() {
-                                            let mut data = att.view.texture.lock().unwrap();
-                                            let width = att.view.texture_desc.size.width;
-                                            let height = att.view.texture_desc.size.height;
+                            }
+                            SoftRenderCommand::DrawIndexed {
+                                index_count,
+                                instance_count,
+                                first_index,
+                                base_vertex,
+                                first_instance,
+                            } => {
+                                if let Some(pipeline) = current_pipeline {
+                                    if let Some(Some(att)) = desc.color_attachments.first() {
+                                        let mut data = att.view.texture.lock().unwrap();
+                                        let width = att.view.texture_desc.size.width;
+                                        let height = att.view.texture_desc.size.height;
 
-                                            let internal_format = match att.view.texture_desc.format
+                                        let internal_format = match att.view.texture_desc.format {
+                                            wgt::TextureFormat::R32Float => 0x822E,
+                                            wgt::TextureFormat::Rg32Float => 0x8230,
+                                            wgt::TextureFormat::Rgba32Float => 0x8814,
+                                            wgt::TextureFormat::Rgba8Unorm
+                                            | wgt::TextureFormat::Bgra8Unorm => 0x8058,
+                                            _ => 0x8058,
+                                        };
+
+                                        let mut dummy_depth = vec![1.0; (width * height) as usize];
+                                        let mut dummy_stencil =
+                                            vec![0u8; (width * height) as usize];
+
+                                        let rasterizer = wasm_gl_emu::Rasterizer::new();
+
+                                        let fetcher = SoftVertexFetcher {
+                                            vertex_buffers: &vertex_buffers,
+                                            vertex_layouts: &pipeline.vertex_layouts,
+                                        };
+
+                                        let mut combined_uniforms = vec![0u8; 4096];
+                                        self.scalarize_into(
+                                            &mut combined_uniforms,
+                                            &bind_groups,
+                                            &[&pipeline.vertex_stage, &pipeline.fragment_stage],
+                                        );
+
+                                        // Pre-lock textures to keep pointers valid during draw
+                                        type TexMetadata = (
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                            u32,
+                                        );
+                                        let mut texture_metas: HashMap<u32, TexMetadata> =
+                                            HashMap::new();
+                                        let mut _texture_guards = Vec::new();
+                                        let mut _already_locked = HashMap::new();
+
+                                        for stage in
+                                            &[&pipeline.vertex_stage, &pipeline.fragment_stage]
+                                        {
+                                            for (&(group, binding), &(offset, _)) in
+                                                &stage.uniform_map
                                             {
-                                                wgt::TextureFormat::R32Float => 0x822E,
-                                                wgt::TextureFormat::Rg32Float => 0x8230,
-                                                wgt::TextureFormat::Rgba32Float => 0x8814,
-                                                wgt::TextureFormat::Rgba8Unorm
-                                                | wgt::TextureFormat::Bgra8Unorm => 0x8058,
-                                                _ => 0x8058,
-                                            };
-
-                                            let mut dummy_depth =
-                                                vec![1.0; (width * height) as usize];
-                                            let mut dummy_stencil =
-                                                vec![0u8; (width * height) as usize];
-
-                                            let rasterizer = wasm_gl_emu::Rasterizer::new();
-
-                                            let fetcher = SoftVertexFetcher {
-                                                vertex_buffers: &vertex_buffers,
-                                                vertex_layouts: &pipeline.vertex_layouts,
-                                            };
-
-                                            let mut combined_uniforms = vec![0u8; 4096];
-                                            self.scalarize_into(
-                                                &mut combined_uniforms,
-                                                &bind_groups,
-                                                &[&pipeline.vertex_stage, &pipeline.fragment_stage],
-                                            );
-
-                                            // Pre-lock textures to keep pointers valid during draw
-                                            type TexMetadata = (
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                                u32,
-                                            );
-                                            let mut texture_metas: HashMap<u32, TexMetadata> =
-                                                HashMap::new();
-                                            let mut _texture_guards = Vec::new();
-                                            let mut _already_locked = HashMap::new();
-
-                                            for stage in
-                                                &[&pipeline.vertex_stage, &pipeline.fragment_stage]
-                                            {
-                                                for (&(group, binding), &(offset, _)) in
-                                                    &stage.uniform_map
+                                                if let Some(Some(bg)) =
+                                                    bind_groups.get(group as usize)
                                                 {
-                                                    if let Some(Some(bg)) =
-                                                        bind_groups.get(group as usize)
-                                                    {
-                                                        match bg.resources.get(&binding) {
-                                                            Some(SoftResource::TextureView(
-                                                                view,
-                                                            )) => {
-                                                                let tex_ptr =
-                                                                    Arc::as_ptr(&view.texture)
-                                                                        as usize;
-                                                                let data_ptr = if let Some(&p) =
-                                                                    _already_locked.get(&tex_ptr)
-                                                                {
-                                                                    p
-                                                                } else {
-                                                                    let guard = view
-                                                                        .texture
-                                                                        .lock()
-                                                                        .unwrap();
-                                                                    let p = guard.as_ptr() as u32;
-                                                                    _texture_guards.push(guard);
-                                                                    _already_locked
-                                                                        .insert(tex_ptr, p);
-                                                                    p
-                                                                };
+                                                    match bg.resources.get(&binding) {
+                                                        Some(SoftResource::TextureView(view)) => {
+                                                            let tex_ptr =
+                                                                Arc::as_ptr(&view.texture) as usize;
+                                                            let data_ptr = if let Some(&p) =
+                                                                _already_locked.get(&tex_ptr)
+                                                            {
+                                                                p
+                                                            } else {
+                                                                let guard =
+                                                                    view.texture.lock().unwrap();
+                                                                let p = guard.as_ptr() as u32;
+                                                                _texture_guards.push(guard);
+                                                                _already_locked.insert(tex_ptr, p);
+                                                                p
+                                                            };
 
-                                                                let format = match view.texture_desc.format {
-                                                                    wgt::TextureFormat::R32Float => 0x822E,
-                                                                    wgt::TextureFormat::Rg32Float => 0x8230,
-                                                                    wgt::TextureFormat::Rgba32Float => 0x8814,
-                                                                    wgt::TextureFormat::Rgba8Unorm | wgt::TextureFormat::Bgra8Unorm => 0x8058,
-                                                                    _ => 0x8058,
-                                                                };
-                                                                let bpp = match format {
-                                                                    0x822E => 4,
-                                                                    0x8230 => 8,
-                                                                    0x8814 => 16,
-                                                                    _ => 4,
-                                                                };
+                                                            let format = match view
+                                                                .texture_desc
+                                                                .format
+                                                            {
+                                                                wgt::TextureFormat::R32Float => {
+                                                                    0x822E
+                                                                }
+                                                                wgt::TextureFormat::Rg32Float => {
+                                                                    0x8230
+                                                                }
+                                                                wgt::TextureFormat::Rgba32Float => {
+                                                                    0x8814
+                                                                }
+                                                                wgt::TextureFormat::Rgba8Unorm
+                                                                | wgt::TextureFormat::Bgra8Unorm => {
+                                                                    0x8058
+                                                                }
+                                                                _ => 0x8058,
+                                                            };
+                                                            let bpp = match format {
+                                                                0x822E => 4,
+                                                                0x8230 => 8,
+                                                                0x8814 => 16,
+                                                                _ => 4,
+                                                            };
 
-                                                                texture_metas.insert(
-                                                                    offset as u32,
-                                                                    (
-                                                                        view.texture_desc
-                                                                            .size
-                                                                            .width,
-                                                                        view.texture_desc
-                                                                            .size
-                                                                            .height,
-                                                                        data_ptr,
-                                                                        view.texture_desc
-                                                                            .size
-                                                                            .depth_or_array_layers,
-                                                                        format,
-                                                                        bpp,
-                                                                        0x2901, // GL_REPEAT
-                                                                        0x2901, // GL_REPEAT
-                                                                        0x2901, // Default wrap_r
-                                                                        0,      // Layout: Linear
-                                                                        0x2601, // min_filter: Linear
-                                                                        0x2601, // mag_filter: Linear
-                                                                    ),
-                                                                );
-                                                            }
-                                                            Some(SoftResource::Sampler(
-                                                                sampler,
-                                                            )) => {
-                                                                let wrap_s = match sampler.desc.address_modes[0] {
-                                                                    wgt::AddressMode::Repeat => 0x2901,
-                                                                    wgt::AddressMode::MirrorRepeat => 0x8370,
-                                                                    wgt::AddressMode::ClampToEdge => 0x812F,
-                                                                    _ => 0x2901,
-                                                                };
-                                                                let wrap_t = match sampler.desc.address_modes[1] {
-                                                                    wgt::AddressMode::Repeat => 0x2901,
-                                                                    wgt::AddressMode::MirrorRepeat => 0x8370,
-                                                                    wgt::AddressMode::ClampToEdge => 0x812F,
-                                                                    _ => 0x2901,
-                                                                };
-                                                                let wrap_r = match sampler.desc.address_modes[2] {
-                                                                    wgt::AddressMode::Repeat => 0x2901,
-                                                                    wgt::AddressMode::MirrorRepeat => 0x8370,
-                                                                    _ => 0x2901,
-                                                                };
-                                                                let min_filter = match sampler
-                                                                    .desc
-                                                                    .min_filter
-                                                                {
-                                                                    wgt::FilterMode::Nearest => {
-                                                                        0x2600
-                                                                    }
-                                                                    wgt::FilterMode::Linear => {
-                                                                        0x2601
-                                                                    }
-                                                                };
-                                                                let mag_filter = match sampler
-                                                                    .desc
-                                                                    .mag_filter
-                                                                {
-                                                                    wgt::FilterMode::Nearest => {
-                                                                        0x2600
-                                                                    }
-                                                                    wgt::FilterMode::Linear => {
-                                                                        0x2601
-                                                                    }
-                                                                };
-
-                                                                texture_metas.insert(
-                                                                    offset as u32,
-                                                                    (
-                                                                        0, 0, 0, 0, 0, 0, wrap_s,
-                                                                        wrap_t, wrap_r,
-                                                                        0, // Layout
-                                                                        min_filter, mag_filter,
-                                                                    ),
-                                                                );
-                                                            }
-                                                            _ => {}
+                                                            texture_metas.insert(
+                                                                offset,
+                                                                (
+                                                                    view.texture_desc.size.width,
+                                                                    view.texture_desc.size.height,
+                                                                    data_ptr,
+                                                                    view.texture_desc
+                                                                        .size
+                                                                        .depth_or_array_layers,
+                                                                    format,
+                                                                    bpp,
+                                                                    0x2901, // GL_REPEAT
+                                                                    0x2901, // GL_REPEAT
+                                                                    0x2901, // Default wrap_r
+                                                                    0,      // Layout: Linear
+                                                                    0x2601, // min_filter: Linear
+                                                                    0x2601, // mag_filter: Linear
+                                                                ),
+                                                            );
                                                         }
+                                                        Some(SoftResource::Sampler(sampler)) => {
+                                                            let wrap_s = match sampler
+                                                                .desc
+                                                                .address_modes[0]
+                                                            {
+                                                                wgt::AddressMode::Repeat => 0x2901,
+                                                                wgt::AddressMode::MirrorRepeat => {
+                                                                    0x8370
+                                                                }
+                                                                wgt::AddressMode::ClampToEdge => {
+                                                                    0x812F
+                                                                }
+                                                                _ => 0x2901,
+                                                            };
+                                                            let wrap_t = match sampler
+                                                                .desc
+                                                                .address_modes[1]
+                                                            {
+                                                                wgt::AddressMode::Repeat => 0x2901,
+                                                                wgt::AddressMode::MirrorRepeat => {
+                                                                    0x8370
+                                                                }
+                                                                wgt::AddressMode::ClampToEdge => {
+                                                                    0x812F
+                                                                }
+                                                                _ => 0x2901,
+                                                            };
+                                                            let wrap_r = match sampler
+                                                                .desc
+                                                                .address_modes[2]
+                                                            {
+                                                                wgt::AddressMode::Repeat => 0x2901,
+                                                                wgt::AddressMode::MirrorRepeat => {
+                                                                    0x8370
+                                                                }
+                                                                _ => 0x2901,
+                                                            };
+                                                            let min_filter = match sampler
+                                                                .desc
+                                                                .min_filter
+                                                            {
+                                                                wgt::FilterMode::Nearest => 0x2600,
+                                                                wgt::FilterMode::Linear => 0x2601,
+                                                            };
+                                                            let mag_filter = match sampler
+                                                                .desc
+                                                                .mag_filter
+                                                            {
+                                                                wgt::FilterMode::Nearest => 0x2600,
+                                                                wgt::FilterMode::Linear => 0x2601,
+                                                            };
+
+                                                            texture_metas.insert(
+                                                                offset,
+                                                                (
+                                                                    0, 0, 0, 0, 0, 0, wrap_s,
+                                                                    wrap_t, wrap_r,
+                                                                    0, // Layout
+                                                                    min_filter, mag_filter,
+                                                                ),
+                                                            );
+                                                        }
+                                                        _ => {}
                                                     }
                                                 }
                                             }
+                                        }
 
-                                            let prepare_textures = Box::new(
-                                                move |mem: &wasm_gl_emu::ShaderMemoryLayout| {
-                                                    for (&offset, meta) in &texture_metas {
-                                                        // Place metadata after the 256-byte context block.
-                                                        // Each binding gets 64 bytes for its metadata.
-                                                        let data_offset = 256 + (offset / 4) * 64;
-                                                        let data_addr =
-                                                            mem.texture_ptr + data_offset;
-                                                        unsafe {
-                                                            // 1. Write the pointer to the UNIFORM context block
-                                                            let ctx_ptr = (mem.uniform_ptr + offset)
-                                                                as *mut u32;
-                                                            *ctx_ptr = data_addr;
+                                        let prepare_textures = Box::new(
+                                            move |mem: &wasm_gl_emu::ShaderMemoryLayout| {
+                                                for (&offset, meta) in &texture_metas {
+                                                    // Place metadata after the 256-byte context block.
+                                                    // Each binding gets 64 bytes for its metadata.
+                                                    let data_offset = 256 + (offset / 4) * 64;
+                                                    let data_addr = mem.texture_ptr + data_offset;
+                                                    unsafe {
+                                                        // 1. Write the pointer to the UNIFORM context block
+                                                        let ctx_ptr =
+                                                            (mem.uniform_ptr + offset) as *mut u32;
+                                                        *ctx_ptr = data_addr;
 
-                                                            // 2. Write metadata to the pointed-to location
-                                                            let base = data_addr as *mut i32;
-                                                            *base.offset(0) = meta.0 as i32; // width
-                                                            *base.offset(1) = meta.1 as i32; // height
-                                                            *base.offset(2) = meta.2 as i32; // data_ptr
-                                                            *base.offset(3) = meta.3 as i32; // depth
-                                                            *base.offset(4) = meta.4 as i32; // format
-                                                            *base.offset(5) = meta.5 as i32; // bpp
-                                                            *base.offset(6) = meta.6 as i32; // wrap_s
-                                                            *base.offset(7) = meta.7 as i32; // wrap_t
-                                                            *base.offset(8) = meta.8 as i32; // wrap_r
-                                                            *base.offset(9) = meta.9 as i32; // layout
-                                                            *base.offset(10) = meta.10 as i32; // min_filter
-                                                            *base.offset(11) = meta.11 as i32;
-                                                            // mag_filter
-                                                        }
+                                                        // 2. Write metadata to the pointed-to location
+                                                        let base = data_addr as *mut i32;
+                                                        *base.offset(0) = meta.0 as i32; // width
+                                                        *base.offset(1) = meta.1 as i32; // height
+                                                        *base.offset(2) = meta.2 as i32; // data_ptr
+                                                        *base.offset(3) = meta.3 as i32; // depth
+                                                        *base.offset(4) = meta.4 as i32; // format
+                                                        *base.offset(5) = meta.5 as i32; // bpp
+                                                        *base.offset(6) = meta.6 as i32; // wrap_s
+                                                        *base.offset(7) = meta.7 as i32; // wrap_t
+                                                        *base.offset(8) = meta.8 as i32; // wrap_r
+                                                        *base.offset(9) = meta.9 as i32; // layout
+                                                        *base.offset(10) = meta.10 as i32; // min_filter
+                                                        *base.offset(11) = meta.11 as i32;
+                                                        // mag_filter
                                                     }
-                                                },
-                                            );
+                                                }
+                                            },
+                                        );
 
-                                            let mut state = wasm_gl_emu::RenderState {
-                                                ctx_handle: 0,
-                                                memory: self.memory,
-                                                viewport,
-                                                scissor,
-                                                scissor_enabled,
-                                                uniform_data: &combined_uniforms,
-                                                prepare_textures: Some(prepare_textures),
-                                                blend: wasm_gl_emu::rasterizer::BlendState::default(
-                                                ),
-                                                color_mask:
-                                                    wasm_gl_emu::rasterizer::ColorMaskState::default(
-                                                    ),
-                                                depth: wasm_gl_emu::rasterizer::DepthState::default(
-                                                ),
-                                                stencil:
-                                                    wasm_gl_emu::rasterizer::StencilState::default(),
-                                                cull_face_enabled: false,
-                                                cull_face_mode: GL_BACK,
-                                                front_face: GL_CCW,
+                                        let mut state = wasm_gl_emu::RenderState {
+                                            ctx_handle: 0,
+                                            memory: self.memory,
+                                            viewport,
+                                            scissor,
+                                            scissor_enabled,
+                                            uniform_data: &combined_uniforms,
+                                            prepare_textures: Some(prepare_textures),
+                                            blend: wasm_gl_emu::rasterizer::BlendState::default(),
+                                            color_mask:
+                                                wasm_gl_emu::rasterizer::ColorMaskState::default(),
+                                            depth: wasm_gl_emu::rasterizer::DepthState::default(),
+                                            stencil: wasm_gl_emu::rasterizer::StencilState::default(
+                                            ),
+                                            cull_face_enabled: false,
+                                            cull_face_mode: GL_BACK,
+                                            front_face: GL_CCW,
+                                        };
+                                        state.memory.uniform_ptr =
+                                            combined_uniforms.as_ptr() as u32;
+
+                                        // Map depth/blend state (same as Draw)
+                                        if let Some(ds) = &pipeline.depth_stencil {
+                                            state.depth.enabled = true;
+                                            state.depth.mask = ds.depth_write_enabled;
+                                            state.depth.func = match ds.depth_compare {
+                                                wgt::CompareFunction::Never => GL_NEVER,
+                                                wgt::CompareFunction::Less => GL_LESS,
+                                                wgt::CompareFunction::Equal => GL_EQUAL,
+                                                wgt::CompareFunction::LessEqual => GL_LEQUAL,
+                                                wgt::CompareFunction::Greater => GL_GREATER,
+                                                wgt::CompareFunction::NotEqual => GL_NOTEQUAL,
+                                                wgt::CompareFunction::GreaterEqual => GL_GEQUAL,
+                                                wgt::CompareFunction::Always => GL_ALWAYS,
                                             };
-                                            state.memory.uniform_ptr =
-                                                combined_uniforms.as_ptr() as u32;
+                                        }
 
-                                            // Map depth/blend state (same as Draw)
-                                            if let Some(ds) = &pipeline.depth_stencil {
-                                                state.depth.enabled = true;
-                                                state.depth.mask = ds.depth_write_enabled;
-                                                state.depth.func = match ds.depth_compare {
-                                                    wgt::CompareFunction::Never => GL_NEVER,
-                                                    wgt::CompareFunction::Less => GL_LESS,
-                                                    wgt::CompareFunction::Equal => GL_EQUAL,
-                                                    wgt::CompareFunction::LessEqual => GL_LEQUAL,
-                                                    wgt::CompareFunction::Greater => GL_GREATER,
-                                                    wgt::CompareFunction::NotEqual => GL_NOTEQUAL,
-                                                    wgt::CompareFunction::GreaterEqual => GL_GEQUAL,
-                                                    wgt::CompareFunction::Always => GL_ALWAYS,
+                                        // Map blend state from pipeline
+                                        if let Some(Some(target)) = pipeline.color_targets.first() {
+                                            if let Some(blend) = &target.blend {
+                                                state.blend.enabled = true;
+                                                let map_factor = |f| match f {
+                                                    wgt::BlendFactor::Zero => GL_ZERO,
+                                                    wgt::BlendFactor::One => GL_ONE,
+                                                    wgt::BlendFactor::Src => GL_SRC_COLOR,
+                                                    wgt::BlendFactor::OneMinusSrc => {
+                                                        GL_ONE_MINUS_SRC_COLOR
+                                                    }
+                                                    wgt::BlendFactor::SrcAlpha => GL_SRC_ALPHA,
+                                                    wgt::BlendFactor::OneMinusSrcAlpha => {
+                                                        GL_ONE_MINUS_SRC_ALPHA
+                                                    }
+                                                    wgt::BlendFactor::Dst => GL_DST_COLOR,
+                                                    wgt::BlendFactor::OneMinusDst => {
+                                                        GL_ONE_MINUS_DST_COLOR
+                                                    }
+                                                    wgt::BlendFactor::DstAlpha => GL_DST_ALPHA,
+                                                    wgt::BlendFactor::OneMinusDstAlpha => {
+                                                        GL_ONE_MINUS_DST_ALPHA
+                                                    }
+                                                    _ => GL_ONE,
                                                 };
-                                            }
-
-                                            // Map blend state from pipeline
-                                            if let Some(Some(target)) =
-                                                pipeline.color_targets.first()
-                                            {
-                                                if let Some(blend) = &target.blend {
-                                                    state.blend.enabled = true;
-                                                    let map_factor = |f| match f {
-                                                        wgt::BlendFactor::Zero => GL_ZERO,
-                                                        wgt::BlendFactor::One => GL_ONE,
-                                                        wgt::BlendFactor::Src => GL_SRC_COLOR,
-                                                        wgt::BlendFactor::OneMinusSrc => {
-                                                            GL_ONE_MINUS_SRC_COLOR
-                                                        }
-                                                        wgt::BlendFactor::SrcAlpha => GL_SRC_ALPHA,
-                                                        wgt::BlendFactor::OneMinusSrcAlpha => {
-                                                            GL_ONE_MINUS_SRC_ALPHA
-                                                        }
-                                                        wgt::BlendFactor::Dst => GL_DST_COLOR,
-                                                        wgt::BlendFactor::OneMinusDst => {
-                                                            GL_ONE_MINUS_DST_COLOR
-                                                        }
-                                                        wgt::BlendFactor::DstAlpha => GL_DST_ALPHA,
-                                                        wgt::BlendFactor::OneMinusDstAlpha => {
-                                                            GL_ONE_MINUS_DST_ALPHA
-                                                        }
-                                                        _ => GL_ONE,
-                                                    };
-                                                    let map_op = |o| match o {
-                                                        wgt::BlendOperation::Add => GL_FUNC_ADD,
-                                                        wgt::BlendOperation::Subtract => {
-                                                            GL_FUNC_SUBTRACT
-                                                        }
-                                                        wgt::BlendOperation::ReverseSubtract => {
-                                                            GL_FUNC_REVERSE_SUBTRACT
-                                                        }
-                                                        wgt::BlendOperation::Min => GL_MIN,
-                                                        wgt::BlendOperation::Max => GL_MAX,
-                                                    };
-                                                    state.blend.src_rgb =
-                                                        map_factor(blend.color.src_factor);
-                                                    state.blend.dst_rgb =
-                                                        map_factor(blend.color.dst_factor);
-                                                    state.blend.eq_rgb =
-                                                        map_op(blend.color.operation);
-                                                    state.blend.src_alpha =
-                                                        map_factor(blend.alpha.src_factor);
-                                                    state.blend.dst_alpha =
-                                                        map_factor(blend.alpha.dst_factor);
-                                                    state.blend.eq_alpha =
-                                                        map_op(blend.alpha.operation);
-                                                }
-                                            }
-
-                                            let mut raster_pipeline =
-                                                wasm_gl_emu::RasterPipeline::new();
-                                            raster_pipeline.memory = self.memory;
-                                            raster_pipeline.memory.uniform_ptr =
-                                                combined_uniforms.as_ptr() as u32;
-                                            raster_pipeline.vs_table_idx =
-                                                Some(pipeline.vertex_stage.wasm_module.table_index);
-                                            raster_pipeline.fs_table_idx = Some(
-                                                pipeline.fragment_stage.wasm_module.table_index,
-                                            );
-
-                                            // Fetch index buffer data
-                                            let indices = if let Some((buffer, offset, format)) =
-                                                &index_buffer
-                                            {
-                                                let data = buffer.lock().unwrap();
-                                                let start = *offset as usize;
-                                                let count = *index_count as usize;
-                                                let mut idxs = Vec::with_capacity(count);
-
-                                                let (_index_size, start_offset) = match format {
-                                                    wgt::IndexFormat::Uint16 => {
-                                                        (2, *first_index as usize * 2)
+                                                let map_op = |o| match o {
+                                                    wgt::BlendOperation::Add => GL_FUNC_ADD,
+                                                    wgt::BlendOperation::Subtract => {
+                                                        GL_FUNC_SUBTRACT
                                                     }
-                                                    wgt::IndexFormat::Uint32 => {
-                                                        (4, *first_index as usize * 4)
+                                                    wgt::BlendOperation::ReverseSubtract => {
+                                                        GL_FUNC_REVERSE_SUBTRACT
                                                     }
+                                                    wgt::BlendOperation::Min => GL_MIN,
+                                                    wgt::BlendOperation::Max => GL_MAX,
                                                 };
-                                                let final_start = start + start_offset;
+                                                state.blend.src_rgb =
+                                                    map_factor(blend.color.src_factor);
+                                                state.blend.dst_rgb =
+                                                    map_factor(blend.color.dst_factor);
+                                                state.blend.eq_rgb = map_op(blend.color.operation);
+                                                state.blend.src_alpha =
+                                                    map_factor(blend.alpha.src_factor);
+                                                state.blend.dst_alpha =
+                                                    map_factor(blend.alpha.dst_factor);
+                                                state.blend.eq_alpha =
+                                                    map_op(blend.alpha.operation);
+                                            }
+                                        }
 
-                                                match format {
-                                                    wgt::IndexFormat::Uint16 => {
-                                                        for i in 0..count {
-                                                            let pos = final_start + i * 2;
-                                                            if pos + 2 <= data.len() {
-                                                                let val = u16::from_le_bytes([
-                                                                    data[pos],
-                                                                    data[pos + 1],
-                                                                ]);
-                                                                idxs.push(
-                                                                    (val as i32 + *base_vertex)
-                                                                        as u32,
-                                                                );
-                                                            }
-                                                        }
-                                                    }
-                                                    wgt::IndexFormat::Uint32 => {
-                                                        for i in 0..count {
-                                                            let pos = final_start + i * 4;
-                                                            if pos + 4 <= data.len() {
-                                                                let val = u32::from_le_bytes([
-                                                                    data[pos],
-                                                                    data[pos + 1],
-                                                                    data[pos + 2],
-                                                                    data[pos + 3],
-                                                                ]);
-                                                                idxs.push(
-                                                                    (val as i32 + *base_vertex)
-                                                                        as u32,
-                                                                );
-                                                            }
-                                                        }
-                                                    }
+                                        let mut raster_pipeline =
+                                            wasm_gl_emu::RasterPipeline::new();
+                                        raster_pipeline.memory = self.memory;
+                                        raster_pipeline.memory.uniform_ptr =
+                                            combined_uniforms.as_ptr() as u32;
+                                        raster_pipeline.vs_table_idx =
+                                            Some(pipeline.vertex_stage.wasm_module.table_index);
+                                        raster_pipeline.fs_table_idx =
+                                            Some(pipeline.fragment_stage.wasm_module.table_index);
+
+                                        // Fetch index buffer data
+                                        let indices = if let Some((buffer, offset, format)) =
+                                            &index_buffer
+                                        {
+                                            let data = buffer.lock().unwrap();
+                                            let start = *offset as usize;
+                                            let count = *index_count as usize;
+                                            let mut idxs = Vec::with_capacity(count);
+
+                                            let (_index_size, start_offset) = match format {
+                                                wgt::IndexFormat::Uint16 => {
+                                                    (2, *first_index as usize * 2)
                                                 }
-                                                Some(idxs)
-                                            } else {
-                                                None
+                                                wgt::IndexFormat::Uint32 => {
+                                                    (4, *first_index as usize * 4)
+                                                }
                                             };
+                                            let final_start = start + start_offset;
 
-                                            let mut dummy_kernel = wasm_gl_emu::GpuKernel::new();
-                                            rasterizer.draw(&mut dummy_kernel, wasm_gl_emu::rasterizer::DrawConfig {
+                                            match format {
+                                                wgt::IndexFormat::Uint16 => {
+                                                    for i in 0..count {
+                                                        let pos = final_start + i * 2;
+                                                        if pos + 2 <= data.len() {
+                                                            let val = u16::from_le_bytes([
+                                                                data[pos],
+                                                                data[pos + 1],
+                                                            ]);
+                                                            idxs.push(
+                                                                (val as i32 + *base_vertex) as u32,
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                                wgt::IndexFormat::Uint32 => {
+                                                    for i in 0..count {
+                                                        let pos = final_start + i * 4;
+                                                        if pos + 4 <= data.len() {
+                                                            let val = u32::from_le_bytes([
+                                                                data[pos],
+                                                                data[pos + 1],
+                                                                data[pos + 2],
+                                                                data[pos + 3],
+                                                            ]);
+                                                            idxs.push(
+                                                                (val as i32 + *base_vertex) as u32,
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Some(idxs)
+                                        } else {
+                                            None
+                                        };
+
+                                        let mut dummy_kernel = wasm_gl_emu::GpuKernel::new();
+                                        rasterizer.draw(&mut dummy_kernel, wasm_gl_emu::rasterizer::DrawConfig {
                                                 color_targets: vec![wasm_gl_emu::rasterizer::ColorTarget::Raw(&mut data)],
                                                 depth_stencil_target: wasm_gl_emu::rasterizer::DepthStencilTarget::Raw {
                                                     depth: &mut dummy_depth,
                                                     stencil: &mut dummy_stencil,
                                                 },
-                                                width: width,
-                                                height: height,
+                                                width,
+                                                height,
                                                 internal_formats: vec![internal_format],
                                                 pipeline: &raster_pipeline,
                                                 state: &state,
@@ -1900,18 +1905,16 @@ impl hal::Queue for SoftQueue {
                                                     wgt::PrimitiveTopology::TriangleStrip => GL_TRIANGLE_STRIP,
                                                 },
                                             });
-                                        }
                                     }
                                 }
                             }
                         }
-
-                        // 3. Handle StoreOps (Resolve)
-                        // Currently we write directly to the texture, so StoreOp::Store is implicit.
-                        // StoreOp::Discard would mean we don't care, but we already wrote it.
-                        // Resolve targets would need to be handled here.
                     }
-                    _ => {}
+
+                    // 3. Handle StoreOps (Resolve)
+                    // Currently we write directly to the texture, so StoreOp::Store is implicit.
+                    // StoreOp::Discard would mean we don't care, but we already wrote it.
+                    // Resolve targets would need to be handled here.
                 }
             }
         }
@@ -1919,50 +1922,48 @@ impl hal::Queue for SoftQueue {
         // Pass 3: Execute all readback copies (TextureToBuffer)
         for cmd_buf in command_buffers {
             for cmd in &cmd_buf.commands {
-                match cmd {
-                    SoftCommand::CopyTextureToBuffer {
-                        src,
-                        dst,
-                        regions,
-                        texture_desc,
-                    } => {
-                        let src_data = src.lock().unwrap();
-                        let mut dst_data = dst.lock().unwrap();
-                        for region in regions {
-                            let bytes_per_pixel = 4;
-                            let width = region.size.width;
-                            let height = region.size.height;
-                            let depth = region.size.depth;
-                            let row_pitch = width * bytes_per_pixel;
-                            let slice_pitch = row_pitch * height;
-                            let src_origin = region.texture_base.origin;
-                            let src_offset =
-                                (src_origin.z * texture_desc.size.height * texture_desc.size.width
-                                    + src_origin.y * texture_desc.size.width
-                                    + src_origin.x)
-                                    * bytes_per_pixel;
-                            let dst_offset = region.buffer_layout.offset;
+                if let SoftCommand::CopyTextureToBuffer {
+                    src,
+                    dst,
+                    regions,
+                    texture_desc,
+                } = cmd
+                {
+                    let src_data = src.lock().unwrap();
+                    let mut dst_data = dst.lock().unwrap();
+                    for region in regions {
+                        let bytes_per_pixel = 4;
+                        let width = region.size.width;
+                        let height = region.size.height;
+                        let depth = region.size.depth;
+                        let row_pitch = width * bytes_per_pixel;
+                        let slice_pitch = row_pitch * height;
+                        let src_origin = region.texture_base.origin;
+                        let src_offset =
+                            (src_origin.z * texture_desc.size.height * texture_desc.size.width
+                                + src_origin.y * texture_desc.size.width
+                                + src_origin.x)
+                                * bytes_per_pixel;
+                        let dst_offset = region.buffer_layout.offset;
 
-                            for z in 0..depth {
-                                for y in 0..height {
-                                    let src_idx =
-                                        (src_offset + (z * slice_pitch) + (y * row_pitch)) as usize;
-                                    let dst_idx = (dst_offset
-                                        + (z as u64 * slice_pitch as u64)
-                                        + (y as u64 * row_pitch as u64))
-                                        as usize;
-                                    let len = row_pitch as usize;
-                                    if src_idx + len <= src_data.len()
-                                        && dst_idx + len <= dst_data.len()
-                                    {
-                                        dst_data[dst_idx..dst_idx + len]
-                                            .copy_from_slice(&src_data[src_idx..src_idx + len]);
-                                    }
+                        for z in 0..depth {
+                            for y in 0..height {
+                                let src_idx =
+                                    (src_offset + (z * slice_pitch) + (y * row_pitch)) as usize;
+                                let dst_idx = (dst_offset
+                                    + (z as u64 * slice_pitch as u64)
+                                    + (y as u64 * row_pitch as u64))
+                                    as usize;
+                                let len = row_pitch as usize;
+                                if src_idx + len <= src_data.len()
+                                    && dst_idx + len <= dst_data.len()
+                                {
+                                    dst_data[dst_idx..dst_idx + len]
+                                        .copy_from_slice(&src_data[src_idx..src_idx + len]);
                                 }
                             }
                         }
                     }
-                    _ => {}
                 }
             }
         }
@@ -2224,7 +2225,7 @@ impl hal::CommandEncoder for SoftCommandEncoder {
 
     unsafe fn set_render_pipeline(&mut self, pipeline: &SoftRenderPipeline) {
         if let Some((_, commands)) = &mut self.current_render_pass {
-            commands.push(SoftRenderCommand::SetPipeline(pipeline.clone()));
+            commands.push(SoftRenderCommand::SetPipeline(Box::new(pipeline.clone())));
         }
     }
 

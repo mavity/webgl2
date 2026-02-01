@@ -529,7 +529,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                 if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
                     if let Some(name) = &var.name {
                         if !p.uniforms.contains_key(name) {
-                            let location = next_uniform_loc as i32;
+                            let location = next_uniform_loc;
                             next_uniform_loc += 1;
                             p.uniforms.insert(name.clone(), location);
                             uniform_locations.insert(name.clone(), location as u32);
@@ -640,7 +640,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                 if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
                     if let Some(name) = &var.name {
                         if !p.uniforms.contains_key(name) {
-                            let location = next_uniform_loc as i32;
+                            let location = next_uniform_loc;
                             next_uniform_loc += 1;
                             p.uniforms.insert(name.clone(), location);
                             uniform_locations.insert(name.clone(), location as u32);
@@ -1413,7 +1413,7 @@ fn reflect_program_resources(p: &mut Program) {
                             if gl_type != 0 {
                                 p.active_attributes.push(ActiveInfo {
                                     name: name.clone(),
-                                    size: size,
+                                    size,
                                     type_: gl_type,
                                 });
                             }

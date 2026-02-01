@@ -61,8 +61,8 @@ impl GpuBuffer {
         let size = match layout {
             StorageLayout::Linear => (width as u64) * (height as u64) * (depth as u64) * bpp,
             StorageLayout::Tiled8x8 => {
-                let tiles_w = (width + 7) / 8;
-                let tiles_h = (height + 7) / 8;
+                let tiles_w = width.div_ceil(8);
+                let tiles_h = height.div_ceil(8);
                 (tiles_w as u64) * (tiles_h as u64) * 64 * (depth as u64) * bpp
             }
             StorageLayout::Morton => {
@@ -96,6 +96,7 @@ impl GpuBuffer {
     }
 
     /// Calculate byte offset given layout parameters (useful when buffer is borrowed)
+    #[allow(clippy::too_many_arguments)]
     pub fn offset_for_layout(
         x: u32,
         y: u32,
@@ -110,8 +111,8 @@ impl GpuBuffer {
         match layout {
             StorageLayout::Linear => ((z * height * width + y * width + x) as usize) * bpp,
             StorageLayout::Tiled8x8 => {
-                let tiles_w = (width + 7) / 8;
-                let tiles_h = (height + 7) / 8;
+                let tiles_w = width.div_ceil(8);
+                let tiles_h = height.div_ceil(8);
                 let tile_x = x / 8;
                 let tile_y = y / 8;
                 let inner_x = x % 8;
@@ -140,6 +141,7 @@ impl GpuBuffer {
 }
 
 /// The centralized GPU Kernel that owns all raw resources
+#[derive(Default)]
 pub struct GpuKernel {
     resources: HashMap<GpuHandle, GpuBuffer>,
 }
@@ -158,14 +160,6 @@ pub struct TextureBinding {
     pub min_filter: u32,
     pub mag_filter: u32,
     pub gpu_handle: GpuHandle,
-}
-
-impl Default for GpuKernel {
-    fn default() -> Self {
-        Self {
-            resources: HashMap::new(),
-        }
-    }
 }
 
 impl GpuKernel {
@@ -215,6 +209,7 @@ impl GpuKernel {
     }
 
     /// Copy a sub-region from one buffer to another
+    #[allow(clippy::too_many_arguments)]
     pub fn copy_buffer(
         &mut self,
         src_handle: GpuHandle,
@@ -242,6 +237,7 @@ impl GpuKernel {
     }
 
     /// Blit a region from one buffer to another with scaling
+    #[allow(clippy::too_many_arguments)]
     pub fn blit(
         &mut self,
         src_handle: GpuHandle,

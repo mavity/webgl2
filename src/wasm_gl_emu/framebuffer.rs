@@ -37,8 +37,8 @@ impl OwnedFramebuffer {
         let pixel_count = match layout {
             StorageLayout::Linear => (width * height) as usize,
             StorageLayout::Tiled8x8 => {
-                let tiles_w = (width + 7) / 8;
-                let tiles_h = (height + 7) / 8;
+                let tiles_w = width.div_ceil(8);
+                let tiles_h = height.div_ceil(8);
                 (tiles_w * tiles_h * 64) as usize
             }
             StorageLayout::Morton => {

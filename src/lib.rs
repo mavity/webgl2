@@ -348,7 +348,7 @@ pub extern "C" fn gl_step(edge: f32, x: f32) -> f32 {
 
 #[no_mangle]
 pub extern "C" fn gl_smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
-    let t = ((x - edge0) / (edge1 - edge0)).max(0.0).min(1.0);
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
 
@@ -689,8 +689,12 @@ pub extern "C" fn wasm_ctx_read_buffer(ctx: u32, mode: u32) -> u32 {
 /// Read pixels from the bound framebuffer into dest_ptr.
 /// dest_ptr/dest_len point to RGBA u8 buffer in WASM linear memory.
 /// Returns errno.
+///
+/// # Safety
+///
+/// The caller must ensure that `dest_ptr` points to a valid memory region of at least `dest_len` bytes.
 #[no_mangle]
-pub extern "C" fn wasm_ctx_read_pixels(
+pub unsafe extern "C" fn wasm_ctx_read_pixels(
     ctx: u32,
     x: i32,
     y: i32,
@@ -1434,7 +1438,7 @@ pub extern "C" fn wasm_ctx_get_program_wat_ref(ctx: u32, program: u32, shader_ty
 /// This is used to return the decompiled GLSL string to JavaScript.
 use std::cell::RefCell;
 thread_local! {
-    static DECOMPILED_GLSL: RefCell<String> = RefCell::new(String::new());
+    static DECOMPILED_GLSL: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 /// Decompile WASM bytes to GLSL and store the result.
@@ -1590,51 +1594,52 @@ pub extern "C" fn wasm_webgpu_get_preferred_canvas_format() -> u32 {
     17
 }
 
+/// Get the limits of an adapter.
+/// # Safety
+/// The caller must ensure that `ptr` points to a valid memory region of at least 64 bytes (16 u32 values).
 #[no_mangle]
-pub extern "C" fn wasm_webgpu_get_adapter_limits(
+pub unsafe extern "C" fn wasm_webgpu_get_adapter_limits(
     ctx_handle: u32,
     adapter_handle: u32,
     ptr: *mut u32,
 ) {
     let limits = webgpu::adapter::get_adapter_limits(ctx_handle, adapter_handle);
-    unsafe {
-        *ptr.offset(0) = limits.max_texture_dimension_1d;
-        *ptr.offset(1) = limits.max_texture_dimension_2d;
-        *ptr.offset(2) = limits.max_texture_dimension_3d;
-        *ptr.offset(3) = limits.max_texture_array_layers;
-        *ptr.offset(4) = limits.max_bind_groups;
-        *ptr.offset(5) = 0; // Padding
-        *ptr.offset(6) = limits.max_bindings_per_bind_group;
-        *ptr.offset(7) = limits.max_dynamic_uniform_buffers_per_pipeline_layout;
-        *ptr.offset(8) = limits.max_dynamic_storage_buffers_per_pipeline_layout;
-        *ptr.offset(9) = limits.max_sampled_textures_per_shader_stage;
-        *ptr.offset(10) = limits.max_samplers_per_shader_stage;
-        *ptr.offset(11) = limits.max_storage_buffers_per_shader_stage;
-        *ptr.offset(12) = limits.max_storage_textures_per_shader_stage;
-        *ptr.offset(13) = limits.max_uniform_buffers_per_shader_stage;
-        *ptr.offset(14) = limits.max_uniform_buffer_binding_size;
-        *ptr.offset(15) = limits.max_storage_buffer_binding_size;
-        *ptr.offset(16) = limits.max_vertex_buffers;
-        *ptr.offset(17) = limits.max_vertex_attributes;
-        *ptr.offset(18) = limits.max_vertex_buffer_array_stride;
-        *ptr.offset(19) = limits.max_immediate_size;
-        *ptr.offset(20) = limits.min_uniform_buffer_offset_alignment;
-        *ptr.offset(21) = limits.min_storage_buffer_offset_alignment;
-        *ptr.offset(22) = 0; // Padding
-        *ptr.offset(23) = limits.max_inter_stage_shader_variables;
-        *ptr.offset(24) = limits.max_color_attachments;
-        *ptr.offset(25) = limits.max_color_attachment_bytes_per_sample;
-        *ptr.offset(26) = limits.max_compute_workgroup_storage_size;
-        *ptr.offset(27) = limits.max_compute_invocations_per_workgroup;
-        *ptr.offset(28) = limits.max_compute_workgroup_size_x;
-        *ptr.offset(29) = limits.max_compute_workgroup_size_y;
-        *ptr.offset(30) = limits.max_compute_workgroup_size_z;
-        *ptr.offset(31) = limits.max_compute_workgroups_per_dimension;
-        *ptr.offset(32) = limits.min_uniform_buffer_offset_alignment;
-        *ptr.offset(33) = limits.min_storage_buffer_offset_alignment;
-        let mbs_ptr = ptr.offset(34) as *mut u64;
-        *mbs_ptr = limits.max_buffer_size;
-    }
+    *ptr.offset(0) = limits.max_texture_dimension_1d;
+    *ptr.offset(1) = limits.max_texture_dimension_2d;
+    *ptr.offset(2) = limits.max_texture_dimension_3d;
+    *ptr.offset(3) = limits.max_texture_array_layers;
+    *ptr.offset(4) = limits.max_bind_groups;
+    *ptr.offset(5) = 0; // Padding
+    *ptr.offset(6) = limits.max_bindings_per_bind_group;
+    *ptr.offset(7) = limits.max_dynamic_uniform_buffers_per_pipeline_layout;
+    *ptr.offset(8) = limits.max_dynamic_storage_buffers_per_pipeline_layout;
+    *ptr.offset(9) = limits.max_sampled_textures_per_shader_stage;
+    *ptr.offset(10) = limits.max_samplers_per_shader_stage;
+    *ptr.offset(11) = limits.max_storage_buffers_per_shader_stage;
+    *ptr.offset(12) = limits.max_storage_textures_per_shader_stage;
+    *ptr.offset(13) = limits.max_uniform_buffers_per_shader_stage;
+    *ptr.offset(14) = limits.max_uniform_buffer_binding_size;
+    *ptr.offset(15) = limits.max_storage_buffer_binding_size;
+    *ptr.offset(16) = limits.max_vertex_buffers;
+    *ptr.offset(17) = limits.max_vertex_attributes;
+    *ptr.offset(18) = limits.max_vertex_buffer_array_stride;
+    *ptr.offset(19) = limits.max_immediate_size;
+    *ptr.offset(20) = limits.min_uniform_buffer_offset_alignment;
+    *ptr.offset(21) = limits.min_storage_buffer_offset_alignment;
+    *ptr.offset(22) = 0; // Padding
+    *ptr.offset(23) = limits.max_inter_stage_shader_variables;
+    *ptr.offset(24) = limits.max_color_attachments;
+    *ptr.offset(25) = limits.max_color_attachment_bytes_per_sample;
+    *ptr.offset(26) = limits.max_compute_workgroup_storage_size;
+    *ptr.offset(27) = limits.max_compute_invocations_per_workgroup;
+    *ptr.offset(28) = limits.max_compute_workgroup_size_x;
+    *ptr.offset(29) = limits.max_compute_workgroup_size_y;
+    *ptr.offset(30) = limits.max_compute_workgroup_size_z;
+    *ptr.offset(31) = limits.max_compute_workgroups_per_dimension;
+    *ptr.offset(32) = limits.min_uniform_buffer_offset_alignment;
+    *ptr.offset(33) = limits.min_storage_buffer_offset_alignment;
+    let mbs_ptr = ptr.offset(34) as *mut u64;
+    *mbs_ptr = limits.max_buffer_size;
 }
 
 #[no_mangle]
@@ -1973,6 +1978,11 @@ pub unsafe extern "C" fn wasm_webgpu_queue_submit(
     webgpu::command::queue_submit(ctx_handle, device_handle, cb_handles)
 }
 
+/// Write data to a GPU buffer.
+///
+/// # Safety
+///
+/// The caller must ensure that `data_ptr` points to a valid memory region of at least `data_len` bytes.
 #[no_mangle]
 pub unsafe extern "C" fn wasm_webgpu_queue_write_buffer(
     ctx_handle: u32,
@@ -1986,6 +1996,11 @@ pub unsafe extern "C" fn wasm_webgpu_queue_write_buffer(
     webgpu::command::queue_write_buffer(ctx_handle, device_handle, buffer_handle, offset, data)
 }
 
+/// Write data to a GPU texture.
+///
+/// # Safety
+///
+/// The caller must ensure that `data_ptr` points to a valid memory region of at least `data_len` bytes.
 #[no_mangle]
 pub unsafe extern "C" fn wasm_webgpu_queue_write_texture(
     ctx_handle: u32,

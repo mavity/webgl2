@@ -203,7 +203,7 @@ pub fn ctx_framebuffer_texture2d(
         Some(Attachment::Texture(tex))
     };
 
-    if attachment_enum >= GL_COLOR_ATTACHMENT0 && attachment_enum <= GL_COLOR_ATTACHMENT7 {
+    if (GL_COLOR_ATTACHMENT0..=GL_COLOR_ATTACHMENT7).contains(&attachment_enum) {
         let idx = (attachment_enum - GL_COLOR_ATTACHMENT0) as usize;
         fb.color_attachments[idx] = attachment_obj;
     } else if attachment_enum == GL_DEPTH_ATTACHMENT {
@@ -275,7 +275,7 @@ pub fn ctx_framebuffer_renderbuffer(
         Some(Attachment::Renderbuffer(renderbuffer))
     };
 
-    if attachment >= GL_COLOR_ATTACHMENT0 && attachment <= GL_COLOR_ATTACHMENT7 {
+    if (GL_COLOR_ATTACHMENT0..=GL_COLOR_ATTACHMENT7).contains(&attachment) {
         let idx = (attachment - GL_COLOR_ATTACHMENT0) as usize;
         fb.color_attachments[idx] = attachment_obj;
     } else if attachment == GL_DEPTH_ATTACHMENT {
@@ -294,6 +294,7 @@ pub fn ctx_framebuffer_renderbuffer(
 }
 
 /// Blit a region from the read framebuffer to the draw framebuffer.
+#[allow(clippy::too_many_arguments)]
 pub fn ctx_blit_framebuffer(
     ctx: u32,
     src_x0: i32,
@@ -413,7 +414,7 @@ pub fn ctx_read_buffer(ctx: u32, mode: u32) -> u32 {
         }
     } else {
         // Default framebuffer
-        if mode >= 0x8CE0 && mode <= 0x8CE7 {
+        if (0x8CE0..=0x8CE7).contains(&mode) {
             set_last_error("invalid read buffer color attachment for default framebuffer");
             return ERR_INVALID_OPERATION;
         }

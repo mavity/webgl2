@@ -322,7 +322,7 @@ pub(crate) struct ActiveInfo {
     pub(crate) type_: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Program {
     pub(crate) attached_shaders: Vec<u32>,
     pub(crate) linked: bool,
@@ -360,35 +360,6 @@ impl Drop for Program {
         }
         if let Some(idx) = self.fs_table_idx {
             crate::js_release_shader_index(idx);
-        }
-    }
-}
-
-impl Default for Program {
-    fn default() -> Self {
-        Program {
-            attached_shaders: Vec::new(),
-            linked: false,
-            info_log: String::new(),
-            attributes: HashMap::new(),
-            attribute_bindings: HashMap::new(),
-            uniforms: HashMap::new(),
-            uniform_types: HashMap::new(),
-            active_attributes: Vec::new(),
-            active_uniforms: Vec::new(),
-            vs_module: None,
-            fs_module: None,
-            vs_info: None,
-            fs_info: None,
-            vs_wasm: None,
-            fs_wasm: None,
-            vs_stub: None,
-            fs_stub: None,
-            varying_locations: HashMap::new(),
-            varying_types: HashMap::new(),
-            attribute_types: HashMap::new(),
-            vs_table_idx: None,
-            fs_table_idx: None,
         }
     }
 }
@@ -1021,7 +992,7 @@ impl Context {
                 if attachment_idx < fb.color_attachments.len() {
                     match &fb.color_attachments[attachment_idx] {
                         Some(Attachment::Texture(tex_handle)) => {
-                            if let Some(tex) = self.textures.get(&tex_handle) {
+                            if let Some(tex) = self.textures.get(tex_handle) {
                                 if let Some(level0) = tex.levels.get(&0) {
                                     return (
                                         level0.gpu_handle,
@@ -1033,7 +1004,7 @@ impl Context {
                             }
                         }
                         Some(Attachment::Renderbuffer(rb_handle)) => {
-                            if let Some(rb) = self.renderbuffers.get(&rb_handle) {
+                            if let Some(rb) = self.renderbuffers.get(rb_handle) {
                                 return (rb.gpu_handle, rb.width, rb.height, rb.internal_format);
                             }
                         }

@@ -118,7 +118,7 @@ pub fn ctx_draw_arrays_instanced(
     let state = RenderState {
         ctx_handle: ctx,
         memory,
-        viewport: (vx, vy, vw as u32, vh as u32),
+        viewport: (vx, vy, vw, vh),
         scissor: ctx_obj.scissor_box,
         scissor_enabled: ctx_obj.scissor_test_enabled,
         uniform_data: &ctx_obj.uniform_data,
@@ -159,7 +159,7 @@ pub fn ctx_draw_arrays_instanced(
 
     let color_targets = target_handles
         .into_iter()
-        .map(|h| crate::wasm_gl_emu::rasterizer::ColorTarget::Handle(h))
+        .map(crate::wasm_gl_emu::rasterizer::ColorTarget::Handle)
         .collect();
 
     ctx_obj.rasterizer.draw(
@@ -305,7 +305,7 @@ pub fn ctx_draw_elements_instanced(
 
     let color_targets = target_handles
         .into_iter()
-        .map(|h| crate::wasm_gl_emu::rasterizer::ColorTarget::Handle(h))
+        .map(crate::wasm_gl_emu::rasterizer::ColorTarget::Handle)
         .collect();
 
     ctx_obj.rasterizer.draw(
@@ -340,8 +340,12 @@ pub fn ctx_draw_elements_instanced(
 /// Read pixels from the currently bound framebuffer's color attachment.
 /// Writes RGBA u8 data to dest_ptr in WASM linear memory.
 /// Returns errno.
+///
+/// # Safety
+///
+/// The caller must ensure that `dest_ptr` points to a valid memory region of at least `dest_len` bytes.
 #[allow(clippy::too_many_arguments)]
-pub fn ctx_read_pixels(
+pub unsafe fn ctx_read_pixels(
     ctx: u32,
     x: i32,
     y: i32,
@@ -364,7 +368,8 @@ pub fn ctx_read_pixels(
     };
 
     // Get the source handle and dimensions
-    let (src_handle, src_width, src_height, _src_format) = ctx_obj.get_color_attachment_info(true);
+    let (src_handle, _src_width, _src_height, _src_format) =
+        ctx_obj.get_color_attachment_info(true);
 
     if !src_handle.is_valid() {
         set_last_error("no color attachment to read from");
@@ -372,7 +377,7 @@ pub fn ctx_read_pixels(
     }
 
     // Debug: when reading tiny buffers, print their contents to help debugging
-    if src_width == 1 && src_height == 1 {}
+    // if src_width == 1 && src_height == 1 {}
 
     // Calculate bytes per pixel based on format and type
     let bytes_per_pixel = if type_ == GL_FLOAT {

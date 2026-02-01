@@ -83,14 +83,11 @@ pub fn parse_wasm(data: &[u8]) -> Result<DecompiledModule> {
                     let binary_reader = BinaryReader::new(reader.data(), reader.data_offset());
                     let name_section = NameSectionReader::new(binary_reader);
                     for name in name_section {
-                        match name? {
-                            Name::Function(names) => {
-                                for naming in names {
-                                    let naming = naming?;
-                                    module.set_function_name(naming.index, naming.name.to_string());
-                                }
+                        if let Name::Function(names) = name? {
+                            for naming in names {
+                                let naming = naming?;
+                                module.set_function_name(naming.index, naming.name.to_string());
                             }
-                            _ => {}
                         }
                     }
                 }

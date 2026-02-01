@@ -999,7 +999,7 @@ impl<'a> Compiler<'a> {
             "ACTIVE_FRAME_SP",
         ];
 
-        for (_i, name) in global_names.iter().enumerate() {
+        for name in global_names.iter() {
             self.imports.import(
                 "env",
                 name,
@@ -1104,18 +1104,7 @@ impl<'a> Compiler<'a> {
                             output_layout::compute_input_offset(loc, naga::ShaderStage::Vertex)
                         } else if let Some(&loc) = self.varying_locations.get(name) {
                             output_layout::compute_input_offset(loc, naga::ShaderStage::Fragment)
-                        } else {
-                            if self.stage == naga::ShaderStage::Vertex {
-                                let o = varying_offset;
-                                varying_offset += size;
-                                varying_offset = (varying_offset + 3) & !3;
-                                (o, output_layout::VARYING_PTR_GLOBAL)
-                            } else {
-                                (0, output_layout::VARYING_PTR_GLOBAL)
-                            }
-                        }
-                    } else {
-                        if self.stage == naga::ShaderStage::Vertex {
+                        } else if self.stage == naga::ShaderStage::Vertex {
                             let o = varying_offset;
                             varying_offset += size;
                             varying_offset = (varying_offset + 3) & !3;
@@ -1123,6 +1112,13 @@ impl<'a> Compiler<'a> {
                         } else {
                             (0, output_layout::VARYING_PTR_GLOBAL)
                         }
+                    } else if self.stage == naga::ShaderStage::Vertex {
+                        let o = varying_offset;
+                        varying_offset += size;
+                        varying_offset = (varying_offset + 3) & !3;
+                        (o, output_layout::VARYING_PTR_GLOBAL)
+                    } else {
+                        (0, output_layout::VARYING_PTR_GLOBAL)
                     }
                 }
                 // Handle explicit In/Out address spaces (used in newer Naga versions)

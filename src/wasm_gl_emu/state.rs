@@ -14,6 +14,12 @@ pub struct Viewport {
     pub height: u32,
 }
 
+impl Default for WebGLState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WebGLState {
     pub fn new() -> Self {
         Self {

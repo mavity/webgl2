@@ -52,8 +52,7 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
         };
 
         if let Some(draw_buffers) = fb_draw_buffers {
-            for i in 0..8 {
-                let mode = draw_buffers[i];
+            for &mode in draw_buffers.iter().take(8) {
                 if mode >= 0x8CE0 {
                     // GL_COLOR_ATTACHMENTi
                     let idx = (mode - 0x8CE0) as usize;
@@ -635,7 +634,7 @@ pub fn ctx_clear_buffer_fv(ctx: u32, buffer: u32, drawbuffer: i32, ptr: u32) -> 
     };
 
     if buffer == GL_COLOR {
-        if drawbuffer < 0 || drawbuffer >= 8 {
+        if !(0..8).contains(&drawbuffer) {
             return GL_INVALID_VALUE;
         }
         let handle = ctx_obj.get_color_attachment_handle_at(drawbuffer as usize);
@@ -664,7 +663,7 @@ pub fn ctx_clear_buffer_iv(ctx: u32, buffer: u32, drawbuffer: i32, ptr: u32) -> 
     };
 
     if buffer == GL_COLOR {
-        if drawbuffer < 0 || drawbuffer >= 8 {
+        if !(0..8).contains(&drawbuffer) {
             return GL_INVALID_VALUE;
         }
         let handle = ctx_obj.get_color_attachment_handle_at(drawbuffer as usize);
@@ -718,7 +717,7 @@ pub fn ctx_clear_buffer_uiv(ctx: u32, buffer: u32, drawbuffer: i32, ptr: u32) ->
     };
 
     if buffer == GL_COLOR {
-        if drawbuffer < 0 || drawbuffer >= 8 {
+        if !(0..8).contains(&drawbuffer) {
             return GL_INVALID_VALUE;
         }
         let handle = ctx_obj.get_color_attachment_handle_at(drawbuffer as usize);

@@ -170,13 +170,13 @@ pub fn ctx_vertex_attrib_pointer(
         return ERR_GL;
     }
 
-    if stride < 0 || stride > 255 {
+    if !(0..=255).contains(&stride) {
         set_last_error("stride out of range");
         ctx_obj.set_error(GL_INVALID_VALUE);
         return ERR_GL;
     }
 
-    if size < 1 || size > 4 {
+    if !(1..=4).contains(&size) {
         set_last_error("size out of range");
         ctx_obj.set_error(GL_INVALID_VALUE);
         return ERR_GL;
@@ -227,13 +227,13 @@ pub fn ctx_vertex_attrib_ipointer(
         return ERR_GL;
     }
 
-    if stride < 0 || stride > 255 {
+    if !(0..=255).contains(&stride) {
         set_last_error("stride out of range");
         ctx_obj.set_error(GL_INVALID_VALUE);
         return ERR_GL;
     }
 
-    if size < 1 || size > 4 {
+    if !(1..=4).contains(&size) {
         set_last_error("size out of range");
         ctx_obj.set_error(GL_INVALID_VALUE);
         return ERR_GL;
@@ -243,12 +243,12 @@ pub fn ctx_vertex_attrib_ipointer(
     match type_ {
         GL_BYTE | GL_UNSIGNED_BYTE | GL_SHORT | GL_UNSIGNED_SHORT | GL_INT | GL_UNSIGNED_INT => {
             let type_size = get_type_size(type_);
-            if offset % type_size != 0 {
+            if !offset.is_multiple_of(type_size) {
                 set_last_error("offset must be a multiple of the type size");
                 ctx_obj.set_error(GL_INVALID_OPERATION);
                 return ERR_GL;
             }
-            if stride > 0 && (stride as u32 % type_size != 0) {
+            if stride > 0 && !(stride as u32).is_multiple_of(type_size) {
                 set_last_error("stride must be a multiple of the type size");
                 ctx_obj.set_error(GL_INVALID_OPERATION);
                 return ERR_GL;

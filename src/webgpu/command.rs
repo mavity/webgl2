@@ -555,6 +555,7 @@ pub fn render_pass_set_bind_group(
 }
 
 /// Set viewport for a pass
+#[allow(clippy::too_many_arguments)]
 pub fn render_pass_set_viewport(
     ctx_handle: u32,
     pass_handle: u32,
@@ -664,6 +665,7 @@ pub fn queue_write_buffer(
 }
 
 /// Write data to a texture via the queue
+#[allow(clippy::too_many_arguments)]
 pub fn queue_write_texture(
     ctx_handle: u32,
     device_handle: u32,

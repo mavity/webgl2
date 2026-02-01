@@ -178,6 +178,7 @@ impl TransferEngine {
 
         let base_offset = binding.offset + vertex_index * binding.stride;
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..(binding.size as usize).min(4) {
             let component_offset = base_offset + i * binding.type_size;
 
@@ -442,6 +443,7 @@ impl TransferEngine {
     }
 
     /// Copy pixels from a host buffer to a GPU buffer (handles layout)
+    #[allow(clippy::too_many_arguments)]
     pub fn write_pixels(
         kernel: &mut super::device::GpuKernel,
         handle: super::device::GpuHandle,

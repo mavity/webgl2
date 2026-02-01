@@ -1220,10 +1220,10 @@ pub fn translate_expression_component(
                 // Reinterpret if it's an integer sampler
                 let ty_handle = ctx.typifier[*image].handle().unwrap();
                 let is_integer = match ctx.module.types[ty_handle].inner {
-                    naga::TypeInner::Image { class, .. } => match class {
-                        naga::ImageClass::Sampled { kind, .. } => kind != naga::ScalarKind::Float,
-                        _ => false,
-                    },
+                    naga::TypeInner::Image {
+                        class: naga::ImageClass::Sampled { kind, .. },
+                        ..
+                    } => kind != naga::ScalarKind::Float,
                     _ => false,
                 };
                 if is_integer {
@@ -1250,7 +1250,7 @@ pub fn translate_expression_component(
                             ctx.wasm_func.instruction(&Instruction::GlobalGet(
                                 output_layout::UNIFORM_PTR_GLOBAL,
                             ));
-                            let final_offset = offset + 0;
+                            let final_offset = offset;
                             if final_offset > 0 {
                                 ctx.wasm_func
                                     .instruction(&Instruction::I32Const(final_offset as i32));
@@ -1326,7 +1326,7 @@ pub fn translate_expression_component(
                                 ctx.wasm_func.instruction(&Instruction::GlobalGet(
                                     output_layout::UNIFORM_PTR_GLOBAL,
                                 ));
-                                let final_offset = offset + 0;
+                                let final_offset = offset;
                                 if final_offset > 0 {
                                     ctx.wasm_func
                                         .instruction(&Instruction::I32Const(final_offset as i32));
@@ -1432,7 +1432,7 @@ pub fn translate_expression_component(
                     if let Some(a1) = arg1 {
                         translate_expression_component(*a1, component_idx, ctx)?;
                     }
-                    let func_idx = *ctx.math_import_map.get(&fun).expect("Math import missing");
+                    let func_idx = *ctx.math_import_map.get(fun).expect("Math import missing");
                     ctx.wasm_func.instruction(&Instruction::Call(func_idx));
                 }
                 MathFunction::Abs => {

@@ -144,13 +144,21 @@ pub fn get_uniform_map(
 
 /// Validate that a binding is supported for the given shader stage.
 pub fn is_binding_valid(binding: &Binding, stage: ShaderStage) -> bool {
-    match (binding, stage) {
-        (Binding::BuiltIn(BuiltIn::Position { .. }), ShaderStage::Vertex) => true,
-        (Binding::BuiltIn(BuiltIn::FragDepth), ShaderStage::Fragment) => true,
-        (Binding::BuiltIn(BuiltIn::PointSize), ShaderStage::Vertex) => true,
-        (Binding::BuiltIn(BuiltIn::VertexIndex), ShaderStage::Vertex) => true,
-        (Binding::BuiltIn(BuiltIn::InstanceIndex), ShaderStage::Vertex) => true,
-        (Binding::Location { .. }, ShaderStage::Vertex | ShaderStage::Fragment) => true,
-        _ => false,
-    }
+    matches!(
+        (binding, stage),
+        (
+            Binding::BuiltIn(BuiltIn::Position { .. }),
+            ShaderStage::Vertex
+        ) | (Binding::BuiltIn(BuiltIn::FragDepth), ShaderStage::Fragment)
+            | (Binding::BuiltIn(BuiltIn::PointSize), ShaderStage::Vertex)
+            | (Binding::BuiltIn(BuiltIn::VertexIndex), ShaderStage::Vertex)
+            | (
+                Binding::BuiltIn(BuiltIn::InstanceIndex),
+                ShaderStage::Vertex
+            )
+            | (
+                Binding::Location { .. },
+                ShaderStage::Vertex | ShaderStage::Fragment
+            )
+    )
 }

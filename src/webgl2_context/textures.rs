@@ -321,6 +321,7 @@ pub fn ctx_tex_image_2d(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn ctx_tex_image_3d(
     ctx: u32,
     target: u32,
@@ -426,7 +427,7 @@ pub fn ctx_tex_image_3d(
         ERR_OK
     } else {
         set_last_error("texture not found");
-        return ERR_INVALID_HANDLE;
+        ERR_INVALID_HANDLE
     }
 }
 
@@ -609,6 +610,7 @@ pub fn ctx_generate_mipmap(ctx: u32, target: u32) -> u32 {
 }
 
 /// Copy pixels from framebuffer to texture image.
+#[allow(clippy::too_many_arguments)]
 pub fn ctx_copy_tex_image_2d(
     ctx: u32,
     _target: u32,
