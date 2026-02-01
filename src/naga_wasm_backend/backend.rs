@@ -350,14 +350,11 @@ impl<'a> Compiler<'a> {
         let l_wx = p_count + 28;
         let l_wy = p_count + 29;
         let l_wz = p_count + 30;
-        let l_tmp_r = p_count + 31;
-        let l_tmp_g = p_count + 32;
-        let l_tmp_b = p_count + 33;
         let l_tmp_a = p_count + 34;
 
         // 1. Load texture metadata from l_tex_desc
         {
-            let mut load_tex = |func: &mut Function, offset: u64, local: u32| {
+            let load_tex = |func: &mut Function, offset: u64, local: u32| {
                 func.instruction(&Instruction::LocalGet(l_tex_desc));
                 func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
                     offset,
@@ -433,7 +430,7 @@ impl<'a> Compiler<'a> {
             // 0x2601 = LINEAR
             // 0x2701 = LINEAR_MIPMAP_NEAREST
             // 0x2703 = LINEAR_MIPMAP_LINEAR
-            let mut is_linear = |func: &mut Function, local: u32| {
+            let is_linear = |func: &mut Function, local: u32| {
                 func.instruction(&Instruction::LocalGet(local));
                 func.instruction(&Instruction::I32Const(0x2601)); // LINEAR
                 func.instruction(&Instruction::I32Eq);
@@ -966,8 +963,7 @@ impl<'a> Compiler<'a> {
         }
 
         // Calculate global offsets per address space
-        let mut varying_offset = 0;
-        let _attr_offset = 0;
+        let mut varying_offset = 32; // User varyings start after Position and PointSize (16+16=32)
 
         // First pass: find gl_Position and gl_PointSize and put them at fixed offsets
         for (handle, var) in self.module.global_variables.iter() {
@@ -981,7 +977,6 @@ impl<'a> Compiler<'a> {
                 }
             }
         }
-        varying_offset = 32; // User varyings start after Position and PointSize (16+16=32)
 
         // We need to know which variables are inputs/outputs
         // For now, let's look at the first entry point
@@ -1145,7 +1140,7 @@ impl<'a> Compiler<'a> {
         let mut current_param_idx = 0;
 
         if entry_point.is_some() {
-            // (ctx, type, table_idx, attr_ptr, uniform_ptr, varying_ptr, private_ptr, texture_ptr)
+            // (ctx, type, table_idx, attr_ptr, uniform_ptr, varying_ptr, private_ptr, texture_ptr, frame_sp)
             params = vec![
                 ValType::I32,
                 ValType::I32,
@@ -1155,8 +1150,9 @@ impl<'a> Compiler<'a> {
                 ValType::I32,
                 ValType::I32,
                 ValType::I32,
+                ValType::I32,
             ];
-            current_param_idx = 8;
+            current_param_idx = 9;
         } else {
             // Internal function - use FunctionRegistry for signature
             let func_handle = func_handle.expect("Internal function call without handle");
@@ -1407,20 +1403,14 @@ impl<'a> Compiler<'a> {
         if entry_point.is_some() {
             // Set globals from arguments
             // 0: attr, 1: uniform, 2: varying, 3: private, 4: textures
-            // Arguments are (ctx, type, table_idx, attr, uniform, varying, private, texture)
+            // Arguments are (ctx, type, table_idx, attr, uniform, varying, private, texture, frame_sp)
             for i in 0..5 {
                 wasm_func.instruction(&Instruction::LocalGet(i as u32 + 3));
                 wasm_func.instruction(&Instruction::GlobalSet(i as u32));
             }
 
-            // Initialize frame stack pointer to base address
-            // Calculate base relative to private_ptr (arg 6)
-            // FRAME_STACK_BASE = private_ptr + (FRAME_STACK_OFFSET - PRIVATE_PTR_OFFSET)
-            wasm_func.instruction(&Instruction::LocalGet(6)); // private_ptr
-            wasm_func.instruction(&Instruction::I32Const(
-                (output_layout::FRAME_STACK_OFFSET - output_layout::PRIVATE_PTR_OFFSET) as i32,
-            ));
-            wasm_func.instruction(&Instruction::I32Add);
+            // Initialize frame stack pointer directly from argument
+            wasm_func.instruction(&Instruction::LocalGet(8)); // frame_sp
             wasm_func.instruction(&Instruction::GlobalSet(output_layout::FRAME_SP_GLOBAL));
         }
 

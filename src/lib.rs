@@ -36,6 +36,7 @@ extern "C" {
         varying_ptr: i32,
         private_ptr: i32,
         texture_ptr: i32,
+        frame_sp: i32,
     );
     fn wasm_register_shader(ptr: *const u8, len: usize) -> u32;
 }
@@ -44,16 +45,6 @@ extern "C" {
 #[cfg(target_arch = "wasm32")]
 extern "C" {
     static __heap_base: i32;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-static __heap_base: i32 = 0x200000;
-
-#[no_mangle]
-pub extern "C" fn wasm_get_scratch_base() -> u32 {
-    let base = unsafe { &__heap_base as *const i32 as u32 };
-    // Align to 64KB page boundary for safety and predictability
-    (base + 0xFFFF) & !0xFFFF
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -77,6 +68,7 @@ unsafe fn wasm_execute_shader(
     _varying_ptr: i32,
     _private_ptr: i32,
     _texture_ptr: i32,
+    _frame_sp: i32,
 ) {
 }
 
@@ -115,6 +107,7 @@ pub fn js_execute_shader(
     varying_ptr: u32,
     private_ptr: u32,
     texture_ptr: u32,
+    frame_sp: u32,
 ) {
     unsafe {
         wasm_execute_shader(
@@ -126,6 +119,7 @@ pub fn js_execute_shader(
             varying_ptr as i32,
             private_ptr as i32,
             texture_ptr as i32,
+            frame_sp as i32,
         );
     }
 }
@@ -137,8 +131,6 @@ pub fn js_register_shader(bytes: &[u8]) -> u32 {
 // ============================================================================
 // Math Builtins (Skip Host)
 // ============================================================================
-
-use micromath::F32Ext;
 
 #[no_mangle]
 pub extern "C" fn gl_sin(x: f32) -> f32 {
@@ -343,6 +335,43 @@ pub extern "C" fn wasm_create_context_with_flags(flags: u32, width: u32, height:
 #[no_mangle]
 pub extern "C" fn wasm_destroy_context(handle: u32) -> u32 {
     webgl2_context::destroy_context(handle)
+}
+
+// TODO: all these look very suspicious. In WASM we don't need handles, we can have ptrs directly.
+#[no_mangle]
+pub extern "C" fn wasm_get_attr_ptr(handle: u32) -> u32 {
+    webgl2_context::registry::with_context(handle, |ctx| ctx.attribute_buffer.as_ptr() as u32)
+        .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_get_uniform_ptr(handle: u32) -> u32 {
+    webgl2_context::registry::with_context(handle, |ctx| ctx.uniform_data.as_ptr() as u32)
+        .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_get_varying_ptr(handle: u32) -> u32 {
+    webgl2_context::registry::with_context(handle, |ctx| ctx.varying_buffer.as_ptr() as u32)
+        .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_get_private_ptr(handle: u32) -> u32 {
+    webgl2_context::registry::with_context(handle, |ctx| ctx.private_buffer.as_ptr() as u32)
+        .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_get_texture_ptr(handle: u32) -> u32 {
+    webgl2_context::registry::with_context(handle, |ctx| ctx.texture_metadata.as_ptr() as u32)
+        .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_get_frame_sp(handle: u32) -> u32 {
+    webgl2_context::registry::with_context(handle, |ctx| ctx.frame_stack.as_ptr() as u32)
+        .unwrap_or(0)
 }
 
 /// Resize the default framebuffer of a context.
@@ -1824,38 +1853,8 @@ pub unsafe extern "C" fn wasm_webgpu_create_bind_group(
     webgpu::bind_group::create_bind_group(ctx_handle, device_handle, layout_handle, entries)
 }
 
-// TODO: why was this removed???
-// /// Run a render pass with buffered commands.
-// ///
-// /// # Safety
-// ///
-// /// This function is unsafe because it takes raw pointers.
-// #[no_mangle]
-// pub unsafe extern "C" fn wasm_webgpu_command_encoder_run_render_pass(
-//     ctx_handle: u32,
-//     encoder_handle: u32,
-//     view_handle: u32,
-//     load_op: u32,
-//     store_op: u32,
-//     clear_r: f64,
-//     clear_g: f64,
-//     clear_b: f64,
-//     clear_a: f64,
-//     commands_ptr: *const u32,
-//     commands_len: usize,
-// ) -> u32 {
-//     let commands = std::slice::from_raw_parts(commands_ptr, commands_len);
-//     let config = webgpu::command::RenderPassConfig {
-//         view_handle,
-//         load_op,
-//         store_op,
-//         clear_r,
-//         clear_g,
-//         clear_b,
-//         clear_a,
-//     };
-//     webgpu::command::command_encoder_run_render_pass(ctx_handle, encoder_handle, config, commands)
-// }
+// ============================================================================
+// Framebuffer Operations
 
 #[no_mangle]
 pub extern "C" fn wasm_webgpu_create_command_encoder(ctx_handle: u32, device_handle: u32) -> u32 {

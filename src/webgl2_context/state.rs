@@ -65,10 +65,9 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
                                         .get(&t)
                                         .and_then(|tex| tex.levels.get(&0))
                                         .map(|l| l.gpu_handle),
-                                    Attachment::Renderbuffer(r) => ctx_obj
-                                        .renderbuffers
-                                        .get(&r)
-                                        .map(|rb| rb.gpu_handle),
+                                    Attachment::Renderbuffer(r) => {
+                                        ctx_obj.renderbuffers.get(&r).map(|rb| rb.gpu_handle)
+                                    }
                                 })
                             } else {
                                 None
@@ -82,14 +81,9 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
                         if h.is_valid() {
                             if ctx_obj.scissor_test_enabled {
                                 let (sx, sy, sw, sh) = ctx_obj.scissor_box;
-                                ctx_obj.kernel.clear_rect(
-                                    h,
-                                    ctx_obj.clear_color,
-                                    sx,
-                                    sy,
-                                    sw,
-                                    sh,
-                                );
+                                ctx_obj
+                                    .kernel
+                                    .clear_rect(h, ctx_obj.clear_color, sx, sy, sw, sh);
                             } else {
                                 ctx_obj.kernel.clear(h, ctx_obj.clear_color);
                             }
@@ -104,14 +98,9 @@ pub fn ctx_clear(ctx: u32, mask: u32) -> u32 {
                 let handle = ctx_obj.default_framebuffer.gpu_handle;
                 if ctx_obj.scissor_test_enabled {
                     let (sx, sy, sw, sh) = ctx_obj.scissor_box;
-                    ctx_obj.kernel.clear_rect(
-                        handle,
-                        ctx_obj.clear_color,
-                        sx,
-                        sy,
-                        sw,
-                        sh,
-                    );
+                    ctx_obj
+                        .kernel
+                        .clear_rect(handle, ctx_obj.clear_color, sx, sy, sw, sh);
                 } else {
                     ctx_obj.kernel.clear(handle, ctx_obj.clear_color);
                 }

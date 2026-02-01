@@ -1117,7 +1117,7 @@ pub fn translate_expression_component(
             };
 
             if let Some(tex_fetch_idx) = sampler_idx {
-                let mut push_handle_addr =
+                let push_handle_addr =
                     |h_expr: naga::Handle<Expression>, ctx: &mut TranslationContext| {
                         if let Expression::GlobalVariable(h) = ctx.func.expressions[h_expr] {
                             if let Some(&(offset, base_ptr_idx)) = ctx.global_offsets.get(&h) {

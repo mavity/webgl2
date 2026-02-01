@@ -33,21 +33,19 @@ pub struct ShaderMemoryLayout {
     pub private_ptr: u32,
     /// Pointer to texture metadata
     pub texture_ptr: u32,
+    /// Pointer to frame stack
+    pub frame_sp: u32,
 }
 
 impl ShaderMemoryLayout {
-    pub fn new(base: u32) -> Self {
-        use crate::naga_wasm_backend::output_layout::{
-            ATTR_PTR_OFFSET, PRIVATE_PTR_OFFSET, TEXTURE_PTR_OFFSET, UNIFORM_PTR_OFFSET,
-            VARYING_PTR_OFFSET,
-        };
-        // Use centralized offsets from output_layout
+    pub fn new() -> Self {
         Self {
-            attr_ptr: base + ATTR_PTR_OFFSET,
-            uniform_ptr: base + UNIFORM_PTR_OFFSET,
-            varying_ptr: base + VARYING_PTR_OFFSET,
-            private_ptr: base + PRIVATE_PTR_OFFSET,
-            texture_ptr: base + TEXTURE_PTR_OFFSET,
+            attr_ptr: 0,
+            uniform_ptr: 0,
+            varying_ptr: 0,
+            private_ptr: 0,
+            texture_ptr: 0,
+            frame_sp: 0,
         }
     }
 }
@@ -308,11 +306,11 @@ impl RasterPipeline {
 }
 
 impl RasterPipeline {
-    pub fn new(base: u32) -> Self {
+    pub fn new() -> Self {
         Self {
             vertex_shader_type: GL_VERTEX_SHADER,
             fragment_shader_type: GL_FRAGMENT_SHADER,
-            memory: ShaderMemoryLayout::new(base),
+            memory: ShaderMemoryLayout::new(),
             flat_varyings_mask: 0,
             vs_table_idx: None,
             fs_table_idx: None,
@@ -467,19 +465,17 @@ fn blend_pixel_f32(src: [f32; 4], dst: [f32; 4], state: &BlendState) -> [f32; 4]
 }
 
 /// Software triangle rasterizer
-pub struct Rasterizer {
-    pub shader_memory_base: u32,
-}
+pub struct Rasterizer {}
 
 impl Rasterizer {
-    pub fn new(shader_memory_base: u32) -> Self {
-        Self { shader_memory_base }
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
 impl Default for Rasterizer {
     fn default() -> Self {
-        Self::new(crate::wasm_get_scratch_base())
+        Self::new()
     }
 }
 
@@ -564,10 +560,18 @@ impl Rasterizer {
                             let color_arr = [color[0], color[1], color[2], color[3]];
                             let blended = blend_pixel(color_arr, existing, &state.blend);
 
-                            if state.color_mask.r { att.data[color_idx + 0] = blended[0]; }
-                            if state.color_mask.g { att.data[color_idx + 1] = blended[1]; }
-                            if state.color_mask.b { att.data[color_idx + 2] = blended[2]; }
-                            if state.color_mask.a { att.data[color_idx + 3] = blended[3]; }
+                            if state.color_mask.r {
+                                att.data[color_idx + 0] = blended[0];
+                            }
+                            if state.color_mask.g {
+                                att.data[color_idx + 1] = blended[1];
+                            }
+                            if state.color_mask.b {
+                                att.data[color_idx + 2] = blended[2];
+                            }
+                            if state.color_mask.a {
+                                att.data[color_idx + 3] = blended[3];
+                            }
                         } else {
                             att.data[color_idx..color_idx + color.len()].copy_from_slice(color);
                         }
@@ -838,15 +842,16 @@ impl Rasterizer {
                     for (i, attachment) in fb.color_attachments.iter_mut().enumerate() {
                         if let Some(att) = attachment {
                             let color = &colors[i];
-                            let color_idx = crate::wasm_gl_emu::Framebuffer::get_pixel_offset_params(
-                                x as u32,
-                                y as u32,
-                                0,
-                                att.internal_format,
-                                fb_w,
-                                fb_h,
-                                fb_layout,
-                            );
+                            let color_idx =
+                                crate::wasm_gl_emu::Framebuffer::get_pixel_offset_params(
+                                    x as u32,
+                                    y as u32,
+                                    0,
+                                    att.internal_format,
+                                    fb_w,
+                                    fb_h,
+                                    fb_layout,
+                                );
 
                             if color_idx + color.len() <= att.data.len() {
                                 // For float formats, write directly with optional blending
@@ -920,13 +925,18 @@ impl Rasterizer {
                                             GL_RGBA32F => [
                                                 f32::from_ne_bytes(color[0..4].try_into().unwrap()),
                                                 f32::from_ne_bytes(color[4..8].try_into().unwrap()),
-                                                f32::from_ne_bytes(color[8..12].try_into().unwrap()),
-                                                f32::from_ne_bytes(color[12..16].try_into().unwrap()),
+                                                f32::from_ne_bytes(
+                                                    color[8..12].try_into().unwrap(),
+                                                ),
+                                                f32::from_ne_bytes(
+                                                    color[12..16].try_into().unwrap(),
+                                                ),
                                             ],
                                             _ => [0.0, 0.0, 0.0, 1.0],
                                         };
 
-                                        let blended = blend_pixel_f32(src_color, existing, &state.blend);
+                                        let blended =
+                                            blend_pixel_f32(src_color, existing, &state.blend);
 
                                         // Write back blended
                                         match att.internal_format {
@@ -1070,6 +1080,7 @@ impl Rasterizer {
             pipeline.memory.varying_ptr,
             pipeline.memory.private_ptr,
             pipeline.memory.texture_ptr,
+            pipeline.memory.frame_sp,
         );
 
         let mut results = Vec::with_capacity(target_formats.len());
@@ -1129,27 +1140,25 @@ impl Rasterizer {
     pub fn draw(&self, kernel: &mut GpuKernel, mut config: DrawConfig) {
         let (_vx, _vy, _vw, _vh) = config.state.viewport;
 
-        // Allocate attribute buffer (enough for 16 locations * 16 floats = 1024 bytes)
-        // This should match the size expected by the shader
-        let mut attr_buffer = vec![0u8; 1024];
-
         // 0. Preparation: Copy uniforms and fix up pointers ONCE per draw call.
         // Doing this inside the vertex loop causes cumulative additions to relative offsets.
         unsafe {
             // Copy uniforms
-            let copy_len = config.state.uniform_data.len().min(4096);
-            let uniform_ptr = config.pipeline.memory.uniform_ptr;
-            std::ptr::copy_nonoverlapping(
-                config.state.uniform_data.as_ptr(),
-                uniform_ptr as *mut u8,
-                copy_len,
-            );
+            let copy_len = config.state.uniform_data.len().min(16384); // TODO: magic number is not appropriate
+            let uniform_ptr = config.state.memory.uniform_ptr;
+            if config.state.uniform_data.as_ptr() as u32 != uniform_ptr {
+                std::ptr::copy_nonoverlapping(
+                    config.state.uniform_data.as_ptr(),
+                    uniform_ptr as *mut u8,
+                    copy_len,
+                );
+            }
 
             // Fix up context block pointers: add the base address to the relative offsets
             let ctx_block = uniform_ptr as *mut u32;
             for i in 0..64 {
                 let current_val = *ctx_block.add(i);
-                if current_val > 0 && current_val < 4096 {
+                if current_val > 0 && current_val < 16384 { // TODO: magic number is not appropriate
                     // It's a relative offset
                     *ctx_block.add(i) = current_val + uniform_ptr;
                 }
@@ -1157,7 +1166,7 @@ impl Rasterizer {
 
             // Prepare textures
             if let Some(ref prepare) = config.state.prepare_textures {
-                prepare(&config.pipeline.memory);
+                prepare(&config.state.memory);
             }
         }
 
@@ -1179,33 +1188,28 @@ impl Rasterizer {
                     (config.first_vertex + i) as u32
                 };
 
-                // Fetch attributes
+                // Fetch attributes directly into the shader memory
+                let attr_ptr = config.state.memory.attr_ptr;
+                let attr_dest =
+                    unsafe { std::slice::from_raw_parts_mut(attr_ptr as *mut u8, 1024) };
                 config.vertex_fetcher.fetch(
                     kernel,
                     vertex_id,
                     actual_instance_id as u32,
-                    &mut attr_buffer,
+                    attr_dest,
                 );
-
-                // Copy attributes to shader memory
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        attr_buffer.as_ptr(),
-                        config.pipeline.memory.attr_ptr as *mut u8,
-                        attr_buffer.len(),
-                    );
-                }
 
                 // Execute Vertex Shader
                 crate::js_execute_shader(
                     config.state.ctx_handle,
                     config.pipeline.vertex_shader_type,
                     config.pipeline.vs_table_idx.unwrap_or(0),
-                    config.pipeline.memory.attr_ptr,
-                    config.pipeline.memory.uniform_ptr,
-                    config.pipeline.memory.varying_ptr,
-                    config.pipeline.memory.private_ptr,
-                    config.pipeline.memory.texture_ptr,
+                    config.state.memory.attr_ptr,
+                    config.state.memory.uniform_ptr,
+                    config.state.memory.varying_ptr,
+                    config.state.memory.private_ptr,
+                    config.state.memory.texture_ptr,
+                    config.state.memory.frame_sp,
                 );
 
                 // Capture position and varyings
@@ -1213,12 +1217,12 @@ impl Rasterizer {
                 let mut varying_bytes = vec![0u8; 256]; // Capture first 256 bytes of varyings
                 unsafe {
                     std::ptr::copy_nonoverlapping(
-                        config.pipeline.memory.varying_ptr as *const u8,
+                        config.state.memory.varying_ptr as *const u8,
                         pos_bytes.as_mut_ptr(),
                         16,
                     );
                     std::ptr::copy_nonoverlapping(
-                        config.pipeline.memory.varying_ptr as *const u8,
+                        config.state.memory.varying_ptr as *const u8,
                         varying_bytes.as_mut_ptr(),
                         256,
                     );
@@ -1300,10 +1304,13 @@ impl Rasterizer {
 
                     if data.len() >= width * height * 4 {
                         let d_slice = unsafe {
-                            std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut f32, data.len() / 4)
+                            std::slice::from_raw_parts_mut(
+                                data.as_mut_ptr() as *mut f32,
+                                data.len() / 4, // TODO: suspicious magic number
+                            )
                         };
-                        let s_slice = if data.len() >= width * height * 5 {
-                            &mut data[width * height * 4..width * height * 5]
+                        let s_slice = if data.len() >= width * height * 5 { // TODO: suspicious magic numbers
+                            &mut data[width * height * 4..width * height * 5] // TODO: suspicious magic numbers
                         } else {
                             &mut []
                         };

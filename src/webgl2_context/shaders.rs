@@ -524,6 +524,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
             let mut vs_globals: Vec<_> = vs.global_variables.iter().collect();
             vs_globals.sort_by_key(|(handle, _)| handle.index());
 
+            // TODO: is handle a stray local in the API? Why is it there?
             for (handle, var) in vs_globals {
                 if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
                     if let Some(name) = &var.name {
@@ -635,7 +636,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
             let mut fs_globals: Vec<_> = fs.global_variables.iter().collect();
             fs_globals.sort_by_key(|(handle, _)| handle.index());
 
-            for (handle, var) in fs_globals {
+            for (_handle, var) in fs_globals {
                 if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
                     if let Some(name) = &var.name {
                         if !p.uniforms.contains_key(name) {

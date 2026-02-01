@@ -336,7 +336,8 @@ pub fn ctx_draw_buffers(ctx: u32, ptr: u32, count: u32) -> u32 {
             }
             let buf_slice = unsafe { std::slice::from_raw_parts(ptr as *const u32, 1) };
             let db = buf_slice[0];
-            if db != 0 && db != 0x0405 { // GL_NONE or GL_BACK
+            // TODO: consider if we can refer to named constants GL_NONE or GL_BACK
+            if db != 0 && db != 0x0405 {
                 set_last_error("invalid draw buffer for default framebuffer");
                 return ERR_INVALID_OPERATION;
             }
@@ -358,7 +359,8 @@ pub fn ctx_draw_buffers(ctx: u32, ptr: u32, count: u32) -> u32 {
     let buf_slice = unsafe { std::slice::from_raw_parts(ptr as *const u32, count as usize) };
     let mut new_draw_buffers = [GL_NONE; MAX_DRAW_BUFFERS];
     for (i, &buf) in buf_slice.iter().enumerate() {
-        if buf != 0 && buf != 0x8CE0 + i as u32 { // GL_NONE or GL_COLOR_ATTACHMENTi
+        // TODO: consider if we can refer to named constants GL_NONE or GL_COLOR_ATTACHMENTi
+        if buf != 0 && buf != 0x8CE0 + i as u32 {
             set_last_error("invalid draw buffer enum for framebuffer object");
             return ERR_INVALID_OPERATION;
         }

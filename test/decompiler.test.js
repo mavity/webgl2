@@ -49,25 +49,25 @@ void func_19() {
     memory[((g2) + 12) >> 2] = floatBitsToInt(0.0);
     return func0();
 }
-void main(int p0, int p1, int p2, int p3, int p4, int p5, int p6, int p7) {
-    int v8;
-    float v9;
-    int v10;
+void main(int p0, int p1, int p2, int p3, int p4, int p5, int p6, int p7, int p8) {
+    int v9;
+    float v10;
+    int v11;
     
     g0 = p3;
     g1 = p4;
     g2 = p5;
     g3 = p6;
     g4 = p7;
-    g5 = (p6 + 81920);
-    v9 = /* unknown: __unsimplified__ */;
-    memory[((g2) + 12) >> 2] = floatBitsToInt(v9);
-    v9 = /* unknown: __unsimplified__ */;
-    memory[((g2) + 8) >> 2] = floatBitsToInt(v9);
-    v9 = /* unknown: __unsimplified__ */;
-    memory[((g2) + 4) >> 2] = floatBitsToInt(v9);
-    v9 = /* unknown: __unsimplified__ */;
-    memory[(g2) >> 2] = floatBitsToInt(v9);
+    g5 = p8;
+    v10 = /* unknown: __unsimplified__ */;
+    memory[((g2) + 12) >> 2] = floatBitsToInt(v10);
+    v10 = /* unknown: __unsimplified__ */;
+    memory[((g2) + 8) >> 2] = floatBitsToInt(v10);
+    v10 = /* unknown: __unsimplified__ */;
+    memory[((g2) + 4) >> 2] = floatBitsToInt(v10);
+    v10 = /* unknown: __unsimplified__ */;
+    memory[(g2) >> 2] = floatBitsToInt(v10);
     return func_19();
 }
 `);
@@ -119,25 +119,25 @@ void func_19() {
     memory[((g3) + 12) >> 2] = floatBitsToInt(1.0);
     return func0();
 }
-void main(int p0, int p1, int p2, int p3, int p4, int p5, int p6, int p7) {
-    int v8;
-    float v9;
-    int v10;
+void main(int p0, int p1, int p2, int p3, int p4, int p5, int p6, int p7, int p8) {
+    int v9;
+    float v10;
+    int v11;
     
     g0 = p3;
     g1 = p4;
     g2 = p5;
     g3 = p6;
     g4 = p7;
-    g5 = (p6 + 81920);
-    v9 = /* unknown: __unsimplified__ */;
-    memory[((g3) + 12) >> 2] = floatBitsToInt(v9);
-    v9 = /* unknown: __unsimplified__ */;
-    memory[((g3) + 8) >> 2] = floatBitsToInt(v9);
-    v9 = /* unknown: __unsimplified__ */;
-    memory[((g3) + 4) >> 2] = floatBitsToInt(v9);
-    v9 = /* unknown: __unsimplified__ */;
-    memory[(g3) >> 2] = floatBitsToInt(v9);
+    g5 = p8;
+    v10 = /* unknown: __unsimplified__ */;
+    memory[((g3) + 12) >> 2] = floatBitsToInt(v10);
+    v10 = /* unknown: __unsimplified__ */;
+    memory[((g3) + 8) >> 2] = floatBitsToInt(v10);
+    v10 = /* unknown: __unsimplified__ */;
+    memory[((g3) + 4) >> 2] = floatBitsToInt(v10);
+    v10 = /* unknown: __unsimplified__ */;
+    memory[(g3) >> 2] = floatBitsToInt(v10);
     return func_19();
 }
 `);
@@ -203,25 +203,25 @@ void func_19() {
     memory[((g2) + 12) >> 2] = floatBitsToInt(0.0);
     return func0();
 }
-void main(int p0, int p1, int p2, int p3, int p4, int p5, int p6, int p7) {
-    int v8;
-    float v9;
-    int v10;
+void main(int p0, int p1, int p2, int p3, int p4, int p5, int p6, int p7, int p8) {
+    int v9;
+    float v10;
+    int v11;
     
     g0 = p3;
     g1 = p4;
     g2 = p5;
     g3 = p6;
     g4 = p7;
-    g5 = (p6 + 81920);
-    v9 = /* unknown: __unsimplified__ */;
-    memory[((g2) + 12) >> 2] = floatBitsToInt(v9);
-    v9 = /* unknown: __unsimplified__ */;
-    memory[((g2) + 8) >> 2] = floatBitsToInt(v9);
-    v9 = /* unknown: __unsimplified__ */;
-    memory[((g2) + 4) >> 2] = floatBitsToInt(v9);
-    v9 = /* unknown: __unsimplified__ */;
-    memory[(g2) >> 2] = floatBitsToInt(v9);
+    g5 = p8;
+    v10 = /* unknown: __unsimplified__ */;
+    memory[((g2) + 12) >> 2] = floatBitsToInt(v10);
+    v10 = /* unknown: __unsimplified__ */;
+    memory[((g2) + 8) >> 2] = floatBitsToInt(v10);
+    v10 = /* unknown: __unsimplified__ */;
+    memory[((g2) + 4) >> 2] = floatBitsToInt(v10);
+    v10 = /* unknown: __unsimplified__ */;
+    memory[(g2) >> 2] = floatBitsToInt(v10);
     return func_19();
 }
 `);

@@ -377,6 +377,7 @@ impl Default for VertexAttribute {
     }
 }
 
+// TODO: each field in this structure should be sufficiently explained
 pub struct Context {
     pub(crate) textures: HashMap<u32, Texture>,
     pub(crate) framebuffers: HashMap<u32, FramebufferObj>,
@@ -394,10 +395,6 @@ pub struct Context {
     pub(crate) next_program_handle: u32,
     pub(crate) next_vertex_array_handle: u32,
     pub(crate) next_renderbuffer_handle: u32,
-    pub(crate) next_sampler_handle: u32,
-    pub(crate) next_query_handle: u32,
-    pub(crate) next_sync_handle: u32,
-    pub(crate) next_transform_feedback_handle: u32,
 
     pub(crate) bound_texture: Option<u32>,
     pub(crate) bound_read_framebuffer: Option<u32>,
@@ -405,12 +402,14 @@ pub struct Context {
     pub(crate) bound_renderbuffer: Option<u32>,
     pub(crate) buffer_bindings: HashMap<u32, Option<u32>>,
     pub(crate) bound_vertex_array: u32,
-    pub(crate) bound_array_buffer: Option<u32>,
-    pub(crate) bound_element_array_buffer: Option<u32>,
     pub(crate) current_program: Option<u32>,
 
     pub(crate) uniform_data: Vec<u8>,
-    pub(crate) private_memory: Vec<u8>,
+    pub(crate) attribute_buffer: Vec<u8>,
+    pub(crate) varying_buffer: Vec<u8>,
+    pub(crate) private_buffer: Vec<u8>,
+    pub(crate) texture_metadata: Vec<u8>,
+    pub(crate) frame_stack: Vec<u8>,
 
     pub width: u32,
     pub height: u32,
@@ -420,7 +419,6 @@ pub struct Context {
     pub kernel: GpuKernel,
     pub default_framebuffer: crate::wasm_gl_emu::OwnedFramebuffer,
     pub rasterizer: crate::wasm_gl_emu::Rasterizer,
-    pub(crate) shader_memory_base: u32,
 
     pub(crate) clear_color: [f32; 4],
     pub(crate) viewport: (i32, i32, u32, u32),
@@ -437,9 +435,6 @@ pub struct Context {
     pub(crate) texture_units: Vec<Option<u32>>,
     pub(crate) sampler_units: Vec<Option<u32>>,
     pub(crate) gl_error: u32,
-    pub(crate) queries: HashMap<u32, ()>,
-    pub(crate) syncs: HashMap<u32, ()>,
-    pub(crate) transform_feedbacks: HashMap<u32, ()>,
     pub(crate) default_draw_buffers: Vec<u32>,
     pub(crate) default_read_buffer: u32,
     pub debug_shaders: bool,
@@ -452,7 +447,7 @@ impl Context {
         }
     }
 
-    pub fn new(width: u32, height: u32, shader_memory_base: u32) -> Self {
+    pub fn new(width: u32, height: u32) -> Self {
         let mut kernel = GpuKernel::new();
         let default_framebuffer =
             crate::wasm_gl_emu::OwnedFramebuffer::new(&mut kernel, width, height);
@@ -477,10 +472,6 @@ impl Context {
             next_program_handle: FIRST_HANDLE,
             next_vertex_array_handle: FIRST_HANDLE,
             next_renderbuffer_handle: FIRST_HANDLE,
-            next_sampler_handle: FIRST_HANDLE,
-            next_query_handle: FIRST_HANDLE,
-            next_sync_handle: FIRST_HANDLE,
-            next_transform_feedback_handle: FIRST_HANDLE,
 
             bound_texture: None,
             bound_read_framebuffer: None,
@@ -488,8 +479,6 @@ impl Context {
             bound_renderbuffer: None,
             buffer_bindings: HashMap::new(),
             bound_vertex_array: 0,
-            bound_array_buffer: None,
-            bound_element_array_buffer: None,
             current_program: None,
 
             uniform_data: {
@@ -503,15 +492,11 @@ impl Context {
                 }
                 data
             },
-            private_memory: {
-                let mut data = vec![0u8; 256];
-                for i in 0..16 {
-                    let context_idx = (i * 4) as usize;
-                    let data_offset = (256 + i * 64) as u32;
-                    data[context_idx..context_idx + 4].copy_from_slice(&data_offset.to_le_bytes());
-                }
-                data
-            },
+            attribute_buffer: vec![0u8; 1024],
+            varying_buffer: vec![0u8; 131072],  // 128KB
+            private_buffer: vec![0u8; 16384],   // 16KB default
+            texture_metadata: vec![0u8; 16384], // 16KB default
+            frame_stack: vec![0u8; 131072],     // 128KB default
 
             width,
             height,
@@ -519,8 +504,7 @@ impl Context {
 
             kernel,
             default_framebuffer,
-            rasterizer: crate::wasm_gl_emu::Rasterizer::new(shader_memory_base),
-            shader_memory_base,
+            rasterizer: crate::wasm_gl_emu::Rasterizer::new(),
 
             clear_color: [0.0, 0.0, 0.0, 0.0],
             viewport: (0, 0, width, height),
@@ -541,11 +525,8 @@ impl Context {
             texture_units: vec![None; 16],
             sampler_units: vec![None; 16],
             gl_error: GL_NO_ERROR,
-            queries: HashMap::new(),
-            syncs: HashMap::new(),
-            transform_feedbacks: HashMap::new(),
             default_draw_buffers: vec![0x0405], // GL_BACK
-            default_read_buffer: 0x0405, // GL_BACK
+            default_read_buffer: 0x0405,        // GL_BACK
             debug_shaders: false,
         }
     }
@@ -553,7 +534,7 @@ impl Context {
 
 impl Default for Context {
     fn default() -> Self {
-        Self::new(640, 480, crate::wasm_get_scratch_base())
+        Self::new(640, 480)
     }
 }
 
@@ -883,7 +864,8 @@ impl Context {
         let mut handles = Vec::with_capacity(self.default_draw_buffers.len());
         let mut formats = Vec::with_capacity(self.default_draw_buffers.len());
         for &db in &self.default_draw_buffers {
-            if db == 0x0405 { // GL_BACK
+            if db == 0x0405 {
+                // GL_BACK
                 handles.push(self.default_framebuffer.gpu_handle);
                 formats.push(self.default_framebuffer.internal_format);
             } else {

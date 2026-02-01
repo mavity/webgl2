@@ -188,9 +188,8 @@ export class WasmWebGL2RenderingContext {
    * @param {boolean} [debugShaders]
    * @param {any} [sharedTable]
    * @param {any} [tableAllocator]
-   * @param {any} [scratchLayout]
    */
-  constructor({ instance, ctxHandle, width, height, debugShaders = false, sharedTable = null, tableAllocator = null, scratchLayout = null }) {
+  constructor({ instance, ctxHandle, width, height, debugShaders = false, sharedTable = null, tableAllocator = null }) {
     this._instance = instance;
     this._ctxHandle = ctxHandle;
     this._destroyed = false;
@@ -202,7 +201,18 @@ export class WasmWebGL2RenderingContext {
     this._drawingBufferHeight = height;
     this._sharedTable = sharedTable;
     this._tableAllocator = tableAllocator;
-    this._scratchLayout = scratchLayout;
+
+    // TODO: refactor to NOT have scratch layout anymore
+    // Currently the code uses scratch layout from WASM instead of precise allocation
+    const ex = this._instance.exports;
+    this._scratchLayout = {
+      attr: ex.wasm_get_attr_ptr(ctxHandle),
+      uniform: ex.wasm_get_uniform_ptr(ctxHandle),
+      varying: ex.wasm_get_varying_ptr(ctxHandle),
+      private: ex.wasm_get_private_ptr(ctxHandle),
+      texture: ex.wasm_get_texture_ptr(ctxHandle),
+      frame_sp: ex.wasm_get_frame_sp(ctxHandle),
+    };
 
     WasmWebGL2RenderingContext._contexts.set(this._ctxHandle, this);
   }
@@ -241,7 +251,7 @@ export class WasmWebGL2RenderingContext {
   /** @type {Map<number, WasmWebGL2RenderingContext>} */
   static _contexts = new Map();
 
-  _executeShader(type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr) {
+  _executeShader(type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr, frameSp) {
     if (!this._currentProgram) {
       return;
     }
@@ -249,7 +259,7 @@ export class WasmWebGL2RenderingContext {
     if (tableIdx > 0 && this._sharedTable) {
       const func = this._sharedTable.get(tableIdx);
       if (func) {
-        func(this._ctxHandle, type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
+        func(this._ctxHandle, type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr, frameSp);
         return;
       }
     }
@@ -360,14 +370,6 @@ export class WasmWebGL2RenderingContext {
         len >>> 0
       );
       _checkErr(code, this._instance);
-
-      // Mirror texture data in JS for fast texel fetches by shader imports
-      this._textureData = this._textureData || new Map();
-      const handle = this._boundTexture || 0;
-      // Re-fetch memory in case it grew during the call (detaching the old buffer)
-      const currentMem = new Uint8Array(ex.memory.buffer);
-      const copy = new Uint8Array(currentMem.slice(ptr, ptr + len));
-      this._textureData.set(handle, { width: width >>> 0, height: height >>> 0, data: copy });
     } finally {
       ex.wasm_free(ptr);
     }
@@ -412,15 +414,6 @@ export class WasmWebGL2RenderingContext {
         len >>> 0
       );
       _checkErr(code, this._instance);
-
-      // TODO: why texel fetches back in JS?????
-      // Mirror texture data in JS for fast texel fetches by shader imports
-      this._textureData = this._textureData || new Map();
-      const handle = this._boundTexture || 0;
-      // Re-fetch memory in case it grew during the call (detaching the old buffer)
-      const currentMem = new Uint8Array(ex.memory.buffer);
-      const copy = new Uint8Array(currentMem.slice(ptr, ptr + len));
-      this._textureData.set(handle, { width: width >>> 0, height: height >>> 0, depth: depth >>> 0, data: copy });
     } finally {
       ex.wasm_free(ptr);
     }

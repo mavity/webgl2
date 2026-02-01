@@ -68,6 +68,16 @@ pub(crate) fn clear_last_error() {
     crate::error::clear_error();
 }
 
+// TODO: this looks like a facility to help patching up sloppy logic, consider where it is used and see it as a smell
+/// Run a closure with a reference to the context for a given handle.
+pub fn with_context<F, R>(handle: u32, f: F) -> Option<R>
+where
+    F: FnOnce(&Context) -> R,
+{
+    let reg = get_registry().borrow();
+    reg.contexts.get(&handle).map(f)
+}
+
 // ============================================================================
 // Context Lifecycle
 // ============================================================================
@@ -77,7 +87,7 @@ pub(crate) fn clear_last_error() {
 pub fn create_context_with_flags(flags: u32, width: u32, height: u32) -> u32 {
     clear_last_error();
     let mut reg = get_registry().borrow_mut();
-    let mut ctx = Context::new(width, height, crate::wasm_get_scratch_base());
+    let mut ctx = Context::new(width, height);
 
     // Determine debug mode from flags: only shader debug is relevant here
     let shader = (flags & 0x1) != 0;

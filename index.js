@@ -100,7 +100,7 @@ export async function webGL2({ debug = (typeof process !== 'undefined' ? process
       }
     });
   }
-  const { ex, instance, sharedTable, tableAllocator, scratchLayout } = await promise;
+  const { ex, instance, sharedTable, tableAllocator } = await promise;
 
   // Initialize coverage if available
   if (ex.wasm_init_coverage && ex.COV_MAP_PTR) {
@@ -137,8 +137,7 @@ export async function webGL2({ debug = (typeof process !== 'undefined' ? process
     height,
     debugShaders: !!debugShaders,
     sharedTable,
-    tableAllocator,
-    scratchLayout
+    tableAllocator
   });
 
   if (size && typeof size.width === 'number' && typeof size.height === 'number') {
@@ -169,15 +168,18 @@ export async function webGPU({ debug = (typeof process !== 'undefined' ? process
       }
     });
   }
-  const { ex, instance, scratchLayout } = await promise;
-  return new GPU(ex, ex.memory, scratchLayout);
+  const { ex, instance } = await promise;
+  return new GPU(ex, ex.memory);
 }
 
 /**
- * @type {Map<boolean, Promise<{ ex: WebAssembly.Exports, instance: WebAssembly.Instance, module: WebAssembly.Module }>>}
+ * @type {Map<boolean, ReturnType<typeof initWASM>>}
  */
 const wasmCache = new Map();
 
+/**
+ * @param {{ debug?: boolean }} [options]
+ */
 async function initWASM({ debug } = {}) {
   const wasmFile = debug ? 'webgl2.debug.wasm' : 'webgl2.wasm';
   let wasmBuffer;
@@ -204,7 +206,10 @@ async function initWASM({ debug } = {}) {
   // Compile WASM module
   const wasmModule = await WebAssembly.compile(wasmBuffer);
 
-  // Instantiate WASM (no imports needed, memory is exported)
+  /**
+   * Instantiate WASM (no imports needed, memory is exported)
+   * @type {WebAssembly.Instance}
+   */
   let instance;
 
   // Create shared function table for direct shader calls
@@ -223,16 +228,16 @@ async function initWASM({ debug } = {}) {
         const bytes = mem.subarray(ptr, ptr + len);
         console.log(new TextDecoder('utf-8').decode(bytes));
       },
-      wasm_execute_shader: (ctx, type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr) => {
+      wasm_execute_shader: (ctx, type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr, frameSp) => {
         const gl = WasmWebGL2RenderingContext._contexts.get(ctx);
         if (gl) {
-          gl._executeShader(type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
+          gl._executeShader(type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr, frameSp);
         } else {
             // General device execution (WebGPU)
             if (tableIdx > 0 && sharedTable) {
                 const func = sharedTable.get(tableIdx);
                 if (func) {
-                    func(ctx, type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
+                    func(ctx, type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr, frameSp);
                 }
             }
         }
@@ -307,18 +312,7 @@ async function initWASM({ debug } = {}) {
   if (!(ex.memory instanceof WebAssembly.Memory)) {
     throw new Error('WASM module missing memory export');
   }
-  // Calculate dynamic scratch layout
-  const scratchBase = typeof ex.wasm_get_scratch_base === 'function' ? ex.wasm_get_scratch_base() : 0x200000;
-  const scratchLayout = {
-    base: scratchBase,
-    attr: scratchBase + 0x0000,
-    uniform: scratchBase + 0x4000,
-    varying: scratchBase + 0x8000,
-    private: scratchBase + 0xC000,
-    texture: scratchBase + 0x10000,
-  };
-
-  return { ex, instance, module: wasmModule, sharedTable, tableAllocator, scratchLayout };
+  return { ex, instance, module: wasmModule, sharedTable, tableAllocator };
 }
 
 /**

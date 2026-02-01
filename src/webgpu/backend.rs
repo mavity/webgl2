@@ -9,7 +9,6 @@ use crate::webgl2_context::types::*;
 use std::time::Duration;
 use wgpu_hal as hal;
 use wgpu_types as wgt;
-use wgt::{Features, Limits, MemoryHints};
 
 type VertexBufferEntry = Option<(Arc<Mutex<Vec<u8>>>, wgt::BufferAddress)>;
 type IndexBufferEntry = Option<(Arc<Mutex<Vec<u8>>>, wgt::BufferAddress, wgt::IndexFormat)>;
@@ -61,16 +60,30 @@ impl hal::Api for SoftApi {
 }
 
 pub struct SoftInstance {
-    pub shader_memory_base: u32,
+    pub attribute_buffer: Vec<u8>,
+    pub varying_buffer: Vec<u8>,
+    pub private_buffer: Vec<u8>,
+    pub texture_metadata: Vec<u8>,
+    pub frame_stack: Vec<u8>,
+}
+
+impl SoftInstance {
+    pub fn new() -> Self {
+        Self {
+            attribute_buffer: vec![0u8; 1024],
+            varying_buffer: vec![0u8; 131072],
+            private_buffer: vec![0u8; 16384],
+            texture_metadata: vec![0u8; 16384],
+            frame_stack: vec![0u8; 131072],
+        }
+    }
 }
 
 impl hal::Instance for SoftInstance {
     type A = SoftApi;
 
     unsafe fn init(_desc: &hal::InstanceDescriptor) -> Result<Self, hal::InstanceError> {
-        Ok(SoftInstance {
-            shader_memory_base: crate::wasm_get_scratch_base(),
-        })
+        Ok(Self::new())
     }
 
     unsafe fn create_surface(
@@ -86,7 +99,14 @@ impl hal::Instance for SoftInstance {
         _surface_hint: Option<&SoftSurface>,
     ) -> Vec<hal::ExposedAdapter<SoftApi>> {
         let adapter = SoftAdapter {
-            shader_memory_base: self.shader_memory_base,
+            memory: wasm_gl_emu::ShaderMemoryLayout {
+                attr_ptr: self.attribute_buffer.as_ptr() as u32,
+                uniform_ptr: 0, // Set per draw
+                varying_ptr: self.varying_buffer.as_ptr() as u32,
+                private_ptr: self.private_buffer.as_ptr() as u32,
+                texture_ptr: self.texture_metadata.as_ptr() as u32,
+                frame_sp: (self.frame_stack.as_ptr() as usize + self.frame_stack.len()) as u32,
+            },
         };
 
         let info = wgt::AdapterInfo {
@@ -153,7 +173,7 @@ impl hal::Surface for SoftSurface {
 
 #[derive(Debug)]
 pub struct SoftAdapter {
-    pub shader_memory_base: u32,
+    pub memory: wasm_gl_emu::ShaderMemoryLayout,
 }
 
 impl hal::Adapter for SoftAdapter {
@@ -168,10 +188,10 @@ impl hal::Adapter for SoftAdapter {
         let device = SoftDevice {
             // TODO: no need for sync in single-threaded!!
             _mem_allocator: Arc::new(Mutex::new(0)), // Simple allocator
-            shader_memory_base: self.shader_memory_base,
+            memory: self.memory,
         };
         let queue = SoftQueue {
-            shader_memory_base: self.shader_memory_base,
+            memory: self.memory,
         };
         Ok(hal::OpenDevice { device, queue })
     }
@@ -207,7 +227,7 @@ pub struct SoftDevice {
     // In a real implementation, this would manage memory
     // TODO: in single threaded there is no need for sync!!!
     _mem_allocator: Arc<Mutex<u32>>,
-    pub shader_memory_base: u32,
+    pub memory: wasm_gl_emu::ShaderMemoryLayout,
 }
 
 impl SoftDevice {
@@ -740,7 +760,7 @@ pub enum SoftRenderCommand {
 
 #[derive(Debug)]
 pub struct SoftQueue {
-    pub shader_memory_base: u32,
+    pub memory: wasm_gl_emu::ShaderMemoryLayout,
 }
 
 impl SoftQueue {
@@ -1120,9 +1140,7 @@ impl hal::Queue for SoftQueue {
                                             let mut dummy_stencil =
                                                 vec![0u8; (width * height) as usize];
 
-                                            let rasterizer = wasm_gl_emu::Rasterizer::new(
-                                                self.shader_memory_base,
-                                            );
+                                            let rasterizer = wasm_gl_emu::Rasterizer::new();
 
                                             let fetcher = SoftVertexFetcher {
                                                 vertex_buffers: &vertex_buffers,
@@ -1320,9 +1338,10 @@ impl hal::Queue for SoftQueue {
                                             );
 
                                             let mut raster_pipeline =
-                                                wasm_gl_emu::RasterPipeline::new(
-                                                    self.shader_memory_base,
-                                                );
+                                                wasm_gl_emu::RasterPipeline::new();
+                                            raster_pipeline.memory = self.memory;
+                                            raster_pipeline.memory.uniform_ptr =
+                                                combined_uniforms.as_ptr() as u32;
                                             raster_pipeline.vs_table_idx =
                                                 Some(pipeline.vertex_stage.wasm_module.table_index);
                                             raster_pipeline.fs_table_idx = Some(
@@ -1331,9 +1350,7 @@ impl hal::Queue for SoftQueue {
 
                                             let mut state = wasm_gl_emu::RenderState {
                                                 ctx_handle: 0,
-                                                memory: wasm_gl_emu::ShaderMemoryLayout::new(
-                                                    self.shader_memory_base,
-                                                ),
+                                                memory: self.memory,
                                                 viewport,
                                                 scissor,
                                                 scissor_enabled,
@@ -1352,6 +1369,8 @@ impl hal::Queue for SoftQueue {
                                                 cull_face_mode: GL_BACK,
                                                 front_face: GL_CCW,
                                             };
+                                            state.memory.uniform_ptr =
+                                                combined_uniforms.as_ptr() as u32;
 
                                             // Map depth/blend state
                                             if let Some(ds) = &pipeline.depth_stencil {
@@ -1496,9 +1515,7 @@ impl hal::Queue for SoftQueue {
                                             let mut dummy_stencil =
                                                 vec![0u8; (width * height) as usize];
 
-                                            let rasterizer = wasm_gl_emu::Rasterizer::new(
-                                                self.shader_memory_base,
-                                            );
+                                            let rasterizer = wasm_gl_emu::Rasterizer::new();
 
                                             let fetcher = SoftVertexFetcher {
                                                 vertex_buffers: &vertex_buffers,
@@ -1695,12 +1712,9 @@ impl hal::Queue for SoftQueue {
                                                 },
                                             );
 
-                                            let base = crate::wasm_get_scratch_base();
                                             let mut state = wasm_gl_emu::RenderState {
                                                 ctx_handle: 0,
-                                                memory: wasm_gl_emu::ShaderMemoryLayout::new(
-                                                    self.shader_memory_base,
-                                                ),
+                                                memory: self.memory,
                                                 viewport,
                                                 scissor,
                                                 scissor_enabled,
@@ -1719,6 +1733,8 @@ impl hal::Queue for SoftQueue {
                                                 cull_face_mode: GL_BACK,
                                                 front_face: GL_CCW,
                                             };
+                                            state.memory.uniform_ptr =
+                                                combined_uniforms.as_ptr() as u32;
 
                                             // Map depth/blend state (same as Draw)
                                             if let Some(ds) = &pipeline.depth_stencil {
@@ -1790,9 +1806,10 @@ impl hal::Queue for SoftQueue {
                                             }
 
                                             let mut raster_pipeline =
-                                                wasm_gl_emu::RasterPipeline::new(
-                                                    self.shader_memory_base,
-                                                );
+                                                wasm_gl_emu::RasterPipeline::new();
+                                            raster_pipeline.memory = self.memory;
+                                            raster_pipeline.memory.uniform_ptr =
+                                                combined_uniforms.as_ptr() as u32;
                                             raster_pipeline.vs_table_idx =
                                                 Some(pipeline.vertex_stage.wasm_module.table_index);
                                             raster_pipeline.fs_table_idx = Some(

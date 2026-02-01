@@ -177,12 +177,10 @@ export class GPU {
   /**
    * @param {*} wasmModule - WebAssembly module exports implementing WebGPU.
    * @param {WebAssembly.Memory} wasmMemory - WebAssembly linear memory.
-   * @param {any} [scratchLayout] - Dynamic memory layout for shaders.
    */
-  constructor(wasmModule, wasmMemory, scratchLayout = null) {
+  constructor(wasmModule, wasmMemory) {
     this.wasm = wasmModule;
     this.memory = wasmMemory;
-    this._scratchLayout = scratchLayout;
   }
 
   /**

@@ -143,7 +143,15 @@ impl<'a> Framebuffer<'a> {
     }
 
     pub fn get_pixel_offset(&self, x: u32, y: u32, z: u32, internal_format: u32) -> usize {
-        Self::get_pixel_offset_params(x, y, z, internal_format, self.width, self.height, self.layout)
+        Self::get_pixel_offset_params(
+            x,
+            y,
+            z,
+            internal_format,
+            self.width,
+            self.height,
+            self.layout,
+        )
     }
 
     pub fn get_pixel_index(&self, x: u32, y: u32, z: u32) -> usize {

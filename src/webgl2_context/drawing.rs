@@ -96,21 +96,28 @@ pub fn ctx_draw_arrays_instanced(
 
     // Create pipeline configuration
     let mask = ctx_get_program_flat_varyings_mask(ctx_obj);
-    // Build pipeline and include varying debug info if shaders debugging is enabled
-    let base = crate::wasm_get_scratch_base();
+    let memory = ShaderMemoryLayout {
+        attr_ptr: ctx_obj.attribute_buffer.as_ptr() as u32,
+        uniform_ptr: ctx_obj.uniform_data.as_ptr() as u32,
+        varying_ptr: ctx_obj.varying_buffer.as_ptr() as u32,
+        private_ptr: ctx_obj.private_buffer.as_ptr() as u32,
+        texture_ptr: ctx_obj.texture_metadata.as_ptr() as u32,
+        frame_sp: (ctx_obj.frame_stack.as_ptr() as usize + ctx_obj.frame_stack.len()) as u32,
+    };
     let pipeline = RasterPipeline {
         flat_varyings_mask: mask,
         vs_table_idx,
         fs_table_idx,
-        ..RasterPipeline::new(base)
+        memory,
+        ..RasterPipeline::new()
     };
 
     // Prepare textures once
-    ctx_obj.prepare_texture_metadata(pipeline.memory.texture_ptr);
+    ctx_obj.prepare_texture_metadata(memory.texture_ptr);
 
     let state = RenderState {
         ctx_handle: ctx,
-        memory: ShaderMemoryLayout::new(base),
+        memory,
         viewport: (vx, vy, vw as u32, vh as u32),
         scissor: ctx_obj.scissor_box,
         scissor_enabled: ctx_obj.scissor_test_enabled,
@@ -232,20 +239,28 @@ pub fn ctx_draw_elements_instanced(
     let (vx, vy, vw, vh) = ctx_obj.viewport;
 
     // Create pipeline configuration
-    let base = crate::wasm_get_scratch_base();
+    let memory = ShaderMemoryLayout {
+        attr_ptr: ctx_obj.attribute_buffer.as_ptr() as u32,
+        uniform_ptr: ctx_obj.uniform_data.as_ptr() as u32,
+        varying_ptr: ctx_obj.varying_buffer.as_ptr() as u32,
+        private_ptr: ctx_obj.private_buffer.as_ptr() as u32,
+        texture_ptr: ctx_obj.texture_metadata.as_ptr() as u32,
+        frame_sp: (ctx_obj.frame_stack.as_ptr() as usize + ctx_obj.frame_stack.len()) as u32,
+    };
     let pipeline = RasterPipeline {
         flat_varyings_mask: ctx_get_program_flat_varyings_mask(ctx_obj),
         vs_table_idx,
         fs_table_idx,
-        ..RasterPipeline::new(base)
+        memory,
+        ..RasterPipeline::new()
     };
 
     // Prepare textures once
-    ctx_obj.prepare_texture_metadata(pipeline.memory.texture_ptr);
+    ctx_obj.prepare_texture_metadata(memory.texture_ptr);
 
     let state = RenderState {
         ctx_handle: ctx,
-        memory: ShaderMemoryLayout::new(base),
+        memory,
         viewport: (vx, vy, vw, vh),
         scissor: ctx_obj.scissor_box,
         scissor_enabled: ctx_obj.scissor_test_enabled,

@@ -20,15 +20,6 @@ pub const PRIVATE_PTR_GLOBAL: u32 = 3;
 pub const TEXTURE_PTR_GLOBAL: u32 = 4;
 pub const FRAME_SP_GLOBAL: u32 = 5;
 
-/// Region offsets within the scratch memory.
-/// Each region is allocated 16KB for safe overflow-free access.
-pub const ATTR_PTR_OFFSET: u32 = 0x0000;
-pub const UNIFORM_PTR_OFFSET: u32 = 0x4000;
-pub const VARYING_PTR_OFFSET: u32 = 0x8000;
-pub const PRIVATE_PTR_OFFSET: u32 = 0xC000;
-pub const TEXTURE_PTR_OFFSET: u32 = 0x10000;
-pub const FRAME_STACK_OFFSET: u32 = 0x20000;
-
 // Texture Descriptor Offsets (matches WebGPU backend metadata structure)
 pub const TEX_WIDTH_OFFSET: u64 = 0;
 pub const TEX_HEIGHT_OFFSET: u64 = 4;
@@ -46,37 +37,12 @@ pub const TEX_MAG_FILTER_OFFSET: u64 = 44;
 /// Frame stack configuration.
 pub const FRAME_STACK_SIZE: u32 = 0x20000; // 128KB size
 
+// TODO: every one of these should be eliminated, memory layout MUST be specific and tied to shader
 /// Context Block configuration for uniforms and handles.
 pub const MAX_BINDINGS_PER_GROUP: u32 = 16;
 pub const MAX_GROUPS: u32 = 4;
 pub const CONTEXT_BLOCK_SIZE: u32 = MAX_GROUPS * MAX_BINDINGS_PER_GROUP * 4; // 64 bindings * 4 bytes = 256 bytes
 pub const BINDING_POINTER_SIZE: u32 = 4;
-
-/// Dynamic layout of scratch memory regions.
-#[derive(Debug, Clone, Copy)]
-pub struct ScratchLayout {
-    pub base: u32,
-    pub attr_ptr: u32,
-    pub uniform_ptr: u32,
-    pub varying_ptr: u32,
-    pub private_ptr: u32,
-    pub texture_ptr: u32,
-    pub frame_stack_base: u32,
-}
-
-impl ScratchLayout {
-    pub fn new(base: u32) -> Self {
-        Self {
-            base,
-            attr_ptr: base + ATTR_PTR_OFFSET,
-            uniform_ptr: base + UNIFORM_PTR_OFFSET,
-            varying_ptr: base + VARYING_PTR_OFFSET,
-            private_ptr: base + PRIVATE_PTR_OFFSET,
-            texture_ptr: base + TEXTURE_PTR_OFFSET,
-            frame_stack_base: base + FRAME_STACK_OFFSET,
-        }
-    }
-}
 
 /// Compute the memory destination for a shader output binding.
 #[inline]

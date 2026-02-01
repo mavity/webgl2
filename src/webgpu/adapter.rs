@@ -10,7 +10,6 @@ use wgpu_core::id::{
     ShaderModuleId, TextureId, TextureViewId,
 };
 use wgpu_types as wgt;
-use wgt::Backend;
 
 thread_local! {
     // Thread-local storage for WebGPU contexts
@@ -61,9 +60,7 @@ pub struct WebGpuContext {
 impl WebGpuContext {
     pub fn new(id: u32) -> Self {
         // Initialize our custom backend instance
-        let soft_instance = crate::webgpu::backend::SoftInstance {
-            shader_memory_base: crate::wasm_get_scratch_base(),
-        };
+        let soft_instance = crate::webgpu::backend::SoftInstance::new();
 
         // Create Global using our custom backend
         // unsafe: We are responsible for the lifetime of the instance, which Global takes ownership of
