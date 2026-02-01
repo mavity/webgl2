@@ -704,6 +704,36 @@ pub extern "C" fn wasm_ctx_clear(ctx: u32, mask: u32) -> u32 {
 }
 
 #[no_mangle]
+pub extern "C" fn wasm_ctx_clear_buffer_fv(
+    ctx: u32,
+    buffer: u32,
+    drawbuffer: i32,
+    ptr: u32,
+) -> u32 {
+    webgl2_context::ctx_clear_buffer_fv(ctx, buffer, drawbuffer, ptr)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_clear_buffer_iv(
+    ctx: u32,
+    buffer: u32,
+    drawbuffer: i32,
+    ptr: u32,
+) -> u32 {
+    webgl2_context::ctx_clear_buffer_iv(ctx, buffer, drawbuffer, ptr)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_clear_buffer_uiv(
+    ctx: u32,
+    buffer: u32,
+    drawbuffer: i32,
+    ptr: u32,
+) -> u32 {
+    webgl2_context::ctx_clear_buffer_uiv(ctx, buffer, drawbuffer, ptr)
+}
+
+#[no_mangle]
 pub extern "C" fn wasm_ctx_blend_func(ctx: u32, sfactor: u32, dfactor: u32) -> u32 {
     webgl2_context::ctx_blend_func(ctx, sfactor, dfactor)
 }

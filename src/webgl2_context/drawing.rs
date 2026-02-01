@@ -381,7 +381,14 @@ pub fn ctx_read_pixels(
             GL_RED => 4,   // GL_RED: 1 channel
             GL_RG => 8,    // GL_RG: 2 channels
             GL_RGBA => 16, // GL_RGBA: 4 channels
-            _ => 4,        // Default
+            _ => 16,       // Default
+        }
+    } else if type_ == GL_INT || type_ == GL_UNSIGNED_INT {
+        match format {
+            GL_RED_INTEGER => 4,
+            GL_RG_INTEGER => 8,
+            GL_RGBA_INTEGER => 16,
+            _ => 16,
         }
     } else {
         // GL_UNSIGNED_BYTE or other
@@ -396,6 +403,7 @@ pub fn ctx_read_pixels(
         .saturating_mul(height as u64)
         .saturating_mul(bytes_per_pixel as u64);
     if (dest_len as u64) < expected_size {
+        // println!("ReadPixels: dest_len={} expected_size={} width={} height={} bpp={}", dest_len, expected_size, width, height, bytes_per_pixel);
         set_last_error("output buffer size too small");
         return ERR_INVALID_ARGS;
     }
@@ -418,6 +426,20 @@ pub fn ctx_read_pixels(
             GL_RG => wgpu_types::TextureFormat::Rg32Float,
             GL_RGBA => wgpu_types::TextureFormat::Rgba32Float,
             _ => wgpu_types::TextureFormat::Rgba32Float,
+        }
+    } else if type_ == GL_INT {
+        match format {
+            GL_RED_INTEGER => wgpu_types::TextureFormat::R32Sint,
+            GL_RG_INTEGER => wgpu_types::TextureFormat::Rg32Sint,
+            GL_RGBA_INTEGER => wgpu_types::TextureFormat::Rgba32Sint,
+            _ => wgpu_types::TextureFormat::Rgba32Sint,
+        }
+    } else if type_ == GL_UNSIGNED_INT {
+        match format {
+            GL_RED_INTEGER => wgpu_types::TextureFormat::R32Uint,
+            GL_RG_INTEGER => wgpu_types::TextureFormat::Rg32Uint,
+            GL_RGBA_INTEGER => wgpu_types::TextureFormat::Rgba32Uint,
+            _ => wgpu_types::TextureFormat::Rgba32Uint,
         }
     } else {
         wgpu_types::TextureFormat::Rgba8Unorm
