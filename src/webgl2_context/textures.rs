@@ -198,14 +198,61 @@ pub fn ctx_tex_image_2d(
     // Determine storage internal format from the requested internalFormat and type
     let requested_internal = internal_format as u32;
     let storage_internal_format = match (requested_internal, _type_ as u32) {
-        (v, GL_FLOAT) if v == GL_RGBA => GL_RGBA32F,
-        (v, GL_FLOAT) if v == GL_RED => GL_R32F,
-        (GL_RG, GL_FLOAT) => GL_RG32F,
-        (v, GL_UNSIGNED_BYTE) if v == GL_RGBA => GL_RGBA8,
-        (GL_RGBA8, _) => GL_RGBA8,
         (GL_R32F, _) => GL_R32F,
         (GL_RG32F, _) => GL_RG32F,
         (GL_RGBA32F, _) => GL_RGBA32F,
+        (GL_R16F, _) => GL_R16F,
+        (GL_RG16F, _) => GL_RG16F,
+        (GL_RGBA16F, _) => GL_RGBA16F,
+
+        (GL_R32UI, _) => GL_R32UI,
+        (GL_RG32UI, _) => GL_RG32UI,
+        (GL_RGBA32UI, _) => GL_RGBA32UI,
+        (GL_R32I, _) => GL_R32I,
+        (GL_RG32I, _) => GL_RG32I,
+        (GL_RGBA32I, _) => GL_RGBA32I,
+
+        (GL_R16UI, _) => GL_R16UI,
+        (GL_RG16UI, _) => GL_RG16UI,
+        (GL_RGBA16UI, _) => GL_RGBA16UI,
+        (GL_R16I, _) => GL_R16I,
+        (GL_RG16I, _) => GL_RG16I,
+        (GL_RGBA16I, _) => GL_RGBA16I,
+
+        (GL_R8UI, _) => GL_R8UI,
+        (GL_RG8UI, _) => GL_RG8UI,
+        (GL_RGBA8UI, _) => GL_RGBA8UI,
+        (GL_R8I, _) => GL_R8I,
+        (GL_RG8I, _) => GL_RG8I,
+        (GL_RGBA8I, _) => GL_RGBA8I,
+
+        (v, GL_FLOAT) if v == GL_RGBA => GL_RGBA32F,
+        (v, GL_FLOAT) if v == GL_RED => GL_R32F,
+        (GL_RG, GL_FLOAT) => GL_RG32F,
+
+        (v, GL_UNSIGNED_INT) if v == GL_RGBA_INTEGER => GL_RGBA32UI,
+        (v, GL_UNSIGNED_INT) if v == GL_RED_INTEGER => GL_R32UI,
+        (v, GL_UNSIGNED_INT) if v == GL_RG_INTEGER => GL_RG32UI,
+        (v, GL_INT) if v == GL_RGBA_INTEGER => GL_RGBA32I,
+        (v, GL_INT) if v == GL_RED_INTEGER => GL_R32I,
+        (v, GL_INT) if v == GL_RG_INTEGER => GL_RG32I,
+
+        (v, GL_UNSIGNED_SHORT) if v == GL_RGBA_INTEGER => GL_RGBA16UI,
+        (v, GL_UNSIGNED_SHORT) if v == GL_RED_INTEGER => GL_R16UI,
+        (v, GL_UNSIGNED_SHORT) if v == GL_RG_INTEGER => GL_RG16UI,
+        (v, GL_SHORT) if v == GL_RGBA_INTEGER => GL_RGBA16I,
+        (v, GL_SHORT) if v == GL_RED_INTEGER => GL_R16I,
+        (v, GL_SHORT) if v == GL_RG_INTEGER => GL_RG16I,
+
+        (v, GL_UNSIGNED_BYTE) if v == GL_RGBA_INTEGER => GL_RGBA8UI,
+        (v, GL_UNSIGNED_BYTE) if v == GL_RED_INTEGER => GL_R8UI,
+        (v, GL_UNSIGNED_BYTE) if v == GL_RG_INTEGER => GL_RG8UI,
+        (v, GL_BYTE) if v == GL_RGBA_INTEGER => GL_RGBA8I,
+        (v, GL_BYTE) if v == GL_RED_INTEGER => GL_R8I,
+        (v, GL_BYTE) if v == GL_RG_INTEGER => GL_RG8I,
+
+        (v, GL_UNSIGNED_BYTE) if v == GL_RGBA => GL_RGBA8,
+        (GL_RGBA8, _) => GL_RGBA8,
         (v, _) if v == GL_RGBA => GL_RGBA8,
         _ => GL_RGBA8,
     };

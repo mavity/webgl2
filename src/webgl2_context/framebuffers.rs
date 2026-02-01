@@ -123,6 +123,23 @@ pub fn ctx_bind_framebuffer(ctx: u32, target: u32, fb: u32) -> u32 {
     ERR_OK
 }
 
+/// Check framebuffer status.
+pub fn ctx_check_framebuffer_status(ctx: u32, _target: u32) -> u32 {
+    clear_last_error();
+    let reg = get_registry().borrow();
+    match reg.contexts.get(&ctx) {
+        Some(_) => {
+            // For now, we always return COMPLETE if the context is valid.
+            // In a more complete implementation, we'd check the attachments.
+            GL_FRAMEBUFFER_COMPLETE
+        }
+        None => {
+            set_last_error("invalid context handle");
+            0 // Should probably be GL_INVALID_ENUM or similar in a real GL but here we return 0 as error
+        }
+    }
+}
+
 /// Attach a texture to a framebuffer.
 /// Returns errno.
 pub fn ctx_framebuffer_texture2d(

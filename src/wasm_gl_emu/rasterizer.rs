@@ -26,12 +26,6 @@ pub struct v128(u128);
 type VsEntryFn = extern "C" fn(i32, i32, i32);
 type FsEntryFn = extern "C" fn(i32, i32);
 
-#[cfg(not(target_arch = "wasm32"))]
-extern "C" fn dummy_vs(_: i32, _: i32, _: i32) {}
-
-#[cfg(not(target_arch = "wasm32"))]
-extern "C" fn dummy_fs(_: i32, _: i32) {}
-
 /// Vertex data after vertex shader execution
 #[derive(Clone)]
 pub struct ProcessedVertex {
@@ -878,13 +872,35 @@ impl Rasterizer {
                                 );
 
                             if color_idx + color.len() <= att.data.len() {
-                                // For float formats, write directly with optional blending
+                                // For 32-bit formats, write directly with optional blending
                                 if att.internal_format == GL_R32F
                                     || att.internal_format == GL_RG32F
                                     || att.internal_format == GL_RGBA32F
+                                    || att.internal_format == GL_R32UI
+                                    || att.internal_format == GL_RG32UI
+                                    || att.internal_format == GL_RGBA32UI
+                                    || att.internal_format == GL_R32I
+                                    || att.internal_format == GL_RG32I
+                                    || att.internal_format == GL_RGBA32I
+                                    || att.internal_format == GL_R8UI
+                                    || att.internal_format == GL_RG8UI
+                                    || att.internal_format == GL_RGBA8UI
+                                    || att.internal_format == GL_R8I
+                                    || att.internal_format == GL_RG8I
+                                    || att.internal_format == GL_RGBA8I
+                                    || att.internal_format == GL_R16UI
+                                    || att.internal_format == GL_RG16UI
+                                    || att.internal_format == GL_RGBA16UI
+                                    || att.internal_format == GL_R16I
+                                    || att.internal_format == GL_RG16I
+                                    || att.internal_format == GL_RGBA16I
                                 {
                                     // GL_R32F, GL_RG32F, GL_RGBA32F
-                                    if state.blend.enabled {
+                                    if state.blend.enabled
+                                        && (att.internal_format == GL_R32F
+                                            || att.internal_format == GL_RG32F
+                                            || att.internal_format == GL_RGBA32F)
+                                    {
                                         let existing: [f32; 4] = match att.internal_format {
                                             GL_R32F => {
                                                 let v = f32::from_ne_bytes(
@@ -1003,13 +1019,13 @@ impl Rasterizer {
                                     } else {
                                         // Clamp to mask if not blending
                                         match att.internal_format {
-                                            GL_R32F => {
+                                            GL_R32F | GL_R32UI | GL_R32I => {
                                                 if state.color_mask.r {
                                                     att.data[color_idx..color_idx + 4]
                                                         .copy_from_slice(&color[0..4]);
                                                 }
                                             }
-                                            GL_RG32F => {
+                                            GL_RG32F | GL_RG32UI | GL_RG32I => {
                                                 if state.color_mask.r {
                                                     att.data[color_idx..color_idx + 4]
                                                         .copy_from_slice(&color[0..4]);
@@ -1019,7 +1035,7 @@ impl Rasterizer {
                                                         .copy_from_slice(&color[4..8]);
                                                 }
                                             }
-                                            GL_RGBA32F => {
+                                            GL_RGBA32F | GL_RGBA32UI | GL_RGBA32I => {
                                                 if state.color_mask.r {
                                                     att.data[color_idx..color_idx + 4]
                                                         .copy_from_slice(&color[0..4]);
@@ -1035,6 +1051,67 @@ impl Rasterizer {
                                                 if state.color_mask.a {
                                                     att.data[color_idx + 12..color_idx + 16]
                                                         .copy_from_slice(&color[12..16]);
+                                                }
+                                            }
+                                            GL_R16UI | GL_R16I => {
+                                                if state.color_mask.r {
+                                                    att.data[color_idx..color_idx + 2]
+                                                        .copy_from_slice(&color[0..2]);
+                                                }
+                                            }
+                                            GL_RG16UI | GL_RG16I => {
+                                                if state.color_mask.r {
+                                                    att.data[color_idx..color_idx + 2]
+                                                        .copy_from_slice(&color[0..2]);
+                                                }
+                                                if state.color_mask.g {
+                                                    att.data[color_idx + 2..color_idx + 4]
+                                                        .copy_from_slice(&color[2..4]);
+                                                }
+                                            }
+                                            GL_RGBA16UI | GL_RGBA16I => {
+                                                if state.color_mask.r {
+                                                    att.data[color_idx..color_idx + 2]
+                                                        .copy_from_slice(&color[0..2]);
+                                                }
+                                                if state.color_mask.g {
+                                                    att.data[color_idx + 2..color_idx + 4]
+                                                        .copy_from_slice(&color[2..4]);
+                                                }
+                                                if state.color_mask.b {
+                                                    att.data[color_idx + 4..color_idx + 6]
+                                                        .copy_from_slice(&color[4..6]);
+                                                }
+                                                if state.color_mask.a {
+                                                    att.data[color_idx + 6..color_idx + 8]
+                                                        .copy_from_slice(&color[6..8]);
+                                                }
+                                            }
+                                            GL_R8UI | GL_R8I => {
+                                                if state.color_mask.r {
+                                                    att.data[color_idx] = color[0];
+                                                }
+                                            }
+                                            GL_RG8UI | GL_RG8I => {
+                                                if state.color_mask.r {
+                                                    att.data[color_idx] = color[0];
+                                                }
+                                                if state.color_mask.g {
+                                                    att.data[color_idx + 1] = color[1];
+                                                }
+                                            }
+                                            GL_RGBA8UI | GL_RGBA8I => {
+                                                if state.color_mask.r {
+                                                    att.data[color_idx] = color[0];
+                                                }
+                                                if state.color_mask.g {
+                                                    att.data[color_idx + 1] = color[1];
+                                                }
+                                                if state.color_mask.b {
+                                                    att.data[color_idx + 2] = color[2];
+                                                }
+                                                if state.color_mask.a {
+                                                    att.data[color_idx + 3] = color[3];
                                                 }
                                             }
                                             _ => {}
@@ -1118,28 +1195,50 @@ impl Rasterizer {
 
             // Format-aware output
             let output = match format {
-                0x822E => {
-                    // GL_R32F: 1 channel × 4 bytes
-                    c[0].to_ne_bytes().to_vec()
+                GL_R32F | GL_R32UI | GL_R32I => {
+                    // 1 channel × 4 bytes
+                    color_bytes[0..4].to_vec()
                 }
-                0x8230 => {
-                    // GL_RG32F: 2 channels × 4 bytes
-                    let mut result = Vec::with_capacity(8);
-                    result.extend_from_slice(&c[0].to_ne_bytes());
-                    result.extend_from_slice(&c[1].to_ne_bytes());
-                    result
+                GL_RG32F | GL_RG32UI | GL_RG32I => {
+                    // 2 channels × 4 bytes
+                    color_bytes[0..8].to_vec()
                 }
-                0x8814 => {
-                    // GL_RGBA32F: 4 channels × 4 bytes
-                    let mut result = Vec::with_capacity(16);
-                    result.extend_from_slice(&c[0].to_ne_bytes());
-                    result.extend_from_slice(&c[1].to_ne_bytes());
-                    result.extend_from_slice(&c[2].to_ne_bytes());
-                    result.extend_from_slice(&c[3].to_ne_bytes());
-                    result
+                GL_RGBA32F | GL_RGBA32UI | GL_RGBA32I => {
+                    // 4 channels × 4 bytes
+                    color_bytes[0..16].to_vec()
+                }
+                GL_R16UI | GL_R16I => color_bytes[0..2].to_vec(),
+                GL_RG16UI | GL_RG16I => {
+                    let mut res = Vec::with_capacity(4);
+                    res.extend_from_slice(&color_bytes[0..2]);
+                    res.extend_from_slice(&color_bytes[4..6]);
+                    res
+                }
+                GL_RGBA16UI | GL_RGBA16I => {
+                    let mut res = Vec::with_capacity(8);
+                    res.extend_from_slice(&color_bytes[0..2]);
+                    res.extend_from_slice(&color_bytes[4..6]);
+                    res.extend_from_slice(&color_bytes[8..10]);
+                    res.extend_from_slice(&color_bytes[12..14]);
+                    res
+                }
+                GL_R8UI | GL_R8I => {
+                    vec![color_bytes[0]]
+                }
+                GL_RG8UI | GL_RG8I => {
+                    vec![color_bytes[0], color_bytes[4]]
+                }
+                GL_RGBA8UI | GL_RGBA8I => {
+                    vec![
+                        color_bytes[0],
+                        color_bytes[4],
+                        color_bytes[8],
+                        color_bytes[12],
+                    ]
                 }
                 _ => {
-                    // GL_RGBA8: Quantize to u8
+                    // GL_RGBA8: Quantize to u8.
+                    // Note: We use clamp/scale for Unorm formats only.
                     vec![
                         (c[0].clamp(0.0, 1.0) * 255.0) as u8,
                         (c[1].clamp(0.0, 1.0) * 255.0) as u8,

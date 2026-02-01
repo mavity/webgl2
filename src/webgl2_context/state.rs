@@ -1,5 +1,6 @@
 use super::registry::{clear_last_error, get_registry, set_last_error};
 use super::types::*;
+use wgpu_types::TextureFormat;
 
 // ============================================================================
 // State Management
@@ -623,4 +624,145 @@ pub fn ctx_set_gl_error(ctx: u32, error: u32) -> u32 {
     } else {
         ERR_INVALID_HANDLE
     }
+}
+
+pub fn ctx_clear_buffer_fv(ctx: u32, buffer: u32, drawbuffer: i32, ptr: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => return ERR_INVALID_HANDLE,
+    };
+
+    if buffer == GL_COLOR {
+        if drawbuffer < 0 || drawbuffer >= 8 {
+            return GL_INVALID_VALUE;
+        }
+        let handle = ctx_obj.get_color_attachment_handle_at(drawbuffer as usize);
+        if handle.is_valid() {
+            let (vw, vh) = ctx_obj.get_attachment_size(handle);
+            let values = unsafe { std::slice::from_raw_parts(ptr as *const f32, 4) };
+            ctx_obj.kernel.clear_rect(
+                handle,
+                [values[0], values[1], values[2], values[3]],
+                0,
+                0,
+                vw,
+                vh,
+            );
+        }
+    }
+    ERR_OK
+}
+
+pub fn ctx_clear_buffer_iv(ctx: u32, buffer: u32, drawbuffer: i32, ptr: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => return ERR_INVALID_HANDLE,
+    };
+
+    if buffer == GL_COLOR {
+        if drawbuffer < 0 || drawbuffer >= 8 {
+            return GL_INVALID_VALUE;
+        }
+        let handle = ctx_obj.get_color_attachment_handle_at(drawbuffer as usize);
+        if handle.is_valid() {
+            let (vw, vh) = ctx_obj.get_attachment_size(handle);
+            let buf_format = ctx_obj.kernel.get_buffer(handle).map(|b| b.format);
+            let bpp = buf_format
+                .and_then(|f| f.block_copy_size(None))
+                .unwrap_or(4) as usize;
+
+            let values = unsafe { std::slice::from_raw_parts(ptr as *const i32, 4) };
+            let mut pixel_bytes = vec![0u8; bpp];
+
+            if bpp == 16 {
+                // RGBA32I
+                for i in 0..4 {
+                    pixel_bytes[i * 4..(i + 1) * 4].copy_from_slice(&values[i].to_ne_bytes());
+                }
+            } else if bpp == 8 {
+                // RGBA16I or RG32I?
+                // Assume 4 components if it's GL_COLOR
+                for i in 0..4.min(bpp / 2) {
+                    let val = values[i] as i16;
+                    pixel_bytes[i * 2..(i + 1) * 2].copy_from_slice(&val.to_ne_bytes());
+                }
+            } else if bpp == 4 {
+                // RGBA8I or R32I?
+                if let Some(TextureFormat::R32Sint) = buf_format {
+                    pixel_bytes.copy_from_slice(&values[0].to_ne_bytes());
+                } else {
+                    for i in 0..4.min(bpp) {
+                        pixel_bytes[i] = values[i] as u8;
+                    }
+                }
+            }
+
+            ctx_obj
+                .kernel
+                .clear_rect_raw(handle, &pixel_bytes, 0, 0, vw, vh);
+        }
+    }
+    ERR_OK
+}
+
+pub fn ctx_clear_buffer_uiv(ctx: u32, buffer: u32, drawbuffer: i32, ptr: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => return ERR_INVALID_HANDLE,
+    };
+
+    if buffer == GL_COLOR {
+        if drawbuffer < 0 || drawbuffer >= 8 {
+            return GL_INVALID_VALUE;
+        }
+        let handle = ctx_obj.get_color_attachment_handle_at(drawbuffer as usize);
+        if handle.is_valid() {
+            let (vw, vh) = ctx_obj.get_attachment_size(handle);
+            let buf_format = ctx_obj.kernel.get_buffer(handle).map(|b| b.format);
+            let bpp = buf_format
+                .and_then(|f| f.block_copy_size(None))
+                .unwrap_or(4) as usize;
+
+            let values = unsafe { std::slice::from_raw_parts(ptr as *const u32, 4) };
+            let mut pixel_bytes = vec![0u8; bpp];
+
+            if bpp == 16 {
+                // RGBA32UI
+                for i in 0..4 {
+                    pixel_bytes[i * 4..(i + 1) * 4].copy_from_slice(&values[i].to_ne_bytes());
+                }
+            } else if bpp == 8 {
+                // RGBA16UI or RG32UI
+                if let Some(TextureFormat::Rg32Uint) = buf_format {
+                    pixel_bytes[0..4].copy_from_slice(&values[0].to_ne_bytes());
+                    pixel_bytes[4..8].copy_from_slice(&values[1].to_ne_bytes());
+                } else {
+                    for i in 0..4.min(bpp / 2) {
+                        let val = values[i] as u16;
+                        pixel_bytes[i * 2..(i + 1) * 2].copy_from_slice(&val.to_ne_bytes());
+                    }
+                }
+            } else if bpp == 4 {
+                // RGBA8UI or R32UI
+                if let Some(TextureFormat::R32Uint) = buf_format {
+                    pixel_bytes.copy_from_slice(&values[0].to_ne_bytes());
+                } else {
+                    for i in 0..4.min(bpp) {
+                        pixel_bytes[i] = values[i] as u8;
+                    }
+                }
+            }
+
+            ctx_obj
+                .kernel
+                .clear_rect_raw(handle, &pixel_bytes, 0, 0, vw, vh);
+        }
+    }
+    ERR_OK
 }

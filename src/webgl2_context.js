@@ -129,12 +129,56 @@ export class WasmWebGL2RenderingContext {
   FRAMEBUFFER = 0x8D40;
   READ_FRAMEBUFFER = 0x8CA8;
   DRAW_FRAMEBUFFER = 0x8CA9;
+  FRAMEBUFFER_COMPLETE = 0x8CD5;
+  FRAMEBUFFER_INCOMPLETE_ATTACHMENT = 0x8CD6;
+  FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT = 0x8CD7;
+  FRAMEBUFFER_INCOMPLETE_DIMENSIONS = 0x8CD9;
+  FRAMEBUFFER_UNSUPPORTED = 0x8CDD;
+  FRAMEBUFFER_INCOMPLETE_MULTISAMPLE = 0x8D56;
+  RENDERBUFFER_SAMPLES = 0x8CAB;
+  FRAMEBUFFER_UNDEFINED = 0x8219;
   DEPTH_COMPONENT16 = 0x81A5;
   DEPTH_STENCIL = 0x84F9;
   RGBA4 = 0x8056;
   RGB565 = 0x8D62;
   RGB5_A1 = 0x8057;
   RGBA8 = 0x8058;
+  RGBA32F = 0x8814;
+  RGB32F = 0x8815;
+  RGBA16F = 0x881A;
+  RGB16F = 0x881B;
+  R8UI = 0x8232;
+  RG8UI = 0x8238;
+  RGB8UI = 0x8D7D;
+  RGBA8UI = 0x8D7C;
+  R16UI = 0x8234;
+  RG16UI = 0x823A;
+  RGB16UI = 0x8D77;
+  RGBA16UI = 0x8D76;
+  R32UI = 0x8236;
+  RG32UI = 0x823C;
+  RGB32UI = 0x8D71;
+  RGBA32UI = 0x8D70;
+  R8I = 0x8231;
+  RG8I = 0x8237;
+  RGB8I = 0x8D8F;
+  RGBA8I = 0x8D8E;
+  R16I = 0x8233;
+  RG16I = 0x8239;
+  RGB16I = 0x8D89;
+  RGBA16I = 0x8D88;
+  R32I = 0x8235;
+  RG32I = 0x823B;
+  RGB32I = 0x8D83;
+  RGBA32I = 0x8D82;
+  RED_INTEGER = 0x8D94;
+  RG_INTEGER = 0x8D95;
+  RGB_INTEGER = 0x8D96;
+  RGBA_INTEGER = 0x8D99;
+  R32F = 0x822E;
+  RG32F = 0x8230;
+  R16F = 0x822D;
+  RG16F = 0x822F;
   STENCIL_INDEX8 = 0x8D48;
   COLOR_ATTACHMENT0 = 0x8CE0;
   COLOR_ATTACHMENT1 = 0x8CE1;
@@ -1700,7 +1744,14 @@ export class WasmWebGL2RenderingContext {
     }
   }
 
-  checkFramebufferStatus(target) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  checkFramebufferStatus(target) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_check_framebuffer_status !== 'function') {
+      throw new Error('wasm_ctx_check_framebuffer_status not found');
+    }
+    return ex.wasm_ctx_check_framebuffer_status(this._ctxHandle, target);
+  }
   blitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter) {
     this._assertNotDestroyed();
     const ex = this._instance.exports;
@@ -1717,8 +1768,17 @@ export class WasmWebGL2RenderingContext {
   }
 
   pixelStorei(pname, param) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  getExtension(name) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  getSupportedExtensions() { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  getExtension(name) {
+    this._assertNotDestroyed();
+    if (name === 'EXT_color_buffer_float') {
+      return {};
+    }
+    return null;
+  }
+  getSupportedExtensions() {
+    this._assertNotDestroyed();
+    return ['EXT_color_buffer_float'];
+  }
 
   getUniformLocation(program, name) {
     this._assertNotDestroyed();

@@ -785,6 +785,45 @@ impl<'a> Compiler<'a> {
 
         // 5. Load and accumulate
         func.instruction(&Instruction::LocalGet(l_format));
+        func.instruction(&Instruction::I32Const(0x8D70)); // RGBA32UI
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+        // Integer formats: take raw bits from first tap only (Nearest)
+        func.instruction(&Instruction::LocalGet(l_loop_cnt));
+        func.instruction(&Instruction::I32Const(0));
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+        for i in 0..4 {
+            func.instruction(&Instruction::LocalGet(l_addr));
+            func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                offset: (i * 4) as u64,
+                align: 2,
+                memory_index: 0,
+            }));
+            func.instruction(&Instruction::F32ReinterpretI32);
+            func.instruction(&Instruction::LocalSet(l_res_r + i as u32));
+        }
+        func.instruction(&Instruction::End);
+        func.instruction(&Instruction::Else);
+        func.instruction(&Instruction::LocalGet(l_format));
+        func.instruction(&Instruction::I32Const(0x8236)); // R32UI
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+        func.instruction(&Instruction::LocalGet(l_loop_cnt));
+        func.instruction(&Instruction::I32Const(0));
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+        func.instruction(&Instruction::LocalGet(l_addr));
+        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+            offset: 0,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::F32ReinterpretI32);
+        func.instruction(&Instruction::LocalSet(l_res_r));
+        func.instruction(&Instruction::End);
+        func.instruction(&Instruction::Else);
+        func.instruction(&Instruction::LocalGet(l_format));
         func.instruction(&Instruction::I32Const(0x8058)); // RGBA8
         func.instruction(&Instruction::I32Eq);
         func.instruction(&Instruction::LocalGet(l_format));
@@ -848,9 +887,11 @@ impl<'a> Compiler<'a> {
         func.instruction(&Instruction::LocalGet(l_res_a));
         func.instruction(&Instruction::F32Add);
         func.instruction(&Instruction::LocalSet(l_res_a));
-        func.instruction(&Instruction::End);
-        func.instruction(&Instruction::End);
-        func.instruction(&Instruction::End);
+        func.instruction(&Instruction::End); // R32F
+        func.instruction(&Instruction::End); // RGBA32F
+        func.instruction(&Instruction::End); // RGBA8
+        func.instruction(&Instruction::End); // R32UI
+        func.instruction(&Instruction::End); // RGBA32UI
 
         // Loop management
         func.instruction(&Instruction::LocalGet(l_loop_cnt));

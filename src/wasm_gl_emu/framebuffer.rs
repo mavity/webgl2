@@ -31,7 +31,7 @@ impl OwnedFramebuffer {
             _ => wgt::TextureFormat::Rgba8Unorm,       // GL_RGBA8
         };
 
-        let layout = StorageLayout::Tiled8x8;
+        let layout = StorageLayout::Linear;
         let gpu_handle = kernel.create_buffer(width, height, 1, format, layout);
 
         let pixel_count = match layout {

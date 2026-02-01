@@ -50,6 +50,10 @@ pub const GL_TRIANGLE_FAN: u32 = 0x0006;
 pub const GL_FRONT: u32 = 0x0404;
 pub const GL_BACK: u32 = 0x0405;
 pub const GL_FRONT_AND_BACK: u32 = 0x0408;
+
+pub const GL_COLOR: u32 = 0x1800;
+pub const GL_DEPTH: u32 = 0x1801;
+pub const GL_STENCIL: u32 = 0x1802;
 pub const GL_CW: u32 = 0x0900;
 pub const GL_CCW: u32 = 0x0901;
 
@@ -70,17 +74,65 @@ pub const GL_RGBA: u32 = 0x1908;
 pub const GL_RGB: u32 = 0x1907;
 pub const GL_RED: u32 = 0x1903;
 pub const GL_RG: u32 = 0x8227;
+
+pub const GL_RGBA_INTEGER: u32 = 0x8D99;
+pub const GL_RGB_INTEGER: u32 = 0x8D98;
+pub const GL_RG_INTEGER: u32 = 0x8228;
+pub const GL_RED_INTEGER: u32 = 0x8D94;
 pub const GL_DEPTH_COMPONENT: u32 = 0x1902;
 pub const GL_UNSIGNED_INT_24_8: u32 = 0x84FA;
 pub const GL_DEPTH24_STENCIL8: u32 = 0x88F0;
 
 pub const GL_RGBA8: u32 = 0x8058;
 pub const GL_RGB8: u32 = 0x8051;
+
 pub const GL_R32F: u32 = 0x822E;
 pub const GL_RG32F: u32 = 0x8230;
 pub const GL_RGBA32F: u32 = 0x8814;
+
+pub const GL_R32UI: u32 = 0x8232;
+pub const GL_RG32UI: u32 = 0x823C;
+pub const GL_RGBA32UI: u32 = 0x8D70;
+
+pub const GL_R32I: u32 = 0x8231;
+pub const GL_RG32I: u32 = 0x823B;
+pub const GL_RGBA32I: u32 = 0x8D82;
+
+pub const GL_R8UI: u32 = 0x8238;
+pub const GL_RG8UI: u32 = 0x823E;
+pub const GL_RGB8UI: u32 = 0x8D7D;
+pub const GL_RGBA8UI: u32 = 0x8D7C;
+pub const GL_R8I: u32 = 0x8237;
+pub const GL_RG8I: u32 = 0x823D;
+pub const GL_RGB8I: u32 = 0x8D8F;
+pub const GL_RGBA8I: u32 = 0x8D8E;
+
+pub const GL_R16UI: u32 = 0x8234;
+pub const GL_RG16UI: u32 = 0x8240;
+pub const GL_RGB16UI: u32 = 0x8D77;
+pub const GL_RGBA16UI: u32 = 0x8D76;
+pub const GL_R16I: u32 = 0x8233;
+pub const GL_RG16I: u32 = 0x823F;
+pub const GL_RGB16I: u32 = 0x8D89;
+pub const GL_RGBA16I: u32 = 0x8D88;
+
+pub const GL_RGB32UI: u32 = 0x8D71;
+pub const GL_RGB32I: u32 = 0x8D83;
+
+pub const GL_R16F: u32 = 0x822D;
+pub const GL_RG16F: u32 = 0x822F;
+pub const GL_RGB16F: u32 = 0x881B;
+pub const GL_RGBA16F: u32 = 0x881A;
+pub const GL_RGB32F: u32 = 0x8815;
+
+pub const GL_RGBA4: u32 = 0x8056;
+pub const GL_RGB565: u32 = 0x8D62;
+pub const GL_RGB5_A1: u32 = 0x8057;
+
+pub const GL_DEPTH_COMPONENT16: u32 = 0x81A5;
 pub const GL_DEPTH_COMPONENT24: u32 = 0x81A6;
 pub const GL_DEPTH_COMPONENT32F: u32 = 0x8CAC;
+pub const GL_STENCIL_INDEX8: u32 = 0x8D48;
 
 pub const GL_VERTEX_ATTRIB_ARRAY_ENABLED: u32 = 0x8622;
 pub const GL_VERTEX_ATTRIB_ARRAY_SIZE: u32 = 0x8623;
@@ -182,12 +234,13 @@ pub const GL_BUFFER_SIZE: u32 = 0x8764;
 pub const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
 pub const GL_RENDERBUFFER: u32 = 0x8D41;
 pub const GL_FRAMEBUFFER: u32 = 0x8D40;
-pub const GL_DEPTH_COMPONENT16: u32 = 0x81A5;
+pub const GL_FRAMEBUFFER_COMPLETE: u32 = 0x8CD5;
+pub const GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT: u32 = 0x8CD6;
+pub const GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT: u32 = 0x8CD7;
+pub const GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS: u32 = 0x8CD9;
+pub const GL_FRAMEBUFFER_UNSUPPORTED: u32 = 0x8DDD;
+
 pub const GL_DEPTH_STENCIL: u32 = 0x84F9;
-pub const GL_RGBA4: u32 = 0x8056;
-pub const GL_RGB565: u32 = 0x8D62;
-pub const GL_RGB5_A1: u32 = 0x8057;
-pub const GL_STENCIL_INDEX8: u32 = 0x8D48;
 
 pub(crate) const INVALID_HANDLE: u32 = 0;
 pub(crate) const FIRST_HANDLE: u32 = 1;
@@ -814,6 +867,49 @@ impl Context {
         self.kernel.write_texture_metadata(&bindings, dest_ptr);
     }
 
+    pub(crate) fn get_color_attachment_handle_at(&self, idx: usize) -> GpuHandle {
+        if let Some(fb_handle) = self.bound_draw_framebuffer {
+            if let Some(fb) = self.framebuffers.get(&fb_handle) {
+                if idx < fb.color_attachments.len() {
+                    match &fb.color_attachments[idx] {
+                        Some(Attachment::Texture(tex_handle)) => {
+                            if let Some(tex) = self.textures.get(tex_handle) {
+                                if let Some(level0) = tex.levels.get(&0) {
+                                    return level0.gpu_handle;
+                                }
+                            }
+                        }
+                        Some(Attachment::Renderbuffer(rb_handle)) => {
+                            if let Some(rb) = self.renderbuffers.get(rb_handle) {
+                                return rb.gpu_handle;
+                            }
+                        }
+                        None => {}
+                    }
+                }
+            }
+            GpuHandle::invalid()
+        } else {
+            // Default FB
+            if idx == 0
+                && !self.default_draw_buffers.is_empty()
+                && self.default_draw_buffers[0] == 0x0405
+            {
+                self.default_framebuffer.gpu_handle
+            } else {
+                GpuHandle::invalid()
+            }
+        }
+    }
+
+    pub(crate) fn get_attachment_size(&self, handle: GpuHandle) -> (u32, u32) {
+        if let Some(buf) = self.kernel.get_buffer(handle) {
+            (buf.width, buf.height)
+        } else {
+            (0, 0)
+        }
+    }
+
     pub(crate) fn get_draw_targets(&self) -> (Vec<GpuHandle>, Vec<u32>, u32, u32) {
         if let Some(fb_handle) = self.bound_draw_framebuffer {
             if let Some(fb) = self.framebuffers.get(&fb_handle) {
@@ -1015,12 +1111,49 @@ pub(crate) fn get_bytes_per_pixel(internal_format: u32) -> u32 {
 /// Map GL internal format to wgt::TextureFormat
 pub(crate) fn gl_to_wgt_format(internal_format: u32) -> wgpu_types::TextureFormat {
     match internal_format {
-        GL_R32F => wgpu_types::TextureFormat::R32Float,
-        GL_RG32F => wgpu_types::TextureFormat::Rg32Float,
-        GL_RGBA32F => wgpu_types::TextureFormat::Rgba32Float,
-        GL_RGBA8 | GL_RGB8 | GL_RGBA | GL_RGB => wgpu_types::TextureFormat::Rgba8Unorm,
+        GL_R8UI => wgpu_types::TextureFormat::R8Uint,
+        GL_RG8UI => wgpu_types::TextureFormat::Rg8Uint,
+        GL_RGB8UI => wgpu_types::TextureFormat::Rgba8Uint,
+        GL_RGBA8UI => wgpu_types::TextureFormat::Rgba8Uint,
+        GL_R8I => wgpu_types::TextureFormat::R8Sint,
+        GL_RG8I => wgpu_types::TextureFormat::Rg8Sint,
+        GL_RGB8I => wgpu_types::TextureFormat::Rgba8Sint,
+        GL_RGBA8I => wgpu_types::TextureFormat::Rgba8Sint,
+
+        GL_R16UI => wgpu_types::TextureFormat::R16Uint,
+        GL_RG16UI => wgpu_types::TextureFormat::Rg16Uint,
+        GL_RGB16UI => wgpu_types::TextureFormat::Rgba16Uint,
+        GL_RGBA16UI => wgpu_types::TextureFormat::Rgba16Uint,
+        GL_R16I => wgpu_types::TextureFormat::R16Sint,
+        GL_RG16I => wgpu_types::TextureFormat::Rg16Sint,
+        GL_RGB16I => wgpu_types::TextureFormat::Rgba16Sint,
+        GL_RGBA16I => wgpu_types::TextureFormat::Rgba16Sint,
+
+        GL_R32UI => wgpu_types::TextureFormat::R32Uint,
+        GL_RG32UI => wgpu_types::TextureFormat::Rg32Uint,
+        GL_RGB32UI => wgpu_types::TextureFormat::Rgba32Uint,
+        GL_RGBA32UI => wgpu_types::TextureFormat::Rgba32Uint,
+        GL_R32I => wgpu_types::TextureFormat::R32Sint,
+        GL_RG32I => wgpu_types::TextureFormat::Rg32Sint,
+        GL_RGB32I => wgpu_types::TextureFormat::Rgba32Sint,
+        GL_RGBA32I => wgpu_types::TextureFormat::Rgba32Sint,
+
         GL_RED => wgpu_types::TextureFormat::R8Unorm,
         GL_RG => wgpu_types::TextureFormat::Rg8Unorm,
+        GL_RGB => wgpu_types::TextureFormat::Rgba8Unorm,
+        GL_RGBA => wgpu_types::TextureFormat::Rgba8Unorm,
+
+        GL_R16F => wgpu_types::TextureFormat::R16Float,
+        GL_RG16F => wgpu_types::TextureFormat::Rg16Float,
+        GL_RGB16F => wgpu_types::TextureFormat::Rgba16Float,
+        GL_RGBA16F => wgpu_types::TextureFormat::Rgba16Float,
+
+        GL_R32F => wgpu_types::TextureFormat::R32Float,
+        GL_RG32F => wgpu_types::TextureFormat::Rg32Float,
+        GL_RGB32F => wgpu_types::TextureFormat::Rgba32Float,
+        GL_RGBA32F => wgpu_types::TextureFormat::Rgba32Float,
+
+        GL_RGBA8 | GL_RGB8 => wgpu_types::TextureFormat::Rgba8Unorm,
 
         // Packed 16-bit formats.
         // WebGL2 requires these. We store them in distinct formats to tell them apart in the HAL.

@@ -334,10 +334,17 @@ impl TransferEngine {
                             if dst_bpp == 4 {
                                 dest[dst_off..dst_off + 4]
                                     .copy_from_slice(&src.data[src_off..src_off + 4]);
+                            } else if dst_bpp == 16 {
+                                // RGBA8 -> RGBA32F
+                                for i in 0..4 {
+                                    let val = src.data[src_off + i] as f32 / 255.0;
+                                    dest[dst_off + i * 4..dst_off + (i + 1) * 4]
+                                        .copy_from_slice(&val.to_ne_bytes());
+                                }
                             }
                         }
                         wgt::TextureFormat::R16Uint => {
-                            // RGB565
+                            // RGB565 (stored as BGR565 bits in our impl)
                             let val =
                                 u16::from_ne_bytes([src.data[src_off], src.data[src_off + 1]]);
                             let b5 = ((val >> 11) & 0x1F) as u8;
@@ -384,7 +391,40 @@ impl TransferEngine {
                             }
                         }
                         wgt::TextureFormat::Rgba32Float => {
+                            if dst_bpp == 16 {
+                                dest[dst_off..dst_off + 16]
+                                    .copy_from_slice(&src.data[src_off..src_off + 16]);
+                            } else if dst_bpp == 4 {
+                                // RGBA32F -> RGBA8
+                                for i in 0..4 {
+                                    let mut bits = [0u8; 4];
+                                    bits.copy_from_slice(
+                                        &src.data[src_off + i * 4..src_off + (i + 1) * 4],
+                                    );
+                                    let val = f32::from_ne_bytes(bits);
+                                    dest[dst_off + i] = (val.clamp(0.0, 1.0) * 255.0).round() as u8;
+                                }
+                            }
+                        }
+                        wgt::TextureFormat::R32Float => {
+                            if dst_bpp == 4 {
+                                dest[dst_off..dst_off + 4]
+                                    .copy_from_slice(&src.data[src_off..src_off + 4]);
+                            } else if dst_bpp == 1 {
+                                // R32F -> R8
+                                let mut bits = [0u8; 4];
+                                bits.copy_from_slice(&src.data[src_off..src_off + 4]);
+                                let val = f32::from_ne_bytes(bits);
+                                dest[dst_off] = (val.clamp(0.0, 1.0) * 255.0).round() as u8;
+                            }
+                        }
+                        wgt::TextureFormat::Rgba32Uint | wgt::TextureFormat::Rgba32Sint => {
                             let bytes_to_copy = dst_bpp.min(16);
+                            dest[dst_off..dst_off + bytes_to_copy]
+                                .copy_from_slice(&src.data[src_off..src_off + bytes_to_copy]);
+                        }
+                        wgt::TextureFormat::R32Uint | wgt::TextureFormat::R32Sint => {
+                            let bytes_to_copy = dst_bpp.min(4);
                             dest[dst_off..dst_off + bytes_to_copy]
                                 .copy_from_slice(&src.data[src_off..src_off + bytes_to_copy]);
                         }

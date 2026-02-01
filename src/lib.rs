@@ -625,6 +625,11 @@ pub extern "C" fn wasm_ctx_bind_framebuffer(ctx: u32, target: u32, fb: u32) -> u
     webgl2_context::ctx_bind_framebuffer(ctx, target, fb)
 }
 
+#[no_mangle]
+pub extern "C" fn wasm_ctx_check_framebuffer_status(ctx: u32, target: u32) -> u32 {
+    webgl2_context::ctx_check_framebuffer_status(ctx, target)
+}
+
 /// Attach a texture to the bound framebuffer.
 /// Returns errno.
 #[no_mangle]

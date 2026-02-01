@@ -332,6 +332,35 @@ impl GpuKernel {
         }
     }
 
+    /// Clear a sub-region of a buffer with raw bytes
+    pub fn clear_rect_raw(
+        &mut self,
+        handle: GpuHandle,
+        pixel_bytes: &[u8],
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    ) {
+        if let Some(buf) = self.get_buffer_mut(handle) {
+            let bpp = buf.format.block_copy_size(None).unwrap_or(4) as usize;
+            let bytes_to_copy = &pixel_bytes[..bpp.min(pixel_bytes.len())];
+
+            for row in 0..height {
+                for col in 0..width {
+                    let dx = x + col as i32;
+                    let dy = y + row as i32;
+                    if dx >= 0 && dx < buf.width as i32 && dy >= 0 && dy < buf.height as i32 {
+                        let off = buf.get_pixel_offset(dx as u32, dy as u32, 0);
+                        if off + bpp <= buf.data.len() {
+                            buf.data[off..off + bpp].copy_from_slice(bytes_to_copy);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Clear a sub-region of a buffer
     pub fn clear_rect(
         &mut self,
@@ -358,7 +387,42 @@ impl GpuKernel {
                         std::slice::from_raw_parts(color.as_ptr() as *const u8, 16)
                     });
                 }
+                wgt::TextureFormat::R32Float => {
+                    pixel_bytes.copy_from_slice(&color[0].to_ne_bytes());
+                }
+                wgt::TextureFormat::Rg32Float => {
+                    pixel_bytes[0..4].copy_from_slice(&color[0].to_ne_bytes());
+                    pixel_bytes[4..8].copy_from_slice(&color[1].to_ne_bytes());
+                }
+                wgt::TextureFormat::Rgba32Uint | wgt::TextureFormat::Rgba32Sint => {
+                    // Lossy clear for integer formats from float color
+                    for i in 0..4 {
+                        let c = (color[i] as u32).to_ne_bytes();
+                        pixel_bytes[i * 4..(i + 1) * 4].copy_from_slice(&c);
+                    }
+                }
+                wgt::TextureFormat::R32Uint | wgt::TextureFormat::R32Sint => {
+                    pixel_bytes.copy_from_slice(&(color[0] as u32).to_ne_bytes());
+                }
+                wgt::TextureFormat::Rg32Uint | wgt::TextureFormat::Rg32Sint => {
+                    pixel_bytes[0..4].copy_from_slice(&(color[0] as u32).to_ne_bytes());
+                    pixel_bytes[4..8].copy_from_slice(&(color[1] as u32).to_ne_bytes());
+                }
+                wgt::TextureFormat::R8Uint | wgt::TextureFormat::R8Sint => {
+                    pixel_bytes[0] = color[0] as u8;
+                }
+                wgt::TextureFormat::Rg8Sint => {
+                    pixel_bytes[0] = color[0] as u8;
+                    pixel_bytes[1] = color[1] as u8;
+                }
+                wgt::TextureFormat::Rgba8Uint | wgt::TextureFormat::Rgba8Sint => {
+                    pixel_bytes[0] = color[0] as u8;
+                    pixel_bytes[1] = color[1] as u8;
+                    pixel_bytes[2] = color[2] as u8;
+                    pixel_bytes[3] = color[3] as u8;
+                }
                 wgt::TextureFormat::R16Uint => {
+                    // Placeholder for RGB565 logic
                     let r = (color[0].clamp(0.0, 1.0) * 31.0).round() as u16;
                     let g = (color[1].clamp(0.0, 1.0) * 63.0).round() as u16;
                     let b = (color[2].clamp(0.0, 1.0) * 31.0).round() as u16;
@@ -366,6 +430,7 @@ impl GpuKernel {
                     pixel_bytes.copy_from_slice(&val.to_ne_bytes());
                 }
                 wgt::TextureFormat::Rg8Uint => {
+                    // Placeholder for RGBA4 logic
                     let r = (color[0].clamp(0.0, 1.0) * 15.0).round() as u16;
                     let g = (color[1].clamp(0.0, 1.0) * 15.0).round() as u16;
                     let b = (color[2].clamp(0.0, 1.0) * 15.0).round() as u16;
@@ -374,6 +439,7 @@ impl GpuKernel {
                     pixel_bytes.copy_from_slice(&val.to_ne_bytes());
                 }
                 wgt::TextureFormat::R16Sint => {
+                    // Placeholder for RGB5A1 logic
                     let r = (color[0].clamp(0.0, 1.0) * 31.0).round() as u16;
                     let g = (color[1].clamp(0.0, 1.0) * 31.0).round() as u16;
                     let b = (color[2].clamp(0.0, 1.0) * 31.0).round() as u16;
@@ -387,18 +453,7 @@ impl GpuKernel {
                 }
             }
 
-            for row in 0..height {
-                for col in 0..width {
-                    let dx = x + col as i32;
-                    let dy = y + row as i32;
-                    if dx >= 0 && dx < buf.width as i32 && dy >= 0 && dy < buf.height as i32 {
-                        let off = buf.get_pixel_offset(dx as u32, dy as u32, 0);
-                        if off + bpp <= buf.data.len() {
-                            buf.data[off..off + bpp].copy_from_slice(&pixel_bytes);
-                        }
-                    }
-                }
-            }
+            self.clear_rect_raw(handle, &pixel_bytes, x, y, width, height);
         }
     }
 
