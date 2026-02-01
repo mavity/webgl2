@@ -15,7 +15,19 @@ export const ERR_GL = 5;
 export const ERR_INTERNAL = 6;
 
 import { WasmWebGLTexture } from './webgl2_texture.js';
-import { WasmWebGLShader, WasmWebGLProgram, WasmWebGLBuffer, WasmWebGLRenderbuffer } from './webgl2_resources.js';
+import {
+  WasmWebGLShader,
+  WasmWebGLProgram,
+  WasmWebGLBuffer,
+  WasmWebGLRenderbuffer,
+  WasmWebGLFramebuffer,
+  WasmWebGLVertexArrayObject,
+  WasmWebGLQuery,
+  WasmWebGLSampler,
+  WasmWebGLSync,
+  WasmWebGLTransformFeedback,
+  WasmWebGLUniformLocation
+} from './webgl2_resources.js';
 
 /**
  * @implements {WebGL2RenderingContext}
@@ -181,15 +193,17 @@ export class WasmWebGL2RenderingContext {
   MIRRORED_REPEAT = 0x8370;
 
   /**
-   * @param {WebAssembly.Instance} instance
-   * @param {u32} ctxHandle
-   * @param {number} width
-   * @param {number} height
-   * @param {boolean} [debugShaders]
-   * @param {any} [sharedTable]
-   * @param {any} [tableAllocator]
+   * @param {{
+   *  instance: WebAssembly.Instance,
+   *  ctxHandle: number,
+   *  width: number,
+   *  height: number,
+   *  debugShaders: boolean,
+   *  sharedTable: any,
+   *  tableAllocator: any
+   * }} options
    */
-  constructor({ instance, ctxHandle, width, height, debugShaders = false, sharedTable = null, tableAllocator = null }) {
+  constructor({ instance, ctxHandle, width, height, debugShaders = false, sharedTable = null, tableAllocator = null, turboGlobals = null }) {
     this._instance = instance;
     this._ctxHandle = ctxHandle;
     this._destroyed = false;
@@ -202,17 +216,8 @@ export class WasmWebGL2RenderingContext {
     this._sharedTable = sharedTable;
     this._tableAllocator = tableAllocator;
 
-    // TODO: refactor to NOT have scratch layout anymore
-    // Currently the code uses scratch layout from WASM instead of precise allocation
-    const ex = this._instance.exports;
-    this._scratchLayout = {
-      attr: ex.wasm_get_attr_ptr(ctxHandle),
-      uniform: ex.wasm_get_uniform_ptr(ctxHandle),
-      varying: ex.wasm_get_varying_ptr(ctxHandle),
-      private: ex.wasm_get_private_ptr(ctxHandle),
-      texture: ex.wasm_get_texture_ptr(ctxHandle),
-      frame_sp: ex.wasm_get_frame_sp(ctxHandle),
-    };
+    // TODO: potentially retrieve those one demand from the main WASM module when shader WASM modules are initialised
+    this._turboGlobals = turboGlobals;
 
     WasmWebGL2RenderingContext._contexts.set(this._ctxHandle, this);
   }
@@ -250,26 +255,6 @@ export class WasmWebGL2RenderingContext {
 
   /** @type {Map<number, WasmWebGL2RenderingContext>} */
   static _contexts = new Map();
-
-  _executeShader(type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr, frameSp) {
-    if (!this._currentProgram) {
-      return;
-    }
-
-    if (tableIdx > 0 && this._sharedTable) {
-      const func = this._sharedTable.get(tableIdx);
-      if (func) {
-        func(this._ctxHandle, type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr, frameSp);
-        return;
-      }
-    }
-
-    const shaderInstance = type === this.VERTEX_SHADER ? this._currentProgram._vsInstance : this._currentProgram._fsInstance;
-    if (shaderInstance && shaderInstance.exports.main) {
-      // @ts-ignore
-      shaderInstance.exports.main(this._ctxHandle, type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr);
-    }
-  }
 
   destroy() {
     if (this._destroyed) return;
@@ -450,7 +435,7 @@ export class WasmWebGL2RenderingContext {
       const msg = readErrorMessage(this._instance);
       throw new Error(`Failed to create framebuffer: ${msg}`);
     }
-    return handle;
+    return new WasmWebGLFramebuffer(this, handle);
   }
 
   deleteFramebuffer(fb) {
@@ -459,8 +444,12 @@ export class WasmWebGL2RenderingContext {
     if (!ex || typeof ex.wasm_ctx_delete_framebuffer !== 'function') {
       throw new Error('wasm_ctx_delete_framebuffer not found');
     }
-    const code = ex.wasm_ctx_delete_framebuffer(this._ctxHandle, fb);
+    const handle = fb && typeof fb === 'object' && typeof fb._handle === 'number' ? fb._handle : (fb >>> 0);
+    const code = ex.wasm_ctx_delete_framebuffer(this._ctxHandle, handle);
     _checkErr(code, this._instance);
+    if (fb && typeof fb === 'object') {
+      try { fb._handle = 0; fb._deleted = true; } catch (e) { /* ignore */ }
+    }
   }
 
   bindFramebuffer(target, fb) {
@@ -469,7 +458,8 @@ export class WasmWebGL2RenderingContext {
     if (!ex || typeof ex.wasm_ctx_bind_framebuffer !== 'function') {
       throw new Error('wasm_ctx_bind_framebuffer not found');
     }
-    const code = ex.wasm_ctx_bind_framebuffer(this._ctxHandle, target >>> 0, fb >>> 0);
+    const handle = fb && typeof fb === 'object' && typeof fb._handle === 'number' ? fb._handle : (fb >>> 0);
+    const code = ex.wasm_ctx_bind_framebuffer(this._ctxHandle, target >>> 0, handle);
     _checkErr(code, this._instance);
   }
 
@@ -879,6 +869,12 @@ export class WasmWebGL2RenderingContext {
     const env = {
       memory: this._instance.exports.memory,
       __indirect_function_table: this._sharedTable,
+      ACTIVE_ATTR_PTR: this._turboGlobals.ACTIVE_ATTR_PTR,
+      ACTIVE_UNIFORM_PTR: this._turboGlobals.ACTIVE_UNIFORM_PTR,
+      ACTIVE_VARYING_PTR: this._turboGlobals.ACTIVE_VARYING_PTR,
+      ACTIVE_PRIVATE_PTR: this._turboGlobals.ACTIVE_PRIVATE_PTR,
+      ACTIVE_TEXTURE_PTR: this._turboGlobals.ACTIVE_TEXTURE_PTR,
+      ACTIVE_FRAME_SP: this._turboGlobals.ACTIVE_FRAME_SP,
       ...vsDebugEnv
     };
 
@@ -913,6 +909,12 @@ export class WasmWebGL2RenderingContext {
     const fsEnv = {
       memory: this._instance.exports.memory,
       __indirect_function_table: this._sharedTable,
+      ACTIVE_ATTR_PTR: this._turboGlobals.ACTIVE_ATTR_PTR,
+      ACTIVE_UNIFORM_PTR: this._turboGlobals.ACTIVE_UNIFORM_PTR,
+      ACTIVE_VARYING_PTR: this._turboGlobals.ACTIVE_VARYING_PTR,
+      ACTIVE_PRIVATE_PTR: this._turboGlobals.ACTIVE_PRIVATE_PTR,
+      ACTIVE_TEXTURE_PTR: this._turboGlobals.ACTIVE_TEXTURE_PTR,
+      ACTIVE_FRAME_SP: this._turboGlobals.ACTIVE_FRAME_SP,
       ...fsDebugEnv
     };
 
@@ -970,29 +972,6 @@ export class WasmWebGL2RenderingContext {
     }
   }
 
-  getProgramDebugStub(program, shaderType) {
-    this._assertNotDestroyed();
-    const ex = this._instance.exports;
-    if (!ex || typeof ex.wasm_ctx_get_program_debug_stub !== 'function') {
-      return null;
-    }
-    const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
-    const len = ex.wasm_ctx_get_program_debug_stub(this._ctxHandle, programHandle, shaderType, 0, 0);
-    if (len === 0) return null;
-
-    const ptr = ex.wasm_alloc(len);
-    if (ptr === 0) return null;
-
-    try {
-      const actualLen = ex.wasm_ctx_get_program_debug_stub(this._ctxHandle, programHandle, shaderType, ptr, len);
-      const mem = new Uint8Array(ex.memory.buffer);
-      const bytes = mem.subarray(ptr, ptr + actualLen);
-      return new TextDecoder().decode(bytes);
-    } finally {
-      ex.wasm_free(ptr);
-    }
-  }
-
   deleteProgram(program) {
     this._assertNotDestroyed();
     const ex = this._instance.exports;
@@ -1001,15 +980,9 @@ export class WasmWebGL2RenderingContext {
     }
     const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
 
-    // Free table indices
-    if (program && typeof program === 'object') {
-      if (program._vsTableIndex !== undefined && this._tableAllocator) {
-        this._tableAllocator.free(program._vsTableIndex);
-      }
-      if (program._fsTableIndex !== undefined && this._tableAllocator) {
-        this._tableAllocator.free(program._fsTableIndex);
-      }
-    }
+    // Table indices are now freed by Rust when the Program's refcount reaches zero.
+    // This allows bound programs to remain valid even if deleted by the user,
+    // as required by the WebGL specification.
 
     const code = ex.wasm_ctx_delete_program(this._ctxHandle, programHandle);
     _checkErr(code, this._instance);
@@ -1566,7 +1539,7 @@ export class WasmWebGL2RenderingContext {
     }
     const handle = ex.wasm_ctx_create_vertex_array(this._ctxHandle);
     if (handle === 0) return null;
-    return { _handle: handle, _type: 'WebGLVertexArrayObject' };
+    return new WasmWebGLVertexArrayObject(this, handle);
   }
 
   bindVertexArray(vao) {
@@ -1764,7 +1737,7 @@ export class WasmWebGL2RenderingContext {
       const mem = new Uint8Array(ex.memory.buffer);
       mem.set(bytes, ptr);
       const loc = ex.wasm_ctx_get_uniform_location(this._ctxHandle, programHandle, ptr, len);
-      return loc === -1 ? null : loc;
+      return loc === -1 ? null : new WasmWebGLUniformLocation(this, loc);
     } finally {
       ex.wasm_free(ptr);
     }
@@ -2042,10 +2015,10 @@ export class WasmWebGL2RenderingContext {
   }
   isFramebuffer(fb) {
     this._assertNotDestroyed();
-    // Framebuffer is currently implemented as a number handle
-    if (typeof fb !== 'number') return false;
+    if (!fb || typeof fb !== 'object' || !(fb instanceof WasmWebGLFramebuffer)) return false;
+    if (fb._ctx !== this) return false;
     const ex = this._instance.exports;
-    return ex.wasm_ctx_is_framebuffer(this._ctxHandle, fb) !== 0;
+    return ex.wasm_ctx_is_framebuffer(this._ctxHandle, fb._handle) !== 0;
   }
   isProgram(p) {
     this._assertNotDestroyed();

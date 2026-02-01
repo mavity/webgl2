@@ -240,7 +240,7 @@ test('WebGPU Bind Groups and Textures', async (t) => {
         (result[1] >= 127 && result[1] <= 128) &&
         (result[2] >= 63 && result[2] <= 64) &&
         (result[3] == 255),
-        `R:${result[0]} should be around 127/128, G:${result[1]} should be around 127/128, B:${result[2]} should be around 63/64, Alpha should be 255`);
+        `R:${result[0]} should be around 127/128, G:${result[1]} should be around 127/128, B:${result[2]} should be around 63/64, Alpha:${result[3]} should be 255`);
     } finally {
       readBuffer.unmap();
     }

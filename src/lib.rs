@@ -27,19 +27,63 @@ pub mod coverage;
 extern "C" {
     fn print(ptr: *const u8, len: usize);
     fn dispatch_uncaptured_error(ptr: *const u8, len: usize);
-    fn wasm_execute_shader(
-        ctx: u32,
-        type_: u32,
-        table_idx: u32,
-        attr_ptr: i32,
-        uniform_ptr: i32,
-        varying_ptr: i32,
-        private_ptr: i32,
-        texture_ptr: i32,
-        frame_sp: i32,
-    );
     fn wasm_register_shader(ptr: *const u8, len: usize) -> u32;
+    fn wasm_release_shader_index(idx: u32);
 }
+
+// Globals used to communicate with shader WASM modules.
+// In wasm32 builds these are imported from the host (`env`) as mutable globals so
+// they can be shared between the main module and transient shader instances.
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "env")]
+extern "C" {
+    #[link_name = "ACTIVE_ATTR_PTR"]
+    static mut ACTIVE_ATTR_PTR: u32;
+    #[link_name = "ACTIVE_UNIFORM_PTR"]
+    static mut ACTIVE_UNIFORM_PTR: u32;
+    #[link_name = "ACTIVE_VARYING_PTR"]
+    static mut ACTIVE_VARYING_PTR: u32;
+    #[link_name = "ACTIVE_PRIVATE_PTR"]
+    static mut ACTIVE_PRIVATE_PTR: u32;
+    #[link_name = "ACTIVE_TEXTURE_PTR"]
+    static mut ACTIVE_TEXTURE_PTR: u32;
+    #[link_name = "ACTIVE_FRAME_SP"]
+    static mut ACTIVE_FRAME_SP: u32;
+
+    // Host callback - synchronize turbo globals from Rust into the host-provided
+    // WebAssembly.Global objects (single call per draw). This avoids per-vertex
+    // JS calls while still allowing shared Global updates that shader modules
+    // will read.
+    fn wasm_sync_turbo_globals(
+        attr: u32,
+        uniform: u32,
+        varying: u32,
+        private: u32,
+        texture: u32,
+        frame_sp: u32,
+    );
+}
+
+// When running natively (non-wasm), provide local mutable statics as a fallback
+// to make unit testing and host-side code simpler.
+#[cfg(not(target_arch = "wasm32"))]
+#[no_mangle]
+pub static mut ACTIVE_ATTR_PTR: u32 = 0;
+#[cfg(not(target_arch = "wasm32"))]
+#[no_mangle]
+pub static mut ACTIVE_UNIFORM_PTR: u32 = 0;
+#[cfg(not(target_arch = "wasm32"))]
+#[no_mangle]
+pub static mut ACTIVE_VARYING_PTR: u32 = 0;
+#[cfg(not(target_arch = "wasm32"))]
+#[no_mangle]
+pub static mut ACTIVE_PRIVATE_PTR: u32 = 0;
+#[cfg(not(target_arch = "wasm32"))]
+#[no_mangle]
+pub static mut ACTIVE_TEXTURE_PTR: u32 = 0;
+#[cfg(not(target_arch = "wasm32"))]
+#[no_mangle]
+pub static mut ACTIVE_FRAME_SP: u32 = 0;
 
 // Access the linker-provided __heap_base
 #[cfg(target_arch = "wasm32")]
@@ -57,6 +101,9 @@ unsafe fn dispatch_uncaptured_error(_ptr: *const u8, _len: usize) {}
 unsafe fn wasm_register_shader(_ptr: *const u8, _len: usize) -> u32 {
     0
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn wasm_release_shader_index(_idx: u32) {}
 
 #[cfg(not(target_arch = "wasm32"))]
 unsafe fn wasm_execute_shader(
@@ -98,34 +145,12 @@ pub fn js_log(level: u32, s: &str) {
     js_print(&format!("{}{}", prefix, s));
 }
 
-pub fn js_execute_shader(
-    ctx: u32,
-    type_: u32,
-    table_idx: u32,
-    attr_ptr: u32,
-    uniform_ptr: u32,
-    varying_ptr: u32,
-    private_ptr: u32,
-    texture_ptr: u32,
-    frame_sp: u32,
-) {
-    unsafe {
-        wasm_execute_shader(
-            ctx,
-            type_,
-            table_idx,
-            attr_ptr as i32,
-            uniform_ptr as i32,
-            varying_ptr as i32,
-            private_ptr as i32,
-            texture_ptr as i32,
-            frame_sp as i32,
-        );
-    }
-}
-
 pub fn js_register_shader(bytes: &[u8]) -> u32 {
     unsafe { wasm_register_shader(bytes.as_ptr(), bytes.len()) }
+}
+
+pub fn js_release_shader_index(idx: u32) {
+    unsafe { wasm_release_shader_index(idx) }
 }
 
 // ============================================================================

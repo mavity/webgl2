@@ -6,7 +6,7 @@ test('deleteFramebuffer does not throw for a valid handle', async () => {
   const gl = await webGL2();
   try {
     const fb = gl.createFramebuffer();
-    assert(Number.isInteger(fb) && fb > 0);
+    assert(fb && typeof fb === 'object');
     gl.deleteFramebuffer(fb);
   } finally {
     gl.destroy();

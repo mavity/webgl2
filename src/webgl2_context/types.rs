@@ -300,6 +300,17 @@ pub(crate) struct Program {
     pub(crate) fs_table_idx: Option<u32>,
 }
 
+impl Drop for Program {
+    fn drop(&mut self) {
+        if let Some(idx) = self.vs_table_idx {
+            crate::js_release_shader_index(idx);
+        }
+        if let Some(idx) = self.fs_table_idx {
+            crate::js_release_shader_index(idx);
+        }
+    }
+}
+
 impl Default for Program {
     fn default() -> Self {
         Program {

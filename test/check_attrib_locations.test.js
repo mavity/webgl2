@@ -25,7 +25,15 @@ test('Check Attribute Locations', async (t) => {
             },
             wasm_execute_shader: () => {},
             wasm_register_shader: () => { return 0; },
+            wasm_release_shader_index: () => {},
+            wasm_sync_turbo_globals: () => {},
             dispatch_uncaptured_error: () => {},
+            ACTIVE_ATTR_PTR: new WebAssembly.Global({ value: 'i32', mutable: true }, 0),
+            ACTIVE_UNIFORM_PTR: new WebAssembly.Global({ value: 'i32', mutable: true }, 0),
+            ACTIVE_VARYING_PTR: new WebAssembly.Global({ value: 'i32', mutable: true }, 0),
+            ACTIVE_PRIVATE_PTR: new WebAssembly.Global({ value: 'i32', mutable: true }, 0),
+            ACTIVE_TEXTURE_PTR: new WebAssembly.Global({ value: 'i32', mutable: true }, 0),
+            ACTIVE_FRAME_SP: new WebAssembly.Global({ value: 'i32', mutable: true }, 0),
             // Required by egg crate for timing measurements
             now: () => {
                 return performance.now();

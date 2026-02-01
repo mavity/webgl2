@@ -545,7 +545,26 @@ pub fn translate_expression_component(
         }
         Expression::FunctionArgument(idx) => {
             if ctx.is_entry_point {
-                // For entry points, arguments are loaded from memory
+                let arg = &ctx.func.arguments[*idx as usize];
+
+                // Tier 2: Built-ins that are passed as direct arguments
+                if let Some(naga::Binding::BuiltIn(bi)) = arg.binding {
+                    match (bi, ctx.stage) {
+                        (naga::BuiltIn::VertexIndex, naga::ShaderStage::Vertex) => {
+                            // vertex_id is argument 0
+                            ctx.wasm_func.instruction(&Instruction::LocalGet(0));
+                            return Ok(());
+                        }
+                        (naga::BuiltIn::InstanceIndex, naga::ShaderStage::Vertex) => {
+                            // instance_id is argument 1
+                            ctx.wasm_func.instruction(&Instruction::LocalGet(1));
+                            return Ok(());
+                        }
+                        _ => {}
+                    }
+                }
+
+                // For entry points, regular arguments are loaded from memory
                 // VS: from attr_ptr (Global 0)
                 // FS: from varying_ptr (Global 2)
                 if ctx.stage == naga::ShaderStage::Vertex {

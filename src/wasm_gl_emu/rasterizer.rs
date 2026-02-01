@@ -8,6 +8,30 @@ use crate::wasm_gl_emu::device::{GpuHandle, GpuKernel, StorageLayout};
 use crate::wasm_gl_emu::framebuffer::ColorAttachment;
 use crate::webgl2_context::types::*;
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WasmVec4(pub f32, pub f32, pub f32, pub f32);
+
+#[cfg(target_arch = "wasm32")]
+use core::arch::wasm32::v128;
+
+#[cfg(target_arch = "wasm32")]
+use crate::wasm_sync_turbo_globals;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy)]
+pub struct v128(u128);
+
+type VsEntryFn = extern "C" fn(i32, i32, i32);
+type FsEntryFn = extern "C" fn(i32, i32);
+
+#[cfg(not(target_arch = "wasm32"))]
+extern "C" fn dummy_vs(_: i32, _: i32, _: i32) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+extern "C" fn dummy_fs(_: i32, _: i32) {}
+
 /// Vertex data after vertex shader execution
 #[derive(Clone)]
 pub struct ProcessedVertex {
@@ -1058,30 +1082,25 @@ impl Rasterizer {
         &self,
         varyings: &[u32],
         pipeline: &RasterPipeline,
-        state: &RenderState,
+        _state: &RenderState,
         target_formats: &[u32],
     ) -> Vec<Vec<u8>> {
-        // Copy varyings to shader memory as raw bits
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                varyings.as_ptr() as *const u8,
-                pipeline.memory.varying_ptr as *mut u8,
-                varyings.len() * 4,
-            );
-        }
+        // Turbo FS: Direct call with register arguments (Tier 2) and results (Tier 3)
+        let fs_table_idx = pipeline.fs_table_idx.unwrap_or(0);
 
-        // Execute fragment shader
-        crate::js_execute_shader(
-            state.ctx_handle,
-            pipeline.fragment_shader_type,
-            pipeline.fs_table_idx.unwrap_or(0),
-            pipeline.memory.attr_ptr,
-            pipeline.memory.uniform_ptr,
-            pipeline.memory.varying_ptr,
-            pipeline.memory.private_ptr,
-            pipeline.memory.texture_ptr,
-            pipeline.memory.frame_sp,
-        );
+        let varying_in_ptr = varyings.as_ptr() as i32;
+        let private_ptr = pipeline.memory.private_ptr as i32;
+
+        if cfg!(target_arch = "wasm32") && fs_table_idx > 0 {
+            unsafe {
+                crate::ACTIVE_UNIFORM_PTR = pipeline.memory.uniform_ptr;
+                crate::ACTIVE_VARYING_PTR = varying_in_ptr as u32;
+                crate::ACTIVE_PRIVATE_PTR = private_ptr as u32;
+                crate::ACTIVE_TEXTURE_PTR = pipeline.memory.texture_ptr;
+            }
+            let fs_func: FsEntryFn = unsafe { core::mem::transmute(fs_table_idx as usize) };
+            fs_func(varying_in_ptr, private_ptr);
+        }
 
         let mut results = Vec::with_capacity(target_formats.len());
 
@@ -1095,7 +1114,6 @@ impl Rasterizer {
                     16,
                 );
             }
-
             let c: [f32; 4] = unsafe { std::mem::transmute(color_bytes) };
 
             // Format-aware output
@@ -1140,6 +1158,34 @@ impl Rasterizer {
     pub fn draw(&self, kernel: &mut GpuKernel, mut config: DrawConfig) {
         let (_vx, _vy, _vw, _vh) = config.state.viewport;
 
+        // Tier 1 "Turbo" ABI: Set up the shared shader environment ONCE per draw call.
+        // These are imported by the shader WASM modules to avoid per-call setup.
+        // Write to them here to communicate with the shader WASM modules.
+        // For wasm targets the host provides mutable WebAssembly.Global objects
+        // (turboGlobals). We synchronize them once per draw via a single import
+        // call to avoid per-vertex JS overhead.
+        unsafe {
+            crate::ACTIVE_ATTR_PTR = config.state.memory.attr_ptr;
+            crate::ACTIVE_UNIFORM_PTR = config.state.memory.uniform_ptr;
+            crate::ACTIVE_VARYING_PTR = config.state.memory.varying_ptr;
+            crate::ACTIVE_PRIVATE_PTR = config.state.memory.private_ptr;
+            crate::ACTIVE_TEXTURE_PTR = config.state.memory.texture_ptr;
+            crate::ACTIVE_FRAME_SP = config.state.memory.frame_sp;
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        unsafe {
+            // Call into the host to sync the WebAssembly.Global objects
+            wasm_sync_turbo_globals(
+                config.state.memory.attr_ptr,
+                config.state.memory.uniform_ptr,
+                config.state.memory.varying_ptr,
+                config.state.memory.private_ptr,
+                config.state.memory.texture_ptr,
+                config.state.memory.frame_sp,
+            );
+        }
+
         // 0. Preparation: Copy uniforms and fix up pointers ONCE per draw call.
         // Doing this inside the vertex loop causes cumulative additions to relative offsets.
         unsafe {
@@ -1158,7 +1204,8 @@ impl Rasterizer {
             let ctx_block = uniform_ptr as *mut u32;
             for i in 0..64 {
                 let current_val = *ctx_block.add(i);
-                if current_val > 0 && current_val < 16384 { // TODO: magic number is not appropriate
+                if current_val > 0 && current_val < 16384 {
+                    // TODO: magic number is not appropriate
                     // It's a relative offset
                     *ctx_block.add(i) = current_val + uniform_ptr;
                 }
@@ -1199,40 +1246,28 @@ impl Rasterizer {
                     attr_dest,
                 );
 
-                // Execute Vertex Shader
-                crate::js_execute_shader(
-                    config.state.ctx_handle,
-                    config.pipeline.vertex_shader_type,
-                    config.pipeline.vs_table_idx.unwrap_or(0),
-                    config.state.memory.attr_ptr,
-                    config.state.memory.uniform_ptr,
-                    config.state.memory.varying_ptr,
-                    config.state.memory.private_ptr,
-                    config.state.memory.texture_ptr,
-                    config.state.memory.frame_sp,
-                );
+                // Turbo VS: Direct call with register arguments (Tier 2)
+                let vs_table_idx = config.pipeline.vs_table_idx.unwrap_or(0);
 
-                // Capture position and varyings
-                let mut pos_bytes = [0u8; 16];
-                let mut varying_bytes = vec![0u8; 256]; // Capture first 256 bytes of varyings
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        config.state.memory.varying_ptr as *const u8,
-                        pos_bytes.as_mut_ptr(),
-                        16,
-                    );
-                    std::ptr::copy_nonoverlapping(
-                        config.state.memory.varying_ptr as *const u8,
-                        varying_bytes.as_mut_ptr(),
-                        256,
-                    );
+                // Pre-allocate varying buffer for this vertex (256 bytes = 64 u32s)
+                let mut varyings_u32 = vec![0u32; 64];
+                let varying_out_ptr = varyings_u32.as_mut_ptr() as i32;
+
+                if cfg!(target_arch = "wasm32") && vs_table_idx > 0 {
+                    unsafe {
+                        crate::ACTIVE_VARYING_PTR = varying_out_ptr as u32;
+                    }
+                    let vs_func: VsEntryFn = unsafe { core::mem::transmute(vs_table_idx as usize) };
+                    vs_func(vertex_id as i32, actual_instance_id as i32, varying_out_ptr);
                 }
-                let pos: [f32; 4] = unsafe { std::mem::transmute(pos_bytes) };
 
-                // Read varyings as raw u32 bits to avoid NaN canonicalization
-                let varyings_u32: Vec<u32> =
-                    unsafe { std::slice::from_raw_parts(varying_bytes.as_ptr() as *const u32, 64) }
-                        .to_vec();
+                // gl_Position is expected at the start of varyings (Varying location 0)
+                let pos = [
+                    f32::from_bits(varyings_u32[0]),
+                    f32::from_bits(varyings_u32[1]),
+                    f32::from_bits(varyings_u32[2]),
+                    f32::from_bits(varyings_u32[3]),
+                ];
 
                 vertices.push(ProcessedVertex {
                     position: pos,
@@ -1309,7 +1344,8 @@ impl Rasterizer {
                                 data.len() / 4, // TODO: suspicious magic number
                             )
                         };
-                        let s_slice = if data.len() >= width * height * 5 { // TODO: suspicious magic numbers
+                        let s_slice = if data.len() >= width * height * 5 {
+                            // TODO: suspicious magic numbers
                             &mut data[width * height * 4..width * height * 5] // TODO: suspicious magic numbers
                         } else {
                             &mut []

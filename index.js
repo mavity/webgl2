@@ -100,7 +100,7 @@ export async function webGL2({ debug = (typeof process !== 'undefined' ? process
       }
     });
   }
-  const { ex, instance, sharedTable, tableAllocator } = await promise;
+  const { ex, instance, sharedTable, tableAllocator, turboGlobals } = await promise;
 
   // Initialize coverage if available
   if (ex.wasm_init_coverage && ex.COV_MAP_PTR) {
@@ -137,7 +137,8 @@ export async function webGL2({ debug = (typeof process !== 'undefined' ? process
     height,
     debugShaders: !!debugShaders,
     sharedTable,
-    tableAllocator
+    tableAllocator,
+    turboGlobals
   });
 
   if (size && typeof size.width === 'number' && typeof size.height === 'number') {
@@ -168,7 +169,11 @@ export async function webGPU({ debug = (typeof process !== 'undefined' ? process
       }
     });
   }
-  const { ex, instance } = await promise;
+
+  // Resolve the WASM initialization and return a WebGPU wrapper (GPU).
+  // Tests expect an object with `requestAdapter()`; return a `GPU` instance
+  // backed by the WASM exports and memory.
+  const { ex } = await promise;
   return new GPU(ex, ex.memory);
 }
 
@@ -220,27 +225,32 @@ async function initWASM({ debug } = {}) {
   });
   const tableAllocator = new TableAllocator();
 
+  // Create shared mutable globals that will be used by both the main module and
+  // transient shader modules. These are WebAssembly.Global objects with mutable
+  // i32 value so shaders can update pointer state directly.
+  const turboGlobals = {
+    ACTIVE_ATTR_PTR: new WebAssembly.Global({ value: 'i32', mutable: true }, 0),
+    ACTIVE_UNIFORM_PTR: new WebAssembly.Global({ value: 'i32', mutable: true }, 0),
+    ACTIVE_VARYING_PTR: new WebAssembly.Global({ value: 'i32', mutable: true }, 0),
+    ACTIVE_PRIVATE_PTR: new WebAssembly.Global({ value: 'i32', mutable: true }, 0),
+    ACTIVE_TEXTURE_PTR: new WebAssembly.Global({ value: 'i32', mutable: true }, 0),
+    ACTIVE_FRAME_SP: new WebAssembly.Global({ value: 'i32', mutable: true }, 0),
+  };
+
   const importObject = {
     env: {
       __indirect_function_table: sharedTable,  // Exact name LLVM expects
+      memory: new WebAssembly.Memory({ initial: 100 }),
+      ACTIVE_ATTR_PTR: turboGlobals.ACTIVE_ATTR_PTR,
+      ACTIVE_UNIFORM_PTR: turboGlobals.ACTIVE_UNIFORM_PTR,
+      ACTIVE_VARYING_PTR: turboGlobals.ACTIVE_VARYING_PTR,
+      ACTIVE_PRIVATE_PTR: turboGlobals.ACTIVE_PRIVATE_PTR,
+      ACTIVE_TEXTURE_PTR: turboGlobals.ACTIVE_TEXTURE_PTR,
+      ACTIVE_FRAME_SP: turboGlobals.ACTIVE_FRAME_SP,
       print: (ptr, len) => {
         const mem = new Uint8Array(instance.exports.memory.buffer);
         const bytes = mem.subarray(ptr, ptr + len);
         console.log(new TextDecoder('utf-8').decode(bytes));
-      },
-      wasm_execute_shader: (ctx, type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr, frameSp) => {
-        const gl = WasmWebGL2RenderingContext._contexts.get(ctx);
-        if (gl) {
-          gl._executeShader(type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr, frameSp);
-        } else {
-            // General device execution (WebGPU)
-            if (tableIdx > 0 && sharedTable) {
-                const func = sharedTable.get(tableIdx);
-                if (func) {
-                    func(ctx, type, tableIdx, attrPtr, uniformPtr, varyingPtr, privatePtr, texturePtr, frameSp);
-                }
-            }
-        }
       },
       wasm_register_shader: (ptr, len) => {
         const mem = new Uint8Array(instance.exports.memory.buffer);
@@ -251,6 +261,12 @@ async function initWASM({ debug } = {}) {
         const env = {
           memory: instance.exports.memory,
           __indirect_function_table: sharedTable,
+          ACTIVE_ATTR_PTR: turboGlobals.ACTIVE_ATTR_PTR,
+          ACTIVE_UNIFORM_PTR: turboGlobals.ACTIVE_UNIFORM_PTR,
+          ACTIVE_VARYING_PTR: turboGlobals.ACTIVE_VARYING_PTR,
+          ACTIVE_PRIVATE_PTR: turboGlobals.ACTIVE_PRIVATE_PTR,
+          ACTIVE_TEXTURE_PTR: turboGlobals.ACTIVE_TEXTURE_PTR,
+          ACTIVE_FRAME_SP: turboGlobals.ACTIVE_FRAME_SP,
         };
         
         // Copy math functions
@@ -271,6 +287,22 @@ async function initWASM({ debug } = {}) {
           sharedTable.set(index, shaderInstance.exports.main);
         }
         return index;
+      },
+      wasm_release_shader_index: (idx) => {
+        tableAllocator.free(idx);
+      },
+      wasm_sync_turbo_globals: (attr, uniform, varying, private_, texture, frame_sp) => {
+        try {
+          turboGlobals.ACTIVE_ATTR_PTR.value = attr >>> 0;
+          turboGlobals.ACTIVE_UNIFORM_PTR.value = uniform >>> 0;
+          turboGlobals.ACTIVE_VARYING_PTR.value = varying >>> 0;
+          turboGlobals.ACTIVE_PRIVATE_PTR.value = private_ >>> 0;
+          turboGlobals.ACTIVE_TEXTURE_PTR.value = texture >>> 0;
+          turboGlobals.ACTIVE_FRAME_SP.value = frame_sp >>> 0;
+        } catch (e) {
+          // Defensive: if the globals are immutable or not set, at least avoid crashing
+          console.warn('wasm_sync_turbo_globals failed to set globals', e);
+        }
       },
       dispatch_uncaptured_error: (ptr, len) => {
         const mem = new Uint8Array(instance.exports.memory.buffer);
@@ -312,7 +344,7 @@ async function initWASM({ debug } = {}) {
   if (!(ex.memory instanceof WebAssembly.Memory)) {
     throw new Error('WASM module missing memory export');
   }
-  return { ex, instance, module: wasmModule, sharedTable, tableAllocator };
+  return { ex, instance, module: wasmModule, sharedTable, tableAllocator, turboGlobals };
 }
 
 /**

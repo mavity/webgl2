@@ -46,7 +46,7 @@ test('ABI: single internal function with scalar param (flattened)', async () => 
   (type (;17;) (func (param f32) (result f32)))
   (type (;18;) (func (param f32)))
   (type (;19;) (func))
-  (type (;20;) (func (param i32 i32 i32 i32 i32 i32 i32 i32 i32)))
+  (type (;20;) (func (param i32 i32)))
   (import "env" "memory" (memory (;0;) 100))
   (import "env" "gl_sin" (func (;0;) (type 0)))
   (import "env" "gl_cos" (func (;1;) (type 1)))
@@ -66,12 +66,12 @@ test('ABI: single internal function with scalar param (flattened)', async () => 
   (import "env" "gl_asinh" (func (;15;) (type 15)))
   (import "env" "gl_acosh" (func (;16;) (type 16)))
   (import "env" "gl_atanh" (func (;17;) (type 17)))
-  (global (;0;) (mut i32) i32.const 0)
-  (global (;1;) (mut i32) i32.const 0)
-  (global (;2;) (mut i32) i32.const 0)
-  (global (;3;) (mut i32) i32.const 0)
-  (global (;4;) (mut i32) i32.const 0)
-  (global (;5;) (mut i32) i32.const 0)
+  (import "env" "ACTIVE_ATTR_PTR" (global (;0;) (mut i32)))
+  (import "env" "ACTIVE_UNIFORM_PTR" (global (;1;) (mut i32)))
+  (import "env" "ACTIVE_VARYING_PTR" (global (;2;) (mut i32)))
+  (import "env" "ACTIVE_PRIVATE_PTR" (global (;3;) (mut i32)))
+  (import "env" "ACTIVE_TEXTURE_PTR" (global (;4;) (mut i32)))
+  (import "env" "ACTIVE_FRAME_SP" (global (;5;) (mut i32)))
   (export "main" (func 20))
   (func (;18;) (type 18) (param f32)
     (local i32 f32 i32)
@@ -110,20 +110,12 @@ test('ABI: single internal function with scalar param (flattened)', async () => 
     f32.store offset=12
     return
   )
-  (func (;20;) (type 20) (param i32 i32 i32 i32 i32 i32 i32 i32 i32)
+  (func (;20;) (type 20) (param i32 i32)
     (local i32 f32 i32)
-    local.get 3
-    global.set 0
-    local.get 4
-    global.set 1
-    local.get 5
+    local.get 0
     global.set 2
-    local.get 6
+    local.get 1
     global.set 3
-    local.get 7
-    global.set 4
-    local.get 8
-    global.set 5
     call 19
     global.get 3
     f32.load
@@ -139,21 +131,21 @@ test('ABI: single internal function with scalar param (flattened)', async () => 
     i32.const 12
     i32.add
     f32.load
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store offset=12
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store offset=8
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store offset=4
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store
     return
   )
@@ -207,7 +199,7 @@ test('ABI: internal function with vec2 param (flattened)', async () => {
   (type (;17;) (func (param f32) (result f32)))
   (type (;18;) (func (param f32 f32) (result f32)))
   (type (;19;) (func))
-  (type (;20;) (func (param i32 i32 i32 i32 i32 i32 i32 i32 i32)))
+  (type (;20;) (func (param i32 i32)))
   (import "env" "memory" (memory (;0;) 100))
   (import "env" "gl_sin" (func (;0;) (type 0)))
   (import "env" "gl_cos" (func (;1;) (type 1)))
@@ -227,12 +219,12 @@ test('ABI: internal function with vec2 param (flattened)', async () => {
   (import "env" "gl_asinh" (func (;15;) (type 15)))
   (import "env" "gl_acosh" (func (;16;) (type 16)))
   (import "env" "gl_atanh" (func (;17;) (type 17)))
-  (global (;0;) (mut i32) i32.const 0)
-  (global (;1;) (mut i32) i32.const 0)
-  (global (;2;) (mut i32) i32.const 0)
-  (global (;3;) (mut i32) i32.const 0)
-  (global (;4;) (mut i32) i32.const 0)
-  (global (;5;) (mut i32) i32.const 0)
+  (import "env" "ACTIVE_ATTR_PTR" (global (;0;) (mut i32)))
+  (import "env" "ACTIVE_UNIFORM_PTR" (global (;1;) (mut i32)))
+  (import "env" "ACTIVE_VARYING_PTR" (global (;2;) (mut i32)))
+  (import "env" "ACTIVE_PRIVATE_PTR" (global (;3;) (mut i32)))
+  (import "env" "ACTIVE_TEXTURE_PTR" (global (;4;) (mut i32)))
+  (import "env" "ACTIVE_FRAME_SP" (global (;5;) (mut i32)))
   (export "main" (func 20))
   (func (;18;) (type 18) (param f32 f32) (result f32)
     (local i32 f32 i32)
@@ -287,20 +279,12 @@ test('ABI: internal function with vec2 param (flattened)', async () => {
     f32.store offset=12
     return
   )
-  (func (;20;) (type 20) (param i32 i32 i32 i32 i32 i32 i32 i32 i32)
+  (func (;20;) (type 20) (param i32 i32)
     (local i32 f32 i32)
-    local.get 3
-    global.set 0
-    local.get 4
-    global.set 1
-    local.get 5
+    local.get 0
     global.set 2
-    local.get 6
+    local.get 1
     global.set 3
-    local.get 7
-    global.set 4
-    local.get 8
-    global.set 5
     call 19
     global.get 3
     f32.load
@@ -316,21 +300,21 @@ test('ABI: internal function with vec2 param (flattened)', async () => {
     i32.const 12
     i32.add
     f32.load
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store offset=12
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store offset=8
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store offset=4
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store
     return
   )
@@ -384,7 +368,7 @@ test('ABI: internal function with scalar return value', async () => {
   (type (;17;) (func (param f32) (result f32)))
   (type (;18;) (func (result f32)))
   (type (;19;) (func))
-  (type (;20;) (func (param i32 i32 i32 i32 i32 i32 i32 i32 i32)))
+  (type (;20;) (func (param i32 i32)))
   (import "env" "memory" (memory (;0;) 100))
   (import "env" "gl_sin" (func (;0;) (type 0)))
   (import "env" "gl_cos" (func (;1;) (type 1)))
@@ -404,12 +388,12 @@ test('ABI: internal function with scalar return value', async () => {
   (import "env" "gl_asinh" (func (;15;) (type 15)))
   (import "env" "gl_acosh" (func (;16;) (type 16)))
   (import "env" "gl_atanh" (func (;17;) (type 17)))
-  (global (;0;) (mut i32) i32.const 0)
-  (global (;1;) (mut i32) i32.const 0)
-  (global (;2;) (mut i32) i32.const 0)
-  (global (;3;) (mut i32) i32.const 0)
-  (global (;4;) (mut i32) i32.const 0)
-  (global (;5;) (mut i32) i32.const 0)
+  (import "env" "ACTIVE_ATTR_PTR" (global (;0;) (mut i32)))
+  (import "env" "ACTIVE_UNIFORM_PTR" (global (;1;) (mut i32)))
+  (import "env" "ACTIVE_VARYING_PTR" (global (;2;) (mut i32)))
+  (import "env" "ACTIVE_PRIVATE_PTR" (global (;3;) (mut i32)))
+  (import "env" "ACTIVE_TEXTURE_PTR" (global (;4;) (mut i32)))
+  (import "env" "ACTIVE_FRAME_SP" (global (;5;) (mut i32)))
   (export "main" (func 20))
   (func (;18;) (type 18) (result f32)
     (local i32 f32 i32)
@@ -448,20 +432,12 @@ test('ABI: internal function with scalar return value', async () => {
     f32.store offset=12
     return
   )
-  (func (;20;) (type 20) (param i32 i32 i32 i32 i32 i32 i32 i32 i32)
+  (func (;20;) (type 20) (param i32 i32)
     (local i32 f32 i32)
-    local.get 3
-    global.set 0
-    local.get 4
-    global.set 1
-    local.get 5
+    local.get 0
     global.set 2
-    local.get 6
+    local.get 1
     global.set 3
-    local.get 7
-    global.set 4
-    local.get 8
-    global.set 5
     call 19
     global.get 3
     f32.load
@@ -477,21 +453,21 @@ test('ABI: internal function with scalar return value', async () => {
     i32.const 12
     i32.add
     f32.load
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store offset=12
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store offset=8
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store offset=4
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store
     return
   )
@@ -545,7 +521,7 @@ test('ABI: internal function with vec3 return (flattened)', async () => {
   (type (;17;) (func (param f32) (result f32)))
   (type (;18;) (func (result f32 f32 f32)))
   (type (;19;) (func))
-  (type (;20;) (func (param i32 i32 i32 i32 i32 i32 i32 i32 i32)))
+  (type (;20;) (func (param i32 i32)))
   (import "env" "memory" (memory (;0;) 100))
   (import "env" "gl_sin" (func (;0;) (type 0)))
   (import "env" "gl_cos" (func (;1;) (type 1)))
@@ -565,12 +541,12 @@ test('ABI: internal function with vec3 return (flattened)', async () => {
   (import "env" "gl_asinh" (func (;15;) (type 15)))
   (import "env" "gl_acosh" (func (;16;) (type 16)))
   (import "env" "gl_atanh" (func (;17;) (type 17)))
-  (global (;0;) (mut i32) i32.const 0)
-  (global (;1;) (mut i32) i32.const 0)
-  (global (;2;) (mut i32) i32.const 0)
-  (global (;3;) (mut i32) i32.const 0)
-  (global (;4;) (mut i32) i32.const 0)
-  (global (;5;) (mut i32) i32.const 0)
+  (import "env" "ACTIVE_ATTR_PTR" (global (;0;) (mut i32)))
+  (import "env" "ACTIVE_UNIFORM_PTR" (global (;1;) (mut i32)))
+  (import "env" "ACTIVE_VARYING_PTR" (global (;2;) (mut i32)))
+  (import "env" "ACTIVE_PRIVATE_PTR" (global (;3;) (mut i32)))
+  (import "env" "ACTIVE_TEXTURE_PTR" (global (;4;) (mut i32)))
+  (import "env" "ACTIVE_FRAME_SP" (global (;5;) (mut i32)))
   (export "main" (func 20))
   (func (;18;) (type 18) (result f32 f32 f32)
     (local i32 f32 i32)
@@ -627,20 +603,12 @@ test('ABI: internal function with vec3 return (flattened)', async () => {
     f32.store offset=12
     return
   )
-  (func (;20;) (type 20) (param i32 i32 i32 i32 i32 i32 i32 i32 i32)
+  (func (;20;) (type 20) (param i32 i32)
     (local i32 f32 i32)
-    local.get 3
-    global.set 0
-    local.get 4
-    global.set 1
-    local.get 5
+    local.get 0
     global.set 2
-    local.get 6
+    local.get 1
     global.set 3
-    local.get 7
-    global.set 4
-    local.get 8
-    global.set 5
     call 19
     global.get 3
     f32.load
@@ -656,21 +624,21 @@ test('ABI: internal function with vec3 return (flattened)', async () => {
     i32.const 12
     i32.add
     f32.load
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store offset=12
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store offset=8
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store offset=4
-    local.set 10
+    local.set 3
     global.get 3
-    local.get 10
+    local.get 3
     f32.store
     return
   )

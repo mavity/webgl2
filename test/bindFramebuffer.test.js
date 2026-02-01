@@ -6,8 +6,8 @@ test('bindFramebuffer accepts a target and handle', async () => {
   const gl = await webGL2();
   try {
     const fb = gl.createFramebuffer();
-    assert(Number.isInteger(fb) && fb > 0);
-    gl.bindFramebuffer(0, fb);
+    assert(fb && typeof fb === 'object');
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
   } finally {
     gl.destroy();
   }

@@ -148,6 +148,8 @@ pub fn is_binding_valid(binding: &Binding, stage: ShaderStage) -> bool {
         (Binding::BuiltIn(BuiltIn::Position { .. }), ShaderStage::Vertex) => true,
         (Binding::BuiltIn(BuiltIn::FragDepth), ShaderStage::Fragment) => true,
         (Binding::BuiltIn(BuiltIn::PointSize), ShaderStage::Vertex) => true,
+        (Binding::BuiltIn(BuiltIn::VertexIndex), ShaderStage::Vertex) => true,
+        (Binding::BuiltIn(BuiltIn::InstanceIndex), ShaderStage::Vertex) => true,
         (Binding::Location { .. }, ShaderStage::Vertex | ShaderStage::Fragment) => true,
         _ => false,
     }

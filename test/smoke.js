@@ -8,8 +8,8 @@ test('WebGL2 smoke test - 1x1 CornflowerBlue round-trip', async () => {
 
   try {
     const texHandle = gl.createTexture();
-    assert(Number.isInteger(texHandle), 'createTexture should return an integer handle');
-    console.log(`Texture created (handle: ${texHandle})`);
+    assert(texHandle && typeof texHandle === 'object' && typeof texHandle._handle === 'number' && texHandle._handle > 0, 'createTexture should return a texture wrapper object');
+    console.log(`Texture created (handle: ${texHandle._handle})`);
 
     gl.bindTexture(0, texHandle);
     console.log('Texture bound');
@@ -20,8 +20,8 @@ test('WebGL2 smoke test - 1x1 CornflowerBlue round-trip', async () => {
     console.log('Pixel data uploaded');
 
     const fbHandle = gl.createFramebuffer();
-    assert(Number.isInteger(fbHandle), 'createFramebuffer should return an integer handle');
-    console.log(`Framebuffer created (handle: ${fbHandle})`);
+    assert(fbHandle && typeof fbHandle === 'object' && typeof fbHandle._handle === 'number' && fbHandle._handle > 0, 'createFramebuffer should return a framebuffer wrapper object');
+    console.log(`Framebuffer created (handle: ${fbHandle._handle})`);
 
     gl.bindFramebuffer(0, fbHandle);
     console.log('Framebuffer bound');

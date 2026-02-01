@@ -949,18 +949,29 @@ impl<'a> Compiler<'a> {
             self.emit_image_load_helper();
         }
 
-        // Define 6 globals for base pointers
-        // 0: attr, 1: uniform, 2: varying, 3: private, 4: textures, 5: frame_sp
-        for _ in 0..6 {
-            self.globals.global(
-                wasm_encoder::GlobalType {
+        let global_names = [
+            "ACTIVE_ATTR_PTR",
+            "ACTIVE_UNIFORM_PTR",
+            "ACTIVE_VARYING_PTR",
+            "ACTIVE_PRIVATE_PTR",
+            "ACTIVE_TEXTURE_PTR",
+            "ACTIVE_FRAME_SP",
+        ];
+
+        for (i, name) in global_names.iter().enumerate() {
+            self.imports.import(
+                "env",
+                name,
+                wasm_encoder::EntityType::Global(wasm_encoder::GlobalType {
                     val_type: ValType::I32,
                     mutable: true,
                     shared: false,
-                },
-                &wasm_encoder::ConstExpr::i32_const(0),
+                }),
             );
         }
+
+        // Number of global imports we registered; used to offset module-local global indices
+        let global_import_count = global_names.len() as u32;
 
         // Calculate global offsets per address space
         let mut varying_offset = 32; // User varyings start after Position and PointSize (16+16=32)
@@ -1139,26 +1150,29 @@ impl<'a> Compiler<'a> {
         let mut argument_local_offsets = HashMap::new();
         let mut current_param_idx = 0;
 
-        if entry_point.is_some() {
-            // (ctx, type, table_idx, attr_ptr, uniform_ptr, varying_ptr, private_ptr, texture_ptr, frame_sp)
-            params = vec![
-                ValType::I32,
-                ValType::I32,
-                ValType::I32,
-                ValType::I32,
-                ValType::I32,
-                ValType::I32,
-                ValType::I32,
-                ValType::I32,
-                ValType::I32,
-            ];
-            current_param_idx = 9;
+        if let Some(ep) = entry_point {
+            match ep.stage {
+                naga::ShaderStage::Vertex => {
+                    // Turbo VS: (vertex_id: 0, instance_id: 1, varying_out_ptr: 2)
+                    params = vec![ValType::I32, ValType::I32, ValType::I32];
+                }
+                naga::ShaderStage::Fragment => {
+                    // Turbo FS: (varying_in_ptr: 0, private_ptr: 1)
+                    params = vec![ValType::I32, ValType::I32];
+                }
+                _ => {
+                    return Err(BackendError::InternalError(format!(
+                        "Unsupported shader stage: {:?}",
+                        ep.stage
+                    )));
+                }
+            }
+            results = vec![];
+            current_param_idx = params.len() as u32;
         } else {
-            // Internal function - use FunctionRegistry for signature
-            let func_handle = func_handle.expect("Internal function call without handle");
             let manifest = self
                 .function_registry
-                .get_function(func_handle)
+                .get_function(func_handle.expect("Function handle missing for non-entrypoint"))
                 .ok_or_else(|| {
                     BackendError::InternalError(format!(
                         "Pre-computed manifest missing for function {:?}",
@@ -1400,18 +1414,28 @@ impl<'a> Compiler<'a> {
         // Create function body
         let mut wasm_func = Function::new(locals_types);
 
-        if entry_point.is_some() {
-            // Set globals from arguments
-            // 0: attr, 1: uniform, 2: varying, 3: private, 4: textures
-            // Arguments are (ctx, type, table_idx, attr, uniform, varying, private, texture, frame_sp)
-            for i in 0..5 {
-                wasm_func.instruction(&Instruction::LocalGet(i as u32 + 3));
-                wasm_func.instruction(&Instruction::GlobalSet(i as u32));
+        if let Some(ep) = entry_point {
+            // Tier 1 logic: Shared globals (Attributes, Uniforms, Textures) are already set by the host. Zero preamble cost.
+            // Tier 2 logic: Sync volatile pointers (Varying, Private) from arguments to globals for internal accesses.
+            match ep.stage {
+                naga::ShaderStage::Vertex => {
+                    // Argument 2 is varying_out_ptr. Sync it to VARYING_PTR_GLOBAL.
+                    wasm_func.instruction(&Instruction::LocalGet(2));
+                    wasm_func
+                        .instruction(&Instruction::GlobalSet(output_layout::VARYING_PTR_GLOBAL));
+                }
+                naga::ShaderStage::Fragment => {
+                    // Argument 0 is varying_in_ptr. Sync it to VARYING_PTR_GLOBAL (offset by imports).
+                    wasm_func.instruction(&Instruction::LocalGet(0));
+                    wasm_func
+                        .instruction(&Instruction::GlobalSet(output_layout::VARYING_PTR_GLOBAL));
+                    // Argument 1 is private_ptr. Sync it to PRIVATE_PTR_GLOBAL.
+                    wasm_func.instruction(&Instruction::LocalGet(1));
+                    wasm_func
+                        .instruction(&Instruction::GlobalSet(output_layout::PRIVATE_PTR_GLOBAL));
+                }
+                _ => {}
             }
-
-            // Initialize frame stack pointer directly from argument
-            wasm_func.instruction(&Instruction::LocalGet(8)); // frame_sp
-            wasm_func.instruction(&Instruction::GlobalSet(output_layout::FRAME_SP_GLOBAL));
         }
 
         let stage = self.stage;
@@ -1543,6 +1567,10 @@ impl<'a> Compiler<'a> {
 
         for (stmt, span) in func.body.span_iter() {
             super::control_flow::translate_statement(stmt, span, &mut ctx)?;
+        }
+
+        if let Some(ep) = entry_point {
+            // Tier 3: Results are already stored in memory via shared globals. Return void.
         }
 
         wasm_func.instruction(&Instruction::End);

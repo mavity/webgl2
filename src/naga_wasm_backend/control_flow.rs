@@ -631,6 +631,11 @@ pub fn translate_statement(
                     super::expressions::translate_expression(*expr_handle, ctx)?;
                 }
             }
+
+            if ctx.is_entry_point {
+                // Tier 3: Results are already in memory, no need to push to stack
+            }
+
             ctx.wasm_func.instruction(&Instruction::Return);
         }
         naga::Statement::If {

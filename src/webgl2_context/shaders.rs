@@ -525,7 +525,7 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
             vs_globals.sort_by_key(|(handle, _)| handle.index());
 
             // TODO: is handle a stray local in the API? Why is it there?
-            for (handle, var) in vs_globals {
+            for (_handle, var) in vs_globals {
                 if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
                     if let Some(name) = &var.name {
                         if !p.uniforms.contains_key(name) {

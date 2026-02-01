@@ -234,6 +234,7 @@ pub struct TranslationContext<'a> {
     pub private_memory_layout: Option<&'a memory_layout::PrivateMemoryLayout>,
     /// Number of function parameters (WASM locals reserved for params start at 0)
     pub param_count: u32,
+
     /// Index of the emitted module-local helper `__webgl_sampler_2d`
     pub webgl_sampler_2d_idx: Option<u32>,
     /// Index of the emitted module-local helper `__webgl_sampler_3d`
