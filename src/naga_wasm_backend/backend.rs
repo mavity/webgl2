@@ -999,7 +999,7 @@ impl<'a> Compiler<'a> {
             "ACTIVE_FRAME_SP",
         ];
 
-        for (i, name) in global_names.iter().enumerate() {
+        for (_i, name) in global_names.iter().enumerate() {
             self.imports.import(
                 "env",
                 name,
@@ -1012,7 +1012,7 @@ impl<'a> Compiler<'a> {
         }
 
         // Number of global imports we registered; used to offset module-local global indices
-        let global_import_count = global_names.len() as u32;
+        let _global_import_count = global_names.len() as u32;
 
         // Calculate global offsets per address space
         let mut varying_offset = 32; // User varyings start after Position and PointSize (16+16=32)
@@ -1032,8 +1032,8 @@ impl<'a> Compiler<'a> {
 
         // We need to know which variables are inputs/outputs
         // For now, let's look at the first entry point
-        if let Some(ep) = self.module.entry_points.first() {
-            for _arg in &ep.function.arguments {
+        if let Some(_ep) = self.module.entry_points.first() {
+            for _arg in &_ep.function.arguments {
                 // Naga GLSL frontend often uses Private for inputs
                 // We can't easily link them back to GlobalVariable handles here
                 // without more complex analysis.
@@ -1610,7 +1610,7 @@ impl<'a> Compiler<'a> {
             super::control_flow::translate_statement(stmt, span, &mut ctx)?;
         }
 
-        if let Some(ep) = entry_point {
+        if let Some(_ep) = entry_point {
             // Tier 3: Results are already stored in memory via shared globals. Return void.
         }
 

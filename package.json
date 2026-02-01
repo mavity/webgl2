@@ -1,6 +1,6 @@
 {
   "name": "webgl2",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "WebGL2 tools to derisk large GPU projects on the web beyond toys and demos.",
   "type": "module",
   "main": "index.js",

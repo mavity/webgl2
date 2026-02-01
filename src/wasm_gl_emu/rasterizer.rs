@@ -13,15 +13,7 @@ use crate::webgl2_context::types::*;
 pub struct WasmVec4(pub f32, pub f32, pub f32, pub f32);
 
 #[cfg(target_arch = "wasm32")]
-use core::arch::wasm32::v128;
-
-#[cfg(target_arch = "wasm32")]
 use crate::wasm_sync_turbo_globals;
-
-#[cfg(not(target_arch = "wasm32"))]
-#[allow(non_camel_case_types)]
-#[derive(Clone, Copy)]
-pub struct v128(u128);
 
 type VsEntryFn = extern "C" fn(i32, i32, i32);
 type FsEntryFn = extern "C" fn(i32, i32);

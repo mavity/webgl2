@@ -67,56 +67,66 @@ extern "C" {
 // When running natively (non-wasm), provide local mutable statics as a fallback
 // to make unit testing and host-side code simpler.
 #[cfg(not(target_arch = "wasm32"))]
-#[no_mangle]
-pub static mut ACTIVE_ATTR_PTR: u32 = 0;
+#[allow(non_upper_case_globals, dead_code, static_mut_refs)]
+mod native_fallbacks {
+    pub static mut ACTIVE_ATTR_PTR: u32 = 0;
+    pub static mut ACTIVE_UNIFORM_PTR: u32 = 0;
+    pub static mut ACTIVE_VARYING_PTR: u32 = 0;
+    pub static mut ACTIVE_PRIVATE_PTR: u32 = 0;
+    pub static mut ACTIVE_TEXTURE_PTR: u32 = 0;
+    pub static mut ACTIVE_FRAME_SP: u32 = 0;
+
+    #[no_mangle]
+    pub unsafe fn wasm_sync_turbo_globals(
+        attr: u32,
+        uniform: u32,
+        varying: u32,
+        private: u32,
+        texture: u32,
+        frame_sp: u32,
+    ) {
+        ACTIVE_ATTR_PTR = attr;
+        ACTIVE_UNIFORM_PTR = uniform;
+        ACTIVE_VARYING_PTR = varying;
+        ACTIVE_PRIVATE_PTR = private;
+        ACTIVE_TEXTURE_PTR = texture;
+        ACTIVE_FRAME_SP = frame_sp;
+    }
+
+    pub unsafe fn print(_ptr: *const u8, _len: usize) {}
+    pub unsafe fn dispatch_uncaptured_error(_ptr: *const u8, _len: usize) {}
+
+    pub unsafe fn wasm_register_shader(_ptr: *const u8, _len: usize) -> u32 {
+        0
+    }
+
+    pub unsafe fn wasm_release_shader_index(_idx: u32) {}
+
+    pub static mut __heap_base_local: i32 = 0;
+    #[no_mangle]
+    pub static __heap_base: &i32 = unsafe { &__heap_base_local };
+
+    pub unsafe fn wasm_execute_shader(
+        _ctx: u32,
+        _type_: u32,
+        _table_idx: u32,
+        _attr_ptr: i32,
+        _uniform_ptr: i32,
+        _varying_ptr: i32,
+        _private_ptr: i32,
+        _texture_ptr: i32,
+        _frame_sp: i32,
+    ) {
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
-#[no_mangle]
-pub static mut ACTIVE_UNIFORM_PTR: u32 = 0;
-#[cfg(not(target_arch = "wasm32"))]
-#[no_mangle]
-pub static mut ACTIVE_VARYING_PTR: u32 = 0;
-#[cfg(not(target_arch = "wasm32"))]
-#[no_mangle]
-pub static mut ACTIVE_PRIVATE_PTR: u32 = 0;
-#[cfg(not(target_arch = "wasm32"))]
-#[no_mangle]
-pub static mut ACTIVE_TEXTURE_PTR: u32 = 0;
-#[cfg(not(target_arch = "wasm32"))]
-#[no_mangle]
-pub static mut ACTIVE_FRAME_SP: u32 = 0;
+pub use native_fallbacks::*;
 
 // Access the linker-provided __heap_base
 #[cfg(target_arch = "wasm32")]
 extern "C" {
     static __heap_base: i32;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-unsafe fn print(_ptr: *const u8, _len: usize) {}
-
-#[cfg(not(target_arch = "wasm32"))]
-unsafe fn dispatch_uncaptured_error(_ptr: *const u8, _len: usize) {}
-
-#[cfg(not(target_arch = "wasm32"))]
-unsafe fn wasm_register_shader(_ptr: *const u8, _len: usize) -> u32 {
-    0
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-unsafe fn wasm_release_shader_index(_idx: u32) {}
-
-#[cfg(not(target_arch = "wasm32"))]
-unsafe fn wasm_execute_shader(
-    _ctx: u32,
-    _type_: u32,
-    _table_idx: u32,
-    _attr_ptr: i32,
-    _uniform_ptr: i32,
-    _varying_ptr: i32,
-    _private_ptr: i32,
-    _texture_ptr: i32,
-    _frame_sp: i32,
-) {
 }
 
 pub fn js_print(s: &str) {
