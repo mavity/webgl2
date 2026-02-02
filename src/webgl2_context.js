@@ -172,9 +172,9 @@ export class WasmWebGL2RenderingContext {
   RGB32I = 0x8D83;
   RGBA32I = 0x8D82;
   RED_INTEGER = 0x8D94;
-  RG_INTEGER = 0x8D95;
-  RGB_INTEGER = 0x8D96;
-  RGBA_INTEGER = 0x8D99;
+  RG_INTEGER = 0x8228;
+  RGB_INTEGER = 0x8D98;
+  RGBA_INTEGER = 0x8D9E;
   R32F = 0x822E;
   RG32F = 0x8230;
   R16F = 0x822D;
@@ -608,6 +608,10 @@ export class WasmWebGL2RenderingContext {
       if (format === 0x1908) bpp = 16;      // GL_RGBA
       else if (format === 0x8227) bpp = 8;  // GL_RG
       else if (format === 0x1903) bpp = 4;  // GL_RED
+    } else if (type_ === 0x1405 || type_ === 0x1404) { // GL_UNSIGNED_INT or GL_INT
+      if (format === 0x8D9E) bpp = 16;      // GL_RGBA_INTEGER
+      else if (format === 0x8228) bpp = 8;  // GL_RG_INTEGER
+      else if (format === 0x8D94) bpp = 4;  // GL_RED_INTEGER
     } else if (type_ === 0x1401) { // GL_UNSIGNED_BYTE
       if (format === 0x1908) bpp = 4;
     }

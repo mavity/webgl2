@@ -288,6 +288,7 @@ impl<'a> Compiler<'a> {
             }));
         }
 
+        func.instruction(&Instruction::End);
         self.code.function(&func);
     }
 
@@ -1416,10 +1417,12 @@ impl<'a> Compiler<'a> {
         next_local_idx += 1;
 
         // Phase 4: Explicit locals for image sampling results (4 f32s)
-        let uses_sampling = func
-            .expressions
-            .iter()
-            .any(|(_, expr)| matches!(expr, naga::Expression::ImageSample { .. }));
+        let uses_sampling = func.expressions.iter().any(|(_, expr)| {
+            matches!(
+                expr,
+                naga::Expression::ImageSample { .. } | naga::Expression::ImageLoad { .. }
+            )
+        });
 
         let sample_f32_locals = if uses_sampling {
             let idx = next_local_idx;

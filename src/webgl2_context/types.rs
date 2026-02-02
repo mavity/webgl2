@@ -75,7 +75,7 @@ pub const GL_RGB: u32 = 0x1907;
 pub const GL_RED: u32 = 0x1903;
 pub const GL_RG: u32 = 0x8227;
 
-pub const GL_RGBA_INTEGER: u32 = 0x8D99;
+pub const GL_RGBA_INTEGER: u32 = 0x8D9E;
 pub const GL_RGB_INTEGER: u32 = 0x8D98;
 pub const GL_RG_INTEGER: u32 = 0x8228;
 pub const GL_RED_INTEGER: u32 = 0x8D94;

@@ -1311,6 +1311,19 @@ pub fn translate_expression_component(
                 // 7. Load requested component
                 ctx.wasm_func
                     .instruction(&Instruction::LocalGet(sample_base + component_idx));
+
+                // Reinterpret if it's an integer image
+                let ty_handle = ctx.typifier[*image].handle().unwrap();
+                let is_integer = match ctx.module.types[ty_handle].inner {
+                    naga::TypeInner::Image {
+                        class: naga::ImageClass::Sampled { kind, .. },
+                        ..
+                    } => kind != naga::ScalarKind::Float,
+                    _ => false,
+                };
+                if is_integer {
+                    ctx.wasm_func.instruction(&Instruction::I32ReinterpretF32);
+                }
             } else {
                 ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
             }
