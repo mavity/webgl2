@@ -154,10 +154,18 @@ impl<'a> Compiler<'a> {
                 .any(|ep| check_expressions(&ep.function))
     }
 
+    /// Emits a WASM helper function for integer texelFetch (ImageLoad in Naga).
+    /// Covered by: test/samplers/r32ui.test.js, test/samplers/rgba32ui.test.js
     fn emit_image_load_helper(&mut self) {
         let type_index = self.types.len();
         self.types.ty().function(
-            vec![ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+            vec![
+                ValType::I32,
+                ValType::I32,
+                ValType::I32,
+                ValType::I32,
+                ValType::I32,
+            ],
             vec![ValType::F32, ValType::F32, ValType::F32, ValType::F32],
         );
 
@@ -167,16 +175,18 @@ impl<'a> Compiler<'a> {
         self.webgl_image_load_idx = Some(func_idx);
 
         let mut func = Function::new(vec![
-            (7, ValType::I32), // locals 4..10: desc_addr, width, height, data_ptr, bpp, layout, address
+            (9, ValType::I32), // locals 5..13: desc_addr, width, height, depth, data_ptr, bpp, layout, address, format
         ]);
 
-        let l_desc_addr = 4;
-        let l_width = 5;
-        let l_height = 6;
-        let l_data_ptr = 7;
-        let l_bpp = 8;
-        let l_layout = 9;
-        let l_addr = 10;
+        let l_desc_addr = 5;
+        let l_width = 6;
+        let l_height = 7;
+        let l_depth = 8;
+        let l_data_ptr = 9;
+        let l_bpp = 10;
+        let l_layout = 11;
+        let l_addr = 12;
+        let l_format = 13;
 
         // 1. Descriptor address is passed directly in arg 1
         func.instruction(&Instruction::LocalGet(1));
@@ -198,6 +208,14 @@ impl<'a> Compiler<'a> {
             memory_index: 0,
         }));
         func.instruction(&Instruction::LocalSet(l_height));
+
+        func.instruction(&Instruction::LocalGet(l_desc_addr));
+        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+            offset: output_layout::TEX_DEPTH_OFFSET,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::LocalSet(l_depth));
 
         func.instruction(&Instruction::LocalGet(l_desc_addr));
         func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
@@ -223,23 +241,50 @@ impl<'a> Compiler<'a> {
         }));
         func.instruction(&Instruction::LocalSet(l_layout));
 
+        func.instruction(&Instruction::LocalGet(l_desc_addr));
+        func.instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+            offset: output_layout::TEX_FORMAT_OFFSET,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::LocalSet(l_format));
+
         // 3. Compute byte offset
         func.instruction(&Instruction::LocalGet(l_layout));
         func.instruction(&Instruction::I32Const(1)); // Tiled8x8
         func.instruction(&Instruction::I32Eq);
-        func.instruction(&Instruction::If(wasm_encoder::BlockType::Empty));
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Result(
+            ValType::I32,
+        )));
         // Tiled8x8
+        // tile_idx = (z * tiles_h + tile_y) * tiles_w + tile_x
+
+        // tiles_h = (height + 7) >> 3
+        func.instruction(&Instruction::LocalGet(l_height));
+        func.instruction(&Instruction::I32Const(7));
+        func.instruction(&Instruction::I32Add);
+        func.instruction(&Instruction::I32Const(3));
+        func.instruction(&Instruction::I32ShrU); // tiles_h
+
+        // z * tiles_h
+        func.instruction(&Instruction::LocalGet(4)); // z
+        func.instruction(&Instruction::I32Mul);
+
+        // + tile_y
+        func.instruction(&Instruction::LocalGet(3)); // y
+        func.instruction(&Instruction::I32Const(3));
+        func.instruction(&Instruction::I32ShrU); // tile_y
+        func.instruction(&Instruction::I32Add);
+
+        // * tiles_w
         func.instruction(&Instruction::LocalGet(l_width));
         func.instruction(&Instruction::I32Const(7));
         func.instruction(&Instruction::I32Add);
         func.instruction(&Instruction::I32Const(3));
         func.instruction(&Instruction::I32ShrU); // tiles_w
+        func.instruction(&Instruction::I32Mul);
 
-        func.instruction(&Instruction::LocalGet(3)); // y
-        func.instruction(&Instruction::I32Const(3));
-        func.instruction(&Instruction::I32ShrU); // tile_y
-        func.instruction(&Instruction::I32Mul); // tile_y * tiles_w
-
+        // + tile_x
         func.instruction(&Instruction::LocalGet(2)); // x
         func.instruction(&Instruction::I32Const(3));
         func.instruction(&Instruction::I32ShrU); // tile_x
@@ -260,16 +305,21 @@ impl<'a> Compiler<'a> {
 
         func.instruction(&Instruction::I32Add); // inner_idx
         func.instruction(&Instruction::I32Add); // total_idx
-        func.instruction(&Instruction::LocalSet(l_addr));
         func.instruction(&Instruction::Else);
         // Linear
+        // pixel_idx = (z * height + y) * width + x
+        func.instruction(&Instruction::LocalGet(4)); // z
+        func.instruction(&Instruction::LocalGet(l_height));
+        func.instruction(&Instruction::I32Mul);
         func.instruction(&Instruction::LocalGet(3)); // y
+        func.instruction(&Instruction::I32Add);
         func.instruction(&Instruction::LocalGet(l_width));
         func.instruction(&Instruction::I32Mul);
         func.instruction(&Instruction::LocalGet(2)); // x
         func.instruction(&Instruction::I32Add);
-        func.instruction(&Instruction::LocalSet(l_addr));
         func.instruction(&Instruction::End);
+
+        func.instruction(&Instruction::LocalSet(l_addr));
 
         func.instruction(&Instruction::LocalGet(l_addr));
         func.instruction(&Instruction::LocalGet(l_bpp));
@@ -278,20 +328,150 @@ impl<'a> Compiler<'a> {
         func.instruction(&Instruction::I32Add);
         func.instruction(&Instruction::LocalSet(l_addr)); // address
 
-        // 4. Load RGBA
-        for i in 0..4 {
-            func.instruction(&Instruction::LocalGet(l_addr));
-            func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
-                offset: i * 4,
-                align: 2,
-                memory_index: 0,
-            }));
-        }
+        // 4. Load RGBA based on bytes-per-pixel and format
+
+        let gl_rgba8: i32 = 0x8058;
+
+        // Push R channel
+        func.instruction(&Instruction::LocalGet(l_format));
+        func.instruction(&Instruction::I32Const(gl_rgba8));
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Result(
+            ValType::F32,
+        )));
+        func.instruction(&Instruction::LocalGet(l_addr));
+        func.instruction(&Instruction::I32Load8U(wasm_encoder::MemArg {
+            offset: 0,
+            align: 0,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::F32ConvertI32U);
+        func.instruction(&Instruction::F32Const(255.0));
+        func.instruction(&Instruction::F32Div);
+        func.instruction(&Instruction::Else);
+        func.instruction(&Instruction::LocalGet(l_addr));
+        func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+            offset: 0,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::End);
+
+        // G channel
+        func.instruction(&Instruction::LocalGet(l_format));
+        func.instruction(&Instruction::I32Const(gl_rgba8));
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Result(
+            ValType::F32,
+        )));
+        func.instruction(&Instruction::LocalGet(l_addr));
+        func.instruction(&Instruction::I32Load8U(wasm_encoder::MemArg {
+            offset: 1,
+            align: 0,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::F32ConvertI32U);
+        func.instruction(&Instruction::F32Const(255.0));
+        func.instruction(&Instruction::F32Div);
+        func.instruction(&Instruction::Else);
+        func.instruction(&Instruction::LocalGet(l_bpp));
+        func.instruction(&Instruction::I32Const(8));
+        func.instruction(&Instruction::I32GeU);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Result(
+            ValType::F32,
+        )));
+        func.instruction(&Instruction::LocalGet(l_addr));
+        func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+            offset: 4,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::Else);
+        func.instruction(&Instruction::F32Const(0.0));
+        func.instruction(&Instruction::End);
+        func.instruction(&Instruction::End);
+
+        // B channel
+        func.instruction(&Instruction::LocalGet(l_format));
+        func.instruction(&Instruction::I32Const(gl_rgba8));
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Result(
+            ValType::F32,
+        )));
+        func.instruction(&Instruction::LocalGet(l_addr));
+        func.instruction(&Instruction::I32Load8U(wasm_encoder::MemArg {
+            offset: 2,
+            align: 0,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::F32ConvertI32U);
+        func.instruction(&Instruction::F32Const(255.0));
+        func.instruction(&Instruction::F32Div);
+        func.instruction(&Instruction::Else);
+        func.instruction(&Instruction::LocalGet(l_bpp));
+        func.instruction(&Instruction::I32Const(16));
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Result(
+            ValType::F32,
+        )));
+        func.instruction(&Instruction::LocalGet(l_addr));
+        func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+            offset: 8,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::Else);
+        func.instruction(&Instruction::F32Const(0.0));
+        func.instruction(&Instruction::End);
+        func.instruction(&Instruction::End);
+
+        // A channel
+        func.instruction(&Instruction::LocalGet(l_format));
+        func.instruction(&Instruction::I32Const(gl_rgba8));
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Result(
+            ValType::F32,
+        )));
+        func.instruction(&Instruction::LocalGet(l_addr));
+        func.instruction(&Instruction::I32Load8U(wasm_encoder::MemArg {
+            offset: 3,
+            align: 0,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::F32ConvertI32U);
+        func.instruction(&Instruction::F32Const(255.0));
+        func.instruction(&Instruction::F32Div);
+        func.instruction(&Instruction::Else);
+        func.instruction(&Instruction::LocalGet(l_bpp));
+        func.instruction(&Instruction::I32Const(16));
+        func.instruction(&Instruction::I32Eq);
+        func.instruction(&Instruction::If(wasm_encoder::BlockType::Result(
+            ValType::F32,
+        )));
+        func.instruction(&Instruction::LocalGet(l_addr));
+        func.instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+            offset: 12,
+            align: 2,
+            memory_index: 0,
+        }));
+        func.instruction(&Instruction::Else);
+
+        // Alpha default: 1.0 (float) or 1 (int)
+        // Since we don't have enough info here, we use the bit pattern 1
+        // which works for integers after reinterpret, but for floats we should use 1.0.
+        // For RGBA8 we already handled it above.
+        // For mystery formats, we'll use 1.0 as it's safer for samplers.
+        func.instruction(&Instruction::F32Const(1.0));
+        func.instruction(&Instruction::End);
+        func.instruction(&Instruction::End);
 
         func.instruction(&Instruction::End);
         self.code.function(&func);
     }
 
+    /// Emits a WASM function for texture sampling (ImageSample in Naga).
+    /// Handles 2D/3D dimensions, interpolation (Linear/Nearest), and Wrap modes.
+    /// Covered by: test/samplers/rgba8_unorm.test.js (2D/3D), rgba32f.test.js, r32f.test.js
     fn emit_sampler(&mut self, dim: naga::ImageDimension) -> u32 {
         let is_3d = dim == naga::ImageDimension::D3;
         // Params: 0: texture_desc_addr, 1: sampler_desc_addr, 2: u, 3: v, [4: w]
@@ -785,6 +965,7 @@ impl<'a> Compiler<'a> {
         func.instruction(&Instruction::LocalSet(l_addr)); // REAL address
 
         // 5. Load and accumulate
+        // RGBA32UI - Covered by test/samplers/rgba32ui.test.js
         func.instruction(&Instruction::LocalGet(l_format));
         func.instruction(&Instruction::I32Const(0x8D70)); // RGBA32UI
         func.instruction(&Instruction::I32Eq);
@@ -806,6 +987,7 @@ impl<'a> Compiler<'a> {
         }
         func.instruction(&Instruction::End);
         func.instruction(&Instruction::Else);
+        // R32UI - Covered by test/samplers/r32ui.test.js
         func.instruction(&Instruction::LocalGet(l_format));
         func.instruction(&Instruction::I32Const(0x8236)); // R32UI
         func.instruction(&Instruction::I32Eq);
@@ -824,6 +1006,7 @@ impl<'a> Compiler<'a> {
         func.instruction(&Instruction::LocalSet(l_res_r));
         func.instruction(&Instruction::End);
         func.instruction(&Instruction::Else);
+        // RGBA8 - Covered by test/samplers/rgba8_unorm.test.js
         func.instruction(&Instruction::LocalGet(l_format));
         func.instruction(&Instruction::I32Const(0x8058)); // RGBA8
         func.instruction(&Instruction::I32Eq);
@@ -849,6 +1032,7 @@ impl<'a> Compiler<'a> {
             func.instruction(&Instruction::LocalSet(l_res_r + i as u32));
         }
         func.instruction(&Instruction::Else);
+        // RGBA32F - Covered by test/samplers/rgba32f.test.js
         func.instruction(&Instruction::LocalGet(l_format));
         func.instruction(&Instruction::I32Const(0x8814)); // RGBA32F
         func.instruction(&Instruction::I32Eq);
@@ -867,7 +1051,7 @@ impl<'a> Compiler<'a> {
             func.instruction(&Instruction::LocalSet(l_res_r + i as u32));
         }
         func.instruction(&Instruction::Else);
-        // Handle R32F (0x822E), RG32F simplified
+        // R32F - Covered by test/samplers/r32f.test.js
         func.instruction(&Instruction::LocalGet(l_format));
         func.instruction(&Instruction::I32Const(0x822E)); // R32F
         func.instruction(&Instruction::I32Eq);
@@ -966,6 +1150,7 @@ impl<'a> Compiler<'a> {
             (naga::MathFunction::Atanh, "gl_atanh", 1),
         ];
 
+        // TODO: Many of these math functions are missing dedicated precision and edge-case tests.
         for (func, name, param_count) in math_funcs {
             let type_idx = self.types.len();
             let params = vec![ValType::F32; param_count];

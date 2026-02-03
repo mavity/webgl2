@@ -362,16 +362,65 @@ pub fn ctx_tex_image_3d(
         }
     };
 
+    // Determine storage internal format from the requested internalFormat and type
     let requested_internal = internal_format as u32;
+    let is_3d = target == GL_TEXTURE_3D;
     let storage_internal_format = match (requested_internal, _type_ as u32) {
-        (v, GL_FLOAT) if v == GL_RGBA => GL_RGBA32F,
-        (v, GL_FLOAT) if v == GL_RED => GL_R32F,
-        (GL_RG, GL_FLOAT) => GL_RG32F,
-        (v, GL_UNSIGNED_BYTE) if v == GL_RGBA => GL_RGBA8,
-        (GL_RGBA8, _) => GL_RGBA8,
         (GL_R32F, _) => GL_R32F,
         (GL_RG32F, _) => GL_RG32F,
         (GL_RGBA32F, _) => GL_RGBA32F,
+        (GL_R16F, _) => GL_R16F,
+        (GL_RG16F, _) => GL_RG16F,
+        (GL_RGBA16F, _) => GL_RGBA16F,
+
+        (GL_R32UI, _) => GL_R32UI,
+        (GL_RG32UI, _) => GL_RG32UI,
+        (GL_RGBA32UI, _) => GL_RGBA32UI,
+        (GL_R32I, _) => GL_R32I,
+        (GL_RG32I, _) => GL_RG32I,
+        (GL_RGBA32I, _) => GL_RGBA32I,
+
+        (GL_R16UI, _) => GL_R16UI,
+        (GL_RG16UI, _) => GL_RG16UI,
+        (GL_RGBA16UI, _) => GL_RGBA16UI,
+        (GL_R16I, _) => GL_R16I,
+        (GL_RG16I, _) => GL_RG16I,
+        (GL_RGBA16I, _) => GL_RGBA16I,
+
+        (GL_R8UI, _) => GL_R8UI,
+        (GL_RG8UI, _) => GL_RG8UI,
+        (GL_RGBA8UI, _) => GL_RGBA8UI,
+        (GL_R8I, _) => GL_R8I,
+        (GL_RG8I, _) => GL_RG8I,
+        (GL_RGBA8I, _) => GL_RGBA8I,
+
+        (v, GL_FLOAT) if v == GL_RGBA => GL_RGBA32F,
+        (v, GL_FLOAT) if v == GL_RED => GL_R32F,
+        (GL_RG, GL_FLOAT) => GL_RG32F,
+
+        (v, GL_UNSIGNED_INT) if v == GL_RGBA_INTEGER => GL_RGBA32UI,
+        (v, GL_UNSIGNED_INT) if v == GL_RED_INTEGER => GL_R32UI,
+        (v, GL_UNSIGNED_INT) if v == GL_RG_INTEGER => GL_RG32UI,
+        (v, GL_INT) if v == GL_RGBA_INTEGER => GL_RGBA32I,
+        (v, GL_INT) if v == GL_RED_INTEGER => GL_R32I,
+        (v, GL_INT) if v == GL_RG_INTEGER => GL_RG32I,
+
+        (v, GL_UNSIGNED_SHORT) if v == GL_RGBA_INTEGER => GL_RGBA16UI,
+        (v, GL_UNSIGNED_SHORT) if v == GL_RED_INTEGER => GL_R16UI,
+        (v, GL_UNSIGNED_SHORT) if v == GL_RG_INTEGER => GL_RG16UI,
+        (v, GL_SHORT) if v == GL_RGBA_INTEGER => GL_RGBA16I,
+        (v, GL_SHORT) if v == GL_RED_INTEGER => GL_R16I,
+        (v, GL_SHORT) if v == GL_RG_INTEGER => GL_RG16I,
+
+        (v, GL_UNSIGNED_BYTE) if v == GL_RGBA_INTEGER => GL_RGBA8UI,
+        (v, GL_UNSIGNED_BYTE) if v == GL_RED_INTEGER => GL_R8UI,
+        (v, GL_UNSIGNED_BYTE) if v == GL_RG_INTEGER => GL_RG8UI,
+        (v, GL_BYTE) if v == GL_RGBA_INTEGER => GL_RGBA8I,
+        (v, GL_BYTE) if v == GL_RED_INTEGER => GL_R8I,
+        (v, GL_BYTE) if v == GL_RG_INTEGER => GL_RG8I,
+
+        (v, GL_UNSIGNED_BYTE) if v == GL_RGBA => GL_RGBA8,
+        (GL_RGBA8, _) => GL_RGBA8,
         (v, _) if v == GL_RGBA => GL_RGBA8,
         _ => GL_RGBA8,
     };
@@ -382,29 +431,39 @@ pub fn ctx_tex_image_3d(
         .saturating_mul(depth as u64)
         .saturating_mul(bytes_per_pixel as u64);
 
-    if (len as u64) < expected_size {
-        set_last_error("provided pixels buffer too small");
-        ctx_obj.set_error(GL_INVALID_VALUE);
-        return ERR_GL;
-    }
-
     let src_slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-    let pixel_data = src_slice[..expected_size as usize].to_vec();
+    let mut pixel_data = src_slice.to_vec();
+
+    // If the provided data is smaller than expected, an INVALID_OPERATION error is generated.
+    if pixel_data.len() < expected_size as usize {
+        set_last_error("pixel data too small");
+        ctx_obj.set_error(GL_INVALID_OPERATION);
+        return ERR_GL;
+    } else if pixel_data.len() > expected_size as usize {
+        pixel_data.truncate(expected_size as usize);
+    }
 
     if let Some(tex) = ctx_obj.textures.get_mut(&tex_handle) {
         if level == 0 {
             tex.internal_format = storage_internal_format;
         }
 
+        // 3D textures are Tiled8x8, 2D arrays are Linear
+        let storage_layout = if is_3d {
+            crate::wasm_gl_emu::device::StorageLayout::Tiled8x8
+        } else {
+            crate::wasm_gl_emu::device::StorageLayout::Linear
+        };
+
         let gpu_handle = ctx_obj.kernel.create_buffer(
             width,
             height,
             depth,
             super::types::gl_to_wgt_format(storage_internal_format),
-            crate::wasm_gl_emu::device::StorageLayout::Tiled8x8,
+            storage_layout,
         );
 
-        crate::wasm_gl_emu::TransferEngine::write_pixels(
+        crate::wasm_gl_emu::transfer::TransferEngine::write_pixels(
             &mut ctx_obj.kernel,
             gpu_handle,
             0,

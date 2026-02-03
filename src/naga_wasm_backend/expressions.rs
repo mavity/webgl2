@@ -1287,11 +1287,21 @@ pub fn translate_expression_component(
                     translate_expression_component(*image, 0, ctx)?;
                 }
 
-                // 2. Push coordinates (x, y)
+                // 2. Push coordinates (x, y, z)
                 translate_expression_component(*coordinate, 0, ctx)?;
                 translate_expression_component(*coordinate, 1, ctx)?;
 
-                // 3. Call helper (expects texture_ptr, desc_addr, x, y)
+                let coord_dim = match ctx.typifier.get(*coordinate, &ctx.module.types) {
+                    naga::TypeInner::Vector { size, .. } => *size as u32,
+                    _ => 1,
+                };
+                if coord_dim >= 3 {
+                    translate_expression_component(*coordinate, 2, ctx)?;
+                } else {
+                    ctx.wasm_func.instruction(&Instruction::I32Const(0));
+                }
+
+                // 3. Call helper (expects texture_ptr, desc_addr, x, y, z)
                 ctx.wasm_func.instruction(&Instruction::Call(load_idx));
 
                 // 6. Store all 4 results
