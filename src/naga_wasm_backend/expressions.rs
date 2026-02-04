@@ -1951,6 +1951,113 @@ pub fn translate_expression_component(
 
                     ctx.wasm_func.instruction(&Instruction::End);
                 }
+                MathFunction::Modf => {
+                    // modf(x, out ip): returns fractional part, stores integer part (trunc toward 0) into ip
+                    let x = *arg;
+                    let out_ptr = arg1.expect("Modf needs 2 arguments");
+
+                    // ip_f = trunc(x)
+                    translate_expression_component(x, component_idx, ctx)?;
+                    ctx.wasm_func.instruction(&Instruction::F32Trunc);
+                    // store ip_f in temp f32 local
+                    ctx.wasm_func.instruction(&Instruction::LocalSet(ctx.swap_f32_local));
+
+                    // store integer part into *out_ptr (as i32)
+                    translate_expression(out_ptr, ctx)?; // push pointer
+                    ctx.wasm_func.instruction(&Instruction::LocalGet(ctx.swap_f32_local));
+                    ctx.wasm_func.instruction(&Instruction::I32TruncSatF32S);
+                    ctx.wasm_func.instruction(&Instruction::I32Store(wasm_encoder::MemArg {
+                        offset: (component_idx * 4) as u64,
+                        align: 2,
+                        memory_index: 0,
+                    }));
+
+                    // fractional = x - ip_f
+                    translate_expression_component(x, component_idx, ctx)?;
+                    ctx.wasm_func.instruction(&Instruction::LocalGet(ctx.swap_f32_local));
+                    ctx.wasm_func.instruction(&Instruction::F32Sub);
+                }
+                MathFunction::Frexp => {
+                    // frexp(x, out exp): returns mantissa, stores exponent as integer out
+                    let x = *arg;
+                    let out_ptr = arg1.expect("Frexp needs 2 arguments");
+
+                    // scratch locals
+                    let temp_orig = ctx.swap_f32_local; // store original x
+                    let temp_e = ctx
+                        .swap_f32_local_2
+                        .unwrap_or(ctx.swap_f32_local); // secondary temp if available
+
+                    // save original x
+                    translate_expression_component(x, component_idx, ctx)?;
+                    ctx.wasm_func.instruction(&Instruction::LocalSet(temp_orig));
+
+                    // abs_x = abs(original)
+                    ctx.wasm_func.instruction(&Instruction::LocalGet(temp_orig));
+                    ctx.wasm_func.instruction(&Instruction::F32Abs);
+                    ctx.wasm_func.instruction(&Instruction::LocalSet(temp_e)); // reuse temp_e for abs check temporarily
+
+                    // if abs_x == 0.0 -> set exp = 0, mantissa = 0.0
+                    ctx.wasm_func.instruction(&Instruction::LocalGet(temp_e));
+                    ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                    ctx.wasm_func.instruction(&Instruction::F32Eq);
+
+                    ctx.wasm_func
+                        .instruction(&Instruction::If(wasm_encoder::BlockType::Result(
+                            ValType::F32,
+                        )));
+                    // true: zero input -> write 0 to exp and return 0.0 mantissa
+                    // store 0 to *out_ptr
+                    ctx.wasm_func.instruction(&Instruction::I32Const(0));
+                    translate_expression(out_ptr, ctx)?; // push pointer
+                    // reorder for store (pointer, value)
+                    ctx.wasm_func.instruction(&Instruction::I32Const(0));
+                    ctx.wasm_func.instruction(&Instruction::I32Store(wasm_encoder::MemArg {
+                        offset: (component_idx * 4) as u64,
+                        align: 2,
+                        memory_index: 0,
+                    }));
+                    ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                    ctx.wasm_func.instruction(&Instruction::Else);
+
+                    // else: compute e = floor(log2(abs(x))) + 1
+                    // restore abs_x into stack
+                    ctx.wasm_func.instruction(&Instruction::LocalGet(temp_e)); // abs_x
+                    // call gl_log2
+                    let log2_idx = *ctx
+                        .math_import_map
+                        .get(&MathFunction::Log2)
+                        .expect("Math import missing");
+                    ctx.wasm_func.instruction(&Instruction::Call(log2_idx));
+                    ctx.wasm_func.instruction(&Instruction::F32Floor);
+                    ctx.wasm_func.instruction(&Instruction::F32Const(1.0));
+                    ctx.wasm_func.instruction(&Instruction::F32Add);
+                    // save e_f as float
+                    ctx.wasm_func.instruction(&Instruction::LocalSet(temp_e));
+
+                    // store integer exponent into *out_ptr
+                    translate_expression(out_ptr, ctx)?; // push pointer
+                    ctx.wasm_func.instruction(&Instruction::LocalGet(temp_e));
+                    ctx.wasm_func.instruction(&Instruction::I32TruncSatF32S);
+                    ctx.wasm_func.instruction(&Instruction::I32Store(wasm_encoder::MemArg {
+                        offset: (component_idx * 4) as u64,
+                        align: 2,
+                        memory_index: 0,
+                    }));
+
+                    // mantissa = original_x * exp2(-e_f)
+                    ctx.wasm_func.instruction(&Instruction::LocalGet(temp_orig));
+                    ctx.wasm_func.instruction(&Instruction::LocalGet(temp_e));
+                    ctx.wasm_func.instruction(&Instruction::F32Neg);
+                    let exp2_idx = *ctx
+                        .math_import_map
+                        .get(&MathFunction::Exp2)
+                        .expect("Math import missing");
+                    ctx.wasm_func.instruction(&Instruction::Call(exp2_idx));
+                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+
+                    ctx.wasm_func.instruction(&Instruction::End);
+                }
                 _ => {
                     // Default to 0.0 for unimplemented math functions
                     ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
