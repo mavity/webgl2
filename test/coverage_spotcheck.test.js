@@ -24,6 +24,9 @@ test('coverage: createTexture triggers coverage in texture-related code', async 
   const module = new WebAssembly.Module(wasmBytes);
 
   const hits = getCoverageData(gl._instance, module);
+  
+  const uniquePaths = [...new Set(hits.map(h => h.path))];
+  console.log('Unique paths hit:', uniquePaths);
     
   assert(hits && hits.length > 0, 'Coverage hits should be recorded');
     
@@ -78,6 +81,7 @@ function getCoverageData(instance, module) {
     if (hitBuffer[i] > 0) {
       const info = mapping.get(i);
       if (info) {
+        console.log(`Hit [${i}]: ${info.path}:${info.line}`);
         hits.push({ ...info, count: hitBuffer[i] });
       }
     }

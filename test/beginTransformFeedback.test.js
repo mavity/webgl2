@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('beginTransformFeedback throws not implemented', async () => {
+test('beginTransformFeedback starts transform feedback after binding', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.beginTransformFeedback(0), /not implemented/); } finally { gl.destroy(); }
+  try {
+    const tf = gl.createTransformFeedback();
+    gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tf);
+    assert.doesNotThrow(() => gl.beginTransformFeedback(gl.TRIANGLES));
+  } finally { gl.destroy(); }
 });

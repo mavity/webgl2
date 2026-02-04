@@ -14,6 +14,43 @@ export const ERR_NOT_IMPLEMENTED = 4;
 export const ERR_GL = 5;
 export const ERR_INTERNAL = 6;
 
+function getBPP(internalFormat) {
+  switch (internalFormat) {
+    case 0x822E: // R32F
+    case 0x8236: // R32UI
+    case 0x8235: // R32I
+      return 4;
+    case 0x8230: // RG32F
+    case 0x823C: // RG32UI
+    case 0x823B: // RG32I
+      return 8;
+    case 0x8814: // RGBA32F
+    case 0x8D70: // RGBA32UI
+    case 0x8D82: // RGBA32I
+    case 0x8815: // RGB32F (often promoted to RGBA32F)
+    case 0x8D71: // RGB32UI
+    case 0x8D83: // RGB32I
+      return 16;
+    case 0x822D: // R16F
+    case 0x8234: // R16UI
+    case 0x8233: // R16I
+      return 2;
+    case 0x822F: // RG16F
+    case 0x823A: // RG16UI
+    case 0x8239: // RG16I
+      return 4;
+    case 0x881A: // RGBA16F
+    case 0x8D76: // RGBA16UI
+    case 0x8D88: // RGBA16I
+    case 0x881B: // RGB16F
+    case 0x8D77: // RGB16UI
+    case 0x8D89: // RGB16I
+      return 8;
+    default:
+      return 4; // Default to RGBA8
+  }
+}
+
 import { WasmWebGLTexture } from './webgl2_texture.js';
 import {
   WasmWebGLShader,
@@ -43,6 +80,8 @@ export class WasmWebGL2RenderingContext {
   DEPTH_TEST = 0x0B71;
   STENCIL_TEST = 0x0B90;
   SCISSOR_TEST = 0x0C11;
+  BLEND = 0x0BE2;
+  CULL_FACE = 0x0B44;
   STENCIL_BUFFER_BIT = 0x00000400;
   COMPILE_STATUS = 0x8B81;
   LINK_STATUS = 0x8B82;
@@ -56,6 +95,22 @@ export class WasmWebGL2RenderingContext {
   PIXEL_UNPACK_BUFFER = 0x88EC;
   UNIFORM_BUFFER = 0x8A11;
   TRANSFORM_FEEDBACK_BUFFER = 0x8C8E;
+  TRANSFORM_FEEDBACK_BUFFER_BINDING = 0x8C8F;
+  TRANSFORM_FEEDBACK_BUFFER_START = 0x8C84;
+  TRANSFORM_FEEDBACK_BUFFER_SIZE = 0x8C85;
+  TRANSFORM_FEEDBACK_BINDING = 0x8E25;
+  TRANSFORM_FEEDBACK_BUFFER_MODE = 0x8C7F;
+  TRANSFORM_FEEDBACK_VARYINGS = 0x8C83;
+  TRANSFORM_FEEDBACK_VARYING_MAX_LENGTH = 0x8C76;
+  MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS = 0x8C8B;
+  MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS = 0x8C8A;
+  MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS = 0x8C80;
+  INTERLEAVED_ATTRIBS = 0x8C8C;
+  SEPARATE_ATTRIBS = 0x8C8D;
+  TRANSFORM_FEEDBACK_PAUSED = 0x8E23;
+  TRANSFORM_FEEDBACK_ACTIVE = 0x8E24;
+  TRANSFORM_FEEDBACK = 0x8E22;
+  RASTERIZER_DISCARD = 0x8C89;
   STATIC_DRAW = 0x88E4;
   BYTE = 0x1400;
   UNSIGNED_BYTE = 0x1401;
@@ -137,6 +192,22 @@ export class WasmWebGL2RenderingContext {
   FRAMEBUFFER_INCOMPLETE_MULTISAMPLE = 0x8D56;
   RENDERBUFFER_SAMPLES = 0x8CAB;
   FRAMEBUFFER_UNDEFINED = 0x8219;
+
+  MAX_DRAW_BUFFERS = 0x8824;
+  DRAW_BUFFER0 = 0x8825;
+  DRAW_BUFFER1 = 0x8826;
+  DRAW_BUFFER2 = 0x8827;
+  DRAW_BUFFER3 = 0x8828;
+  DRAW_BUFFER4 = 0x8829;
+  DRAW_BUFFER5 = 0x882A;
+  DRAW_BUFFER6 = 0x882B;
+  DRAW_BUFFER7 = 0x882C;
+  MAX_COLOR_ATTACHMENTS = 0x8CDF;
+  FRAMEBUFFER_BINDING = 0x8CA6;
+  DRAW_FRAMEBUFFER_BINDING = 0x8CA6;
+  READ_FRAMEBUFFER_BINDING = 0x8CAA;
+  RENDERBUFFER_BINDING = 0x8CA7;
+
   DEPTH_COMPONENT16 = 0x81A5;
   DEPTH_STENCIL = 0x84F9;
   RGBA4 = 0x8056;
@@ -263,6 +334,29 @@ export class WasmWebGL2RenderingContext {
     // TODO: potentially retrieve those one demand from the main WASM module when shader WASM modules are initialised
     this._turboGlobals = turboGlobals;
 
+    /** @type {Map<number, WasmWebGLTexture>} */
+    this._textureHandles = new Map();
+    /** @type {Map<number, WasmWebGLFramebuffer>} */
+    this._fbHandles = new Map();
+    /** @type {Map<number, WasmWebGLRenderbuffer>} */
+    this._rbHandles = new Map();
+    /** @type {Map<number, WasmWebGLBuffer>} */
+    this._bufferHandles = new Map();
+    /** @type {Map<number, WasmWebGLProgram>} */
+    this._programHandles = new Map();
+    /** @type {Map<number, WasmWebGLShader>} */
+    this._shaderHandles = new Map();
+    /** @type {Map<number, WasmWebGLVertexArrayObject>} */
+    this._vaoHandles = new Map();
+    /** @type {Map<number, WasmWebGLSampler>} */
+    this._samplerHandles = new Map();
+    /** @type {Map<number, WasmWebGLQuery>} */
+    this._queryHandles = new Map();
+    /** @type {Map<number, WasmWebGLSync>} */
+    this._syncHandles = new Map();
+    /** @type {Map<number, WasmWebGLTransformFeedback>} */
+    this._tfHandles = new Map();
+
     WasmWebGL2RenderingContext._contexts.set(this._ctxHandle, this);
   }
 
@@ -327,7 +421,9 @@ export class WasmWebGL2RenderingContext {
       throw new Error(`Failed to create texture: ${msg}`);
     }
     // Return a thin wrapper object representing the texture.
-    return new WasmWebGLTexture(this, handle);
+    const tex = new WasmWebGLTexture(this, handle);
+    this._textureHandles.set(handle, tex);
+    return tex;
   }
 
   deleteTexture(tex) {
@@ -339,6 +435,7 @@ export class WasmWebGL2RenderingContext {
     const handle = tex && typeof tex === 'object' && typeof tex._handle === 'number' ? tex._handle : (tex >>> 0);
     const code = ex.wasm_ctx_delete_texture(this._ctxHandle, handle);
     _checkErr(code, this._instance);
+    this._textureHandles.delete(handle);
     // If a wrapper object was passed, mark it as deleted.
     if (tex && typeof tex === 'object') {
       try { tex._handle = 0; tex._deleted = true; } catch (e) { /* ignore */ }
@@ -370,7 +467,7 @@ export class WasmWebGL2RenderingContext {
 
     let data = pixels;
     if (!data) {
-      data = new Uint8Array(width * height * 4);
+      data = new Uint8Array(width * height * getBPP(internalFormat));
     } else if (ArrayBuffer.isView(data)) {
       data = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
     } else if (data instanceof ArrayBuffer) {
@@ -413,7 +510,7 @@ export class WasmWebGL2RenderingContext {
 
     let data = pixels;
     if (!data) {
-      data = new Uint8Array(width * height * depth * 4);
+      data = new Uint8Array(width * height * depth * getBPP(internalFormat));
     } else if (ArrayBuffer.isView(data)) {
       data = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
     } else if (data instanceof ArrayBuffer) {
@@ -479,7 +576,9 @@ export class WasmWebGL2RenderingContext {
       const msg = readErrorMessage(this._instance);
       throw new Error(`Failed to create framebuffer: ${msg}`);
     }
-    return new WasmWebGLFramebuffer(this, handle);
+    const fb = new WasmWebGLFramebuffer(this, handle);
+    this._fbHandles.set(handle, fb);
+    return fb;
   }
 
   deleteFramebuffer(fb) {
@@ -491,6 +590,7 @@ export class WasmWebGL2RenderingContext {
     const handle = fb && typeof fb === 'object' && typeof fb._handle === 'number' ? fb._handle : (fb >>> 0);
     const code = ex.wasm_ctx_delete_framebuffer(this._ctxHandle, handle);
     _checkErr(code, this._instance);
+    this._fbHandles.delete(handle);
     if (fb && typeof fb === 'object') {
       try { fb._handle = 0; fb._deleted = true; } catch (e) { /* ignore */ }
     }
@@ -536,7 +636,9 @@ export class WasmWebGL2RenderingContext {
       const msg = readErrorMessage(this._instance);
       throw new Error(`Failed to create renderbuffer: ${msg}`);
     }
-    return new WasmWebGLRenderbuffer(this, handle);
+    const rb = new WasmWebGLRenderbuffer(this, handle);
+    this._rbHandles.set(handle, rb);
+    return rb;
   }
 
   bindRenderbuffer(target, renderbuffer) {
@@ -559,6 +661,10 @@ export class WasmWebGL2RenderingContext {
     const rbHandle = renderbuffer && typeof renderbuffer === 'object' && typeof renderbuffer._handle === 'number' ? renderbuffer._handle : (renderbuffer >>> 0);
     const code = ex.wasm_ctx_delete_renderbuffer(this._ctxHandle, rbHandle);
     _checkErr(code, this._instance);
+    this._rbHandles.delete(rbHandle);
+    if (renderbuffer && typeof renderbuffer === 'object') {
+      try { renderbuffer._handle = 0; renderbuffer._deleted = true; } catch (e) { /* ignore */ }
+    }
   }
 
   isRenderbuffer(rb) {
@@ -1380,7 +1486,9 @@ export class WasmWebGL2RenderingContext {
       const msg = readErrorMessage(this._instance);
       throw new Error(`Failed to create buffer: ${msg}`);
     }
-    return new WasmWebGLBuffer(this, handle);
+    const buf = new WasmWebGLBuffer(this, handle);
+    this._bufferHandles.set(handle, buf);
+    return buf;
   }
 
   bindBuffer(target, buffer) {
@@ -1394,6 +1502,35 @@ export class WasmWebGL2RenderingContext {
     _checkErr(code, this._instance);
   }
 
+  bindBufferRange(target, index, buffer, offset, size) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_bind_buffer_range !== "function") {
+      throw new Error("wasm_ctx_bind_buffer_range not found");
+    }
+    const handle = buffer && typeof buffer === "object" && typeof buffer._handle === "number" ? buffer._handle : (buffer >>> 0);
+    const code = ex.wasm_ctx_bind_buffer_range(
+      this._ctxHandle,
+      target >>> 0,
+      index >>> 0,
+      handle,
+      offset >>> 0,
+      size >>> 0
+    );
+    _checkErr(code, this._instance);
+  }
+
+  bindBufferBase(target, index, buffer) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_bind_buffer_base !== "function") {
+      throw new Error("wasm_ctx_bind_buffer_base not found");
+    }
+    const handle = buffer && typeof buffer === "object" && typeof buffer._handle === "number" ? buffer._handle : (buffer >>> 0);
+    const code = ex.wasm_ctx_bind_buffer_base(this._ctxHandle, target >>> 0, index >>> 0, handle);
+    _checkErr(code, this._instance);
+  }
+
   deleteBuffer(buffer) {
     this._assertNotDestroyed();
     const ex = this._instance.exports;
@@ -1402,7 +1539,9 @@ export class WasmWebGL2RenderingContext {
     }
     const handle = buffer && typeof buffer === 'object' && typeof buffer._handle === 'number' ? buffer._handle : (buffer >>> 0);
     const code = ex.wasm_ctx_delete_buffer(this._ctxHandle, handle);
-    _checkErr(code, this._instance); if (buffer && typeof buffer === 'object') {
+    _checkErr(code, this._instance);
+    this._bufferHandles.delete(handle);
+    if (buffer && typeof buffer === 'object') {
       try { buffer._handle = 0; buffer._deleted = true; } catch (e) { /* ignore */ }
     }
   }
@@ -1626,14 +1765,180 @@ export class WasmWebGL2RenderingContext {
     return res !== 0;
   }
 
-  createTransformFeedback() { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  bindTransformFeedback(target, tf) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  beginTransformFeedback(primitiveMode) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  pauseTransformFeedback() { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  resumeTransformFeedback() { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  endTransformFeedback() { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  transformFeedbackVaryings(program, varyings, bufferMode) { this._assertNotDestroyed(); throw new Error('not implemented'); }
-  getTransformFeedbackVarying(program, index) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  createTransformFeedback() {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_create_transform_feedback !== "function") {
+      throw new Error("wasm_ctx_create_transform_feedback not found");
+    }
+    const handle = ex.wasm_ctx_create_transform_feedback(this._ctxHandle);
+    if (handle === 0) {
+      const msg = readErrorMessage(this._instance);
+      throw new Error(`Failed to create transform feedback: ${msg}`);
+    }
+    const tf = new WasmWebGLTransformFeedback(this, handle);
+    this._tfHandles.set(handle, tf);
+    return tf;
+  }
+
+  deleteTransformFeedback(tf) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_delete_transform_feedback !== "function") {
+      throw new Error("wasm_ctx_delete_transform_feedback not found");
+    }
+    const handle = tf && typeof tf === "object" && typeof tf._handle === "number" ? tf._handle : (tf >>> 0);
+    const code = ex.wasm_ctx_delete_transform_feedback(this._ctxHandle, handle);
+    _checkErr(code, this._instance);
+    this._tfHandles.delete(handle);
+    if (tf && typeof tf === "object") {
+      try { tf._handle = 0; tf._deleted = true; } catch (e) { /* ignore */ }
+    }
+  }
+
+  isTransformFeedback(tf) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_is_transform_feedback !== "function") {
+      throw new Error("wasm_ctx_is_transform_feedback not found");
+    }
+    const handle = tf && typeof tf === "object" && typeof tf._handle === "number" ? tf._handle : (tf >>> 0);
+    return !!ex.wasm_ctx_is_transform_feedback(this._ctxHandle, handle);
+  }
+
+  bindTransformFeedback(target, tf) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_bind_transform_feedback !== "function") {
+      throw new Error("wasm_ctx_bind_transform_feedback not found");
+    }
+    const handle = tf && typeof tf === "object" && typeof tf._handle === "number" ? tf._handle : (tf >>> 0);
+    const code = ex.wasm_ctx_bind_transform_feedback(this._ctxHandle, target >>> 0, handle);
+    _checkErr(code, this._instance);
+  }
+
+  beginTransformFeedback(primitiveMode) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_begin_transform_feedback !== "function") {
+      throw new Error("wasm_ctx_begin_transform_feedback not found");
+    }
+    const code = ex.wasm_ctx_begin_transform_feedback(this._ctxHandle, primitiveMode >>> 0);
+    _checkErr(code, this._instance);
+  }
+
+  pauseTransformFeedback() {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_pause_transform_feedback !== "function") {
+      throw new Error("wasm_ctx_pause_transform_feedback not found");
+    }
+    const code = ex.wasm_ctx_pause_transform_feedback(this._ctxHandle);
+    _checkErr(code, this._instance);
+  }
+
+  resumeTransformFeedback() {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_resume_transform_feedback !== "function") {
+      throw new Error("wasm_ctx_resume_transform_feedback not found");
+    }
+    const code = ex.wasm_ctx_resume_transform_feedback(this._ctxHandle);
+    _checkErr(code, this._instance);
+  }
+
+  endTransformFeedback() {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_end_transform_feedback !== "function") {
+      throw new Error("wasm_ctx_end_transform_feedback not found");
+    }
+    const code = ex.wasm_ctx_end_transform_feedback(this._ctxHandle);
+    _checkErr(code, this._instance);
+  }
+
+  transformFeedbackVaryings(program, varyings, bufferMode) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_transform_feedback_varyings !== "function") {
+      throw new Error("wasm_ctx_transform_feedback_varyings not found");
+    }
+    const programHandle = program && typeof program === "object" && typeof program._handle === "number" ? program._handle : (program >>> 0);
+
+    // Pack varyings as null-separated list
+    const encoder = new TextEncoder();
+    let totalLen = 0;
+    const encoded = varyings.map(v => {
+      const b = encoder.encode(v + "\0");
+      totalLen += b.length;
+      return b;
+    });
+
+    const ptr = ex.wasm_alloc(totalLen);
+    if (ptr === 0) throw new Error("Failed to allocate memory for transformFeedbackVaryings");
+
+    try {
+      const mem = new Uint8Array(ex.memory.buffer);
+      let offset = 0;
+      for (const b of encoded) {
+        mem.set(b, ptr + offset);
+        offset += b.length;
+      }
+      const code = ex.wasm_ctx_transform_feedback_varyings(this._ctxHandle, programHandle, ptr, totalLen, bufferMode >>> 0);
+      _checkErr(code, this._instance);
+    } finally {
+      ex.wasm_free(ptr);
+    }
+  }
+
+  getTransformFeedbackVarying(program, index) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_transform_feedback_varying !== "function") {
+      throw new Error("wasm_ctx_get_transform_feedback_varying not found");
+    }
+    const programHandle = program && typeof program === "object" && typeof program._handle === "number" ? program._handle : (program >>> 0);
+
+    const sizePtr = ex.wasm_alloc(4);
+    const typePtr = ex.wasm_alloc(4);
+    const nameCapacity = 256;
+    const namePtr = ex.wasm_alloc(nameCapacity);
+
+    if (sizePtr === 0 || typePtr === 0 || namePtr === 0) {
+      if (sizePtr) ex.wasm_free(sizePtr);
+      if (typePtr) ex.wasm_free(typePtr);
+      if (namePtr) ex.wasm_free(namePtr);
+      throw new Error("Failed to allocate memory for getTransformFeedbackVarying");
+    }
+
+    try {
+      const code = ex.wasm_ctx_get_transform_feedback_varying(
+        this._ctxHandle,
+        programHandle,
+        index >>> 0,
+        sizePtr,
+        typePtr,
+        namePtr,
+        nameCapacity
+      );
+      _checkErr(code, this._instance);
+
+      const mem = new DataView(ex.memory.buffer);
+      const size = mem.getInt32(sizePtr, true);
+      const type = mem.getUint32(typePtr, true);
+
+      const nameBytes = new Uint8Array(ex.memory.buffer, namePtr, nameCapacity);
+      let nameLen = 0;
+      while (nameLen < nameCapacity && nameBytes[nameLen] !== 0) nameLen++;
+      const name = new TextDecoder().decode(nameBytes.subarray(0, nameLen));
+
+      return { name, size, type };
+    } finally {
+      ex.wasm_free(sizePtr);
+      ex.wasm_free(typePtr);
+      ex.wasm_free(namePtr);
+    }
+  }
 
   createQuery() { this._assertNotDestroyed(); throw new Error('not implemented'); }
   deleteQuery(q) { this._assertNotDestroyed(); throw new Error('not implemented'); }
@@ -1805,6 +2110,46 @@ export class WasmWebGL2RenderingContext {
     } finally {
       ex.wasm_free(ptr);
     }
+  }
+
+  getUniformBlockIndex(program, name) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_get_uniform_block_index !== "function") {
+      throw new Error("wasm_ctx_get_uniform_block_index not found");
+    }
+    const programHandle = program && typeof program === "object" && typeof program._handle === "number" ? program._handle : (program >>> 0);
+    const nameStr = String(name);
+    const bytes = new TextEncoder().encode(nameStr);
+    const len = bytes.length;
+    const ptr = ex.wasm_alloc(len);
+    if (ptr === 0) throw new Error("Failed to allocate memory for getUniformBlockIndex");
+
+    try {
+      const mem = new Uint8Array(ex.memory.buffer);
+      mem.set(bytes, ptr);
+      const raw = ex.wasm_ctx_get_uniform_block_index(this._ctxHandle, programHandle, ptr, len);
+      const idx = raw >>> 0; // normalize to unsigned
+      return idx === 0xFFFFFFFF ? 0xFFFFFFFF : idx;
+    } finally {
+      ex.wasm_free(ptr);
+    }
+  }
+
+  uniformBlockBinding(program, uniformBlockIndex, uniformBlockBinding) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_uniform_block_binding !== "function") {
+      throw new Error("wasm_ctx_uniform_block_binding not found");
+    }
+    const programHandle = program && typeof program === "object" && typeof program._handle === "number" ? program._handle : (program >>> 0);
+    const code = ex.wasm_ctx_uniform_block_binding(
+      this._ctxHandle,
+      programHandle,
+      uniformBlockIndex >>> 0,
+      uniformBlockBinding >>> 0
+    );
+    _checkErr(code, this._instance);
   }
 
   uniform1f(loc, x) {
@@ -1988,6 +2333,54 @@ export class WasmWebGL2RenderingContext {
         _checkErr(code, this._instance);
         const mem = new Uint8Array(ex.memory.buffer, ptr, 4);
         return [mem[0] !== 0, mem[1] !== 0, mem[2] !== 0, mem[3] !== 0];
+      } finally {
+        ex.wasm_free(ptr, 4);
+      }
+    }
+
+    if (pname === 0x8CA6 /* DRAW_FRAMEBUFFER_BINDING */ || pname === 0x8CAA /* READ_FRAMEBUFFER_BINDING */) {
+      const ptr = ex.wasm_alloc(4);
+      try {
+        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
+        _checkErr(code, this._instance);
+        const handle = new Int32Array(ex.memory.buffer, ptr, 1)[0];
+        if (handle === 0) return null;
+        return this._fbHandles.get(handle) || null;
+      } finally {
+        ex.wasm_free(ptr, 4);
+      }
+    }
+
+    if (pname === 0x8CA7 /* RENDERBUFFER_BINDING */) {
+      const ptr = ex.wasm_alloc(4);
+      try {
+        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
+        _checkErr(code, this._instance);
+        const handle = new Int32Array(ex.memory.buffer, ptr, 1)[0];
+        if (handle === 0) return null;
+        return this._rbHandles.get(handle) || null;
+      } finally {
+        ex.wasm_free(ptr, 4);
+      }
+    }
+
+    if (pname === 0x8824 /* MAX_DRAW_BUFFERS */ || pname === 0x8CDF /* MAX_COLOR_ATTACHMENTS */) {
+      const ptr = ex.wasm_alloc(4);
+      try {
+        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
+        _checkErr(code, this._instance);
+        return new Int32Array(ex.memory.buffer, ptr, 1)[0];
+      } finally {
+        ex.wasm_free(ptr, 4);
+      }
+    }
+
+    if (pname >= 0x8825 /* DRAW_BUFFER0 */ && pname <= 0x882C /* DRAW_BUFFER7 */) {
+      const ptr = ex.wasm_alloc(4);
+      try {
+        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
+        _checkErr(code, this._instance);
+        return new Int32Array(ex.memory.buffer, ptr, 1)[0];
       } finally {
         ex.wasm_free(ptr, 4);
       }
@@ -2183,7 +2576,14 @@ export class WasmWebGL2RenderingContext {
     _checkErr(code, this._instance);
   }
 
-  isEnabled(cap) { this._assertNotDestroyed(); throw new Error('not implemented'); }
+  isEnabled(cap) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_is_enabled !== 'function') {
+      throw new Error('wasm_ctx_is_enabled not found');
+    }
+    return ex.wasm_ctx_is_enabled(this._ctxHandle, cap >>> 0) !== 0;
+  }
 
   viewport(x, y, width, height) {
     this._assertNotDestroyed();

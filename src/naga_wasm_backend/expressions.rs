@@ -679,17 +679,21 @@ pub fn translate_expression_component(
         }
         Expression::GlobalVariable(handle) => {
             if let Some(&(offset, base_ptr_idx)) = ctx.global_offsets.get(handle) {
+                let var = &ctx.module.global_variables[*handle];
+
                 ctx.wasm_func
                     .instruction(&Instruction::GlobalGet(base_ptr_idx));
 
-                // For Uniforms and Textures, the offset points into the Context Block.
-                // We must load the actual base address from there.
-                if base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL
-                    || base_ptr_idx == output_layout::TEXTURE_PTR_GLOBAL
-                {
+                if offset > 0 {
                     ctx.wasm_func
                         .instruction(&Instruction::I32Const(offset as i32));
                     ctx.wasm_func.instruction(&Instruction::I32Add);
+                }
+
+                // If this is a WebGPU uniform, follow the context block indirection
+                if ctx.uniform_locations.is_empty()
+                    && base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL
+                {
                     ctx.wasm_func
                         .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
                             offset: 0,
@@ -1138,46 +1142,47 @@ pub fn translate_expression_component(
             if let Some(tex_fetch_idx) = sampler_idx {
                 let push_handle_addr =
                     |h_expr: naga::Handle<Expression>, ctx: &mut TranslationContext| {
-                        if let Expression::GlobalVariable(h) = ctx.func.expressions[h_expr] {
-                            if let Some(&(offset, base_ptr_idx)) = ctx.global_offsets.get(&h) {
-                                let var = &ctx.module.global_variables[h];
-                                if base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL
-                                    && var.space == naga::AddressSpace::Handle
-                                    && !ctx.uniform_locations.is_empty()
-                                {
-                                    // Index model (WebGL): Load unit index from uniform memory
-                                    // Note: WebGL uniforms use indirection (table -> value)
-                                    ctx.wasm_func.instruction(&Instruction::GlobalGet(
-                                        output_layout::UNIFORM_PTR_GLOBAL,
-                                    ));
-                                    if offset > 0 {
-                                        ctx.wasm_func
-                                            .instruction(&Instruction::I32Const(offset as i32));
-                                        ctx.wasm_func.instruction(&Instruction::I32Add);
-                                    }
-                                    ctx.wasm_func.instruction(&Instruction::I32Load(
-                                        wasm_encoder::MemArg {
-                                            offset: 0,
-                                            align: 2,
-                                            memory_index: 0,
-                                        },
-                                    ));
+                        if !ctx.uniform_locations.is_empty() {
+                            // WebGL model (with indirection or direct texture ptr)
+                            if let Expression::GlobalVariable(h) = ctx.func.expressions[h_expr] {
+                                if let Some(&(offset, base_ptr_idx)) = ctx.global_offsets.get(&h) {
+                                    let var = &ctx.module.global_variables[h];
+                                    if base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL
+                                        && var.space == naga::AddressSpace::Handle
+                                    {
+                                        // Index model (WebGL): Load unit index from uniform memory
+                                        ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                            output_layout::UNIFORM_PTR_GLOBAL,
+                                        ));
+                                        if offset > 0 {
+                                            ctx.wasm_func
+                                                .instruction(&Instruction::I32Const(offset as i32));
+                                            ctx.wasm_func.instruction(&Instruction::I32Add);
+                                        }
+                                        ctx.wasm_func.instruction(&Instruction::I32Load(
+                                            wasm_encoder::MemArg {
+                                                offset: 0,
+                                                align: 2,
+                                                memory_index: 0,
+                                            },
+                                        ));
 
-                                    // Now we have unit_index on stack
-                                    ctx.wasm_func.instruction(&Instruction::I32Const(6));
-                                    ctx.wasm_func.instruction(&Instruction::I32Shl); // * 64
-                                    ctx.wasm_func.instruction(&Instruction::GlobalGet(
-                                        output_layout::TEXTURE_PTR_GLOBAL,
-                                    ));
-                                    ctx.wasm_func.instruction(&Instruction::I32Add);
-                                } else {
-                                    // Handle model (WebGPU) or direct pointer: Push absolute descriptor address
-                                    translate_expression_component(h_expr, 0, ctx)?;
+                                        // Now we have unit_index on stack
+                                        ctx.wasm_func.instruction(&Instruction::I32Const(6));
+                                        ctx.wasm_func.instruction(&Instruction::I32Shl); // * 64
+                                        ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                            output_layout::TEXTURE_PTR_GLOBAL,
+                                        ));
+                                        ctx.wasm_func.instruction(&Instruction::I32Add);
+                                        return Ok::<(), BackendError>(());
+                                    }
                                 }
-                            } else {
-                                translate_expression_component(h_expr, 0, ctx)?;
                             }
+                            // Fallback for WebGL (direct handle or other)
+                            translate_expression_component(h_expr, 0, ctx)?;
                         } else {
+                            // Handle model (WebGPU): Load descriptor pointer from uniform memory
+                            // translate_expression_component now follows the indirection automatically.
                             translate_expression_component(h_expr, 0, ctx)?;
                         }
                         Ok::<(), BackendError>(())
@@ -1237,53 +1242,45 @@ pub fn translate_expression_component(
             image, coordinate, ..
         } => {
             if let Some(load_idx) = ctx.webgl_image_load_idx {
-                // 1. Resolve arguments 0 and 1 (texture_ptr and desc_addr)
-                if let Expression::GlobalVariable(h) = ctx.func.expressions[*image] {
-                    if let Some(&(offset, base_ptr_idx)) = ctx.global_offsets.get(&h) {
-                        ctx.wasm_func.instruction(&Instruction::GlobalGet(
-                            output_layout::TEXTURE_PTR_GLOBAL,
-                        ));
-                        if base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL
-                            && !ctx.uniform_locations.is_empty()
-                        {
-                            // Index model (WebGL): Load unit index from uniform memory
-                            ctx.wasm_func.instruction(&Instruction::GlobalGet(
-                                output_layout::UNIFORM_PTR_GLOBAL,
-                            ));
-                            let final_offset = offset;
-                            if final_offset > 0 {
-                                ctx.wasm_func
-                                    .instruction(&Instruction::I32Const(final_offset as i32));
+                // 1. Resolve descriptor address
+                if !ctx.uniform_locations.is_empty() {
+                    if let Expression::GlobalVariable(h) = ctx.func.expressions[*image] {
+                        if let Some(&(offset, base_ptr_idx)) = ctx.global_offsets.get(&h) {
+                            if base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL {
+                                // Index model (WebGL): Load unit index from uniform memory
+                                ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                    output_layout::UNIFORM_PTR_GLOBAL,
+                                ));
+                                if offset > 0 {
+                                    ctx.wasm_func
+                                        .instruction(&Instruction::I32Const(offset as i32));
+                                    ctx.wasm_func.instruction(&Instruction::I32Add);
+                                }
+                                ctx.wasm_func.instruction(&Instruction::I32Load(
+                                    wasm_encoder::MemArg {
+                                        offset: 0,
+                                        align: 2,
+                                        memory_index: 0,
+                                    },
+                                ));
+                                ctx.wasm_func.instruction(&Instruction::I32Const(6));
+                                ctx.wasm_func.instruction(&Instruction::I32Shl); // * 64
+                                ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                    output_layout::TEXTURE_PTR_GLOBAL,
+                                ));
                                 ctx.wasm_func.instruction(&Instruction::I32Add);
+                            } else {
+                                translate_expression_component(*image, 0, ctx)?;
                             }
-                            ctx.wasm_func.instruction(&Instruction::I32Load(
-                                wasm_encoder::MemArg {
-                                    offset: 0,
-                                    align: 2,
-                                    memory_index: 0,
-                                },
-                            ));
-                            ctx.wasm_func.instruction(&Instruction::I32Const(64));
-                            ctx.wasm_func.instruction(&Instruction::I32Mul);
-                            ctx.wasm_func.instruction(&Instruction::GlobalGet(
-                                output_layout::TEXTURE_PTR_GLOBAL,
-                            ));
-                            ctx.wasm_func.instruction(&Instruction::I32Add);
                         } else {
-                            // Handle model (WebGPU)
                             translate_expression_component(*image, 0, ctx)?;
                         }
                     } else {
-                        // Fallback
-                        ctx.wasm_func.instruction(&Instruction::GlobalGet(
-                            output_layout::TEXTURE_PTR_GLOBAL,
-                        ));
                         translate_expression_component(*image, 0, ctx)?;
                     }
                 } else {
-                    // Fallback
-                    ctx.wasm_func
-                        .instruction(&Instruction::GlobalGet(output_layout::TEXTURE_PTR_GLOBAL));
+                    // Handle model (WebGPU): Load pointer from uniform address
+                    // translate_expression_component now follows the indirection automatically.
                     translate_expression_component(*image, 0, ctx)?;
                 }
 
@@ -1342,40 +1339,44 @@ pub fn translate_expression_component(
             match query {
                 naga::ImageQuery::Size { .. } => {
                     // 1. Resolve descriptor address
-                    if let Expression::GlobalVariable(h) = ctx.func.expressions[*image] {
-                        if let Some(&(offset, base_ptr_idx)) = ctx.global_offsets.get(&h) {
-                            if base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL {
-                                // Index model (WebGL)
-                                ctx.wasm_func.instruction(&Instruction::GlobalGet(
-                                    output_layout::UNIFORM_PTR_GLOBAL,
-                                ));
-                                let final_offset = offset;
-                                if final_offset > 0 {
-                                    ctx.wasm_func
-                                        .instruction(&Instruction::I32Const(final_offset as i32));
+                    if !ctx.uniform_locations.is_empty() {
+                        if let Expression::GlobalVariable(h) = ctx.func.expressions[*image] {
+                            if let Some(&(offset, base_ptr_idx)) = ctx.global_offsets.get(&h) {
+                                if base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL {
+                                    // Index model (WebGL)
+                                    ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                        output_layout::UNIFORM_PTR_GLOBAL,
+                                    ));
+                                    if offset > 0 {
+                                        ctx.wasm_func
+                                            .instruction(&Instruction::I32Const(offset as i32));
+                                        ctx.wasm_func.instruction(&Instruction::I32Add);
+                                    }
+                                    ctx.wasm_func.instruction(&Instruction::I32Load(
+                                        wasm_encoder::MemArg {
+                                            offset: 0,
+                                            align: 2,
+                                            memory_index: 0,
+                                        },
+                                    ));
+                                    ctx.wasm_func.instruction(&Instruction::I32Const(64));
+                                    ctx.wasm_func.instruction(&Instruction::I32Mul);
+                                    ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                        output_layout::TEXTURE_PTR_GLOBAL,
+                                    ));
                                     ctx.wasm_func.instruction(&Instruction::I32Add);
+                                } else {
+                                    translate_expression_component(*image, 0, ctx)?;
                                 }
-                                ctx.wasm_func.instruction(&Instruction::I32Load(
-                                    wasm_encoder::MemArg {
-                                        offset: 0,
-                                        align: 2,
-                                        memory_index: 0,
-                                    },
-                                ));
-                                ctx.wasm_func.instruction(&Instruction::I32Const(64));
-                                ctx.wasm_func.instruction(&Instruction::I32Mul);
-                                ctx.wasm_func.instruction(&Instruction::GlobalGet(
-                                    output_layout::TEXTURE_PTR_GLOBAL,
-                                ));
-                                ctx.wasm_func.instruction(&Instruction::I32Add);
                             } else {
-                                // Handle model (WebGPU)
                                 translate_expression_component(*image, 0, ctx)?;
                             }
                         } else {
                             translate_expression_component(*image, 0, ctx)?;
                         }
                     } else {
+                        // Handle model (WebGPU): Load pointer from uniform address
+                        // translate_expression_component now follows the indirection automatically.
                         translate_expression_component(*image, 0, ctx)?;
                     }
 
@@ -1451,9 +1452,16 @@ pub fn translate_expression_component(
                 | MathFunction::Asinh
                 | MathFunction::Acosh
                 | MathFunction::Atanh => {
-                    translate_expression_component(*arg, component_idx, ctx)?;
+                    let arg_ty = ctx.typifier.get(*arg, &ctx.module.types);
+                    let arg_count = super::types::component_count(arg_ty, &ctx.module.types);
+                    let arg_idx = if arg_count > 1 { component_idx } else { 0 };
+
+                    translate_expression_component(*arg, arg_idx, ctx)?;
                     if let Some(a1) = arg1 {
-                        translate_expression_component(*a1, component_idx, ctx)?;
+                        let a1_ty = ctx.typifier.get(*a1, &ctx.module.types);
+                        let a1_count = super::types::component_count(a1_ty, &ctx.module.types);
+                        let a1_idx = if a1_count > 1 { component_idx } else { 0 };
+                        translate_expression_component(*a1, a1_idx, ctx)?;
                     }
                     let func_idx = *ctx.math_import_map.get(fun).expect("Math import missing");
                     ctx.wasm_func.instruction(&Instruction::Call(func_idx));
@@ -1907,36 +1915,37 @@ pub fn translate_expression(
                     ctx.wasm_func
                         .instruction(&Instruction::GlobalGet(base_ptr_idx));
 
-                    if base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL
-                        || base_ptr_idx == output_layout::TEXTURE_PTR_GLOBAL
-                    {
+                    if offset > 0 {
                         ctx.wasm_func
                             .instruction(&Instruction::I32Const(offset as i32));
                         ctx.wasm_func.instruction(&Instruction::I32Add);
+                    }
+
+                    // WebGPU indirection
+                    if ctx.uniform_locations.is_empty()
+                        && base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL
+                    {
                         ctx.wasm_func
                             .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
                                 offset: 0,
                                 align: 2,
                                 memory_index: 0,
                             }));
-                    } else if offset > 0 {
-                        ctx.wasm_func
-                            .instruction(&Instruction::I32Const(offset as i32));
-                        ctx.wasm_func.instruction(&Instruction::I32Add);
                     }
                 } else {
                     // Fallback for unknown globals
-                    match var.name.as_deref() {
+                    let name: Option<&str> = var.name.as_deref();
+                    match name {
                         Some("gl_Position") | Some("gl_Position_1") => {
                             ctx.wasm_func.instruction(&Instruction::GlobalGet(
                                 output_layout::VARYING_PTR_GLOBAL,
                             ));
                         }
-                        Some(name)
-                            if name.starts_with("output")
-                                || name == "outColor"
-                                || name == "fragColor"
-                                || name == "gl_FragColor" =>
+                        Some(val)
+                            if val.starts_with("output")
+                                || val == "outColor"
+                                || val == "fragColor"
+                                || val == "gl_FragColor" =>
                         {
                             ctx.wasm_func.instruction(&Instruction::GlobalGet(
                                 output_layout::PRIVATE_PTR_GLOBAL,

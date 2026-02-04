@@ -269,18 +269,25 @@ async function initWASM({ debug } = {}) {
           ACTIVE_FRAME_SP: turboGlobals.ACTIVE_FRAME_SP,
         };
         
-        // Copy math functions
-        const mathFuncs = [
-          'gl_cos', 'gl_sin', 'gl_tan', 'gl_acos', 'gl_asin', 'gl_atan', 'gl_atan2',
-          'gl_exp', 'gl_exp2', 'gl_log', 'gl_log2', 'gl_pow', 'gl_floor', 'gl_ceil',
-          'gl_fract', 'gl_mod', 'gl_min', 'gl_max', 'gl_abs', 'gl_sign', 'gl_sqrt',
-          'gl_inversesqrt', 'gl_sinh', 'gl_cosh', 'gl_tanh', 'gl_asinh', 'gl_acosh', 'gl_atanh'
-        ];
-        for (const name of mathFuncs) {
-          if (instance.exports[name]) {
-            env[name] = instance.exports[name];
-          }
-        }
+        // Map transcendental functions to JS Math equivalents for maximum accuracy
+        env.gl_sin = Math.sin;
+        env.gl_cos = Math.cos;
+        env.gl_tan = Math.tan;
+        env.gl_asin = Math.asin;
+        env.gl_acos = Math.acos;
+        env.gl_atan = Math.atan;
+        env.gl_atan2 = Math.atan2;
+        env.gl_exp = Math.exp;
+        env.gl_exp2 = (x) => Math.pow(2, x);
+        env.gl_log = Math.log;
+        env.gl_log2 = Math.log2;
+        env.gl_pow = Math.pow;
+        env.gl_sinh = Math.sinh;
+        env.gl_cosh = Math.cosh;
+        env.gl_tanh = Math.tanh;
+        env.gl_asinh = Math.asinh;
+        env.gl_acosh = Math.acosh;
+        env.gl_atanh = Math.atanh;
 
         const shaderInstance = new WebAssembly.Instance(shaderModule, { env });
         if (shaderInstance.exports.main) {

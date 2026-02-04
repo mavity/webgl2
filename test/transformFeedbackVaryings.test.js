@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('transformFeedbackVaryings throws not implemented', async () => {
+test('transformFeedbackVaryings stores varyings on program', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.transformFeedbackVaryings(1, ['a'], 0), /not implemented/); } finally { gl.destroy(); }
+  try {
+    const p = gl.createProgram();
+    gl.transformFeedbackVaryings(p, ['a','b'], gl.INTERLEAVED_ATTRIBS);
+    // No exception, and getTransformFeedbackVarying should return the names
+    const v0 = gl.getTransformFeedbackVarying(p, 0);
+    assert.strictEqual(v0.name, 'a');
+  } finally { gl.destroy(); }
 });

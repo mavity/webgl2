@@ -210,6 +210,91 @@ pub fn ctx_bind_buffer(ctx: u32, target: u32, buf: u32) -> u32 {
     ERR_OK
 }
 
+/// Bind a buffer to an indexed target with range.
+pub fn ctx_bind_buffer_range(
+    ctx: u32,
+    target: u32,
+    index: u32,
+    buf: u32,
+    offset: u32,
+    size: u32,
+) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+
+    if buf != 0 && !ctx_obj.buffers.contains_key(&buf) {
+        set_last_error("buffer not found");
+        return ERR_INVALID_HANDLE;
+    }
+
+    let binding = if buf == 0 {
+        None
+    } else {
+        Some(IndexedBufferBinding {
+            buffer_handle: buf,
+            offset,
+            size,
+        })
+    };
+
+    match target {
+        GL_UNIFORM_BUFFER => {
+            if (index as usize) < ctx_obj.uniform_buffer_bindings.len() {
+                ctx_obj.uniform_buffer_bindings[index as usize] = binding;
+            } else {
+                set_last_error("index out of range for uniform buffer");
+                return ERR_INVALID_ARGS;
+            }
+        }
+        GL_TRANSFORM_FEEDBACK_BUFFER => {
+            if (index as usize) < ctx_obj.transform_feedback_buffer_bindings.len() {
+                ctx_obj.transform_feedback_buffer_bindings[index as usize] = binding;
+            } else {
+                set_last_error("index out of range for transform feedback buffer");
+                return ERR_INVALID_ARGS;
+            }
+        }
+        _ => {
+            set_last_error("target not indexable");
+            return ERR_INVALID_ENUM;
+        }
+    }
+
+    // Also bind to generic target
+    ctx_obj
+        .buffer_bindings
+        .insert(target, if buf == 0 { None } else { Some(buf) });
+
+    ERR_OK
+}
+
+/// Bind a buffer to an indexed target.
+pub fn ctx_bind_buffer_base(ctx: u32, target: u32, index: u32, buf: u32) -> u32 {
+    let size = if buf != 0 {
+        let reg = get_registry().borrow();
+        let ctx_obj = reg.contexts.get(&ctx).unwrap();
+        if let Some(b) = ctx_obj.buffers.get(&buf) {
+            if let Some(gb) = ctx_obj.kernel.get_buffer(b.gpu_handle) {
+                gb.data.len() as u32
+            } else {
+                0
+            }
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    ctx_bind_buffer_range(ctx, target, index, buf, 0, size)
+}
+
 /// Upload data to the bound buffer.
 pub fn ctx_buffer_data(ctx: u32, target: u32, ptr: u32, len: u32, usage: u32) -> u32 {
     clear_last_error();

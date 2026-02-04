@@ -333,6 +333,8 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
         // Extract attributes and uniforms from Naga modules to ensure consistent locations
         p.attributes.clear();
         p.uniforms.clear();
+        p.uniform_blocks.clear();
+        p.uniform_block_bindings.clear();
         let mut attribute_locations = HashMap::new();
         let mut uniform_locations = HashMap::new();
         let mut next_uniform_loc = 0;
@@ -526,7 +528,9 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
 
             // TODO: is handle a stray local in the API? Why is it there?
             for (_handle, var) in vs_globals {
-                if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
+                if var.space == AddressSpace::Handle
+                    || (var.space == AddressSpace::Uniform && var.binding.is_none())
+                {
                     if let Some(name) = &var.name {
                         if !p.uniforms.contains_key(name) {
                             let location = next_uniform_loc;
@@ -537,6 +541,13 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                             let ty = &vs.types[var.ty];
                             let type_info = get_type_info(ty);
                             p.uniform_types.insert(name.clone(), type_info);
+                        }
+                    }
+                } else if var.space == AddressSpace::Uniform {
+                    // Uniform Block (has binding)
+                    if let Some(name) = &var.name {
+                        if !p.uniform_blocks.contains(name) {
+                            p.uniform_blocks.push(name.clone());
                         }
                     }
                 } else {
@@ -590,54 +601,15 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                     }
                 }
             }
-        }
 
-        if let Some(fs) = &p.fs_module {
-            // Also scan FS entry points for input varyings
-            for ep in &fs.entry_points {
-                if ep.stage == ShaderStage::Fragment {
-                    for arg in &ep.function.arguments {
-                        if let Some(name) = &arg.name {
-                            if name != "color"
-                                && name != "fragColor"
-                                && !name.ends_with("Color")
-                                && !p.uniforms.contains_key(name)
-                                && !varying_locations.contains_key(name)
-                            {
-                                if let Some(Binding::Location { location: loc, .. }) = &arg.binding
-                                {
-                                    if !varying_locations.values().any(|&v| v == *loc) {
-                                        varying_locations.insert(name.clone(), *loc);
-                                        // FS arg type info
-                                        let ty = &fs.types[arg.ty];
-                                        let type_info = get_type_info(ty);
-                                        fs_varying_types.insert(name.clone(), type_info);
-                                        p.varying_locations.insert(name.clone(), *loc);
-                                        p.varying_types.insert(name.clone(), type_info);
-                                        if *loc >= next_varying_loc {
-                                            next_varying_loc = *loc + 1;
-                                        }
-                                        continue;
-                                    }
-                                }
-                                varying_locations.insert(name.clone(), next_varying_loc);
-                                let ty = &fs.types[arg.ty];
-                                let type_info = get_type_info(ty);
-                                fs_varying_types.insert(name.clone(), type_info);
-                                p.varying_locations.insert(name.clone(), next_varying_loc);
-                                p.varying_types.insert(name.clone(), type_info);
-                                next_varying_loc += 1;
-                            }
-                        }
-                    }
-                }
-            }
+            // Collect uniforms and varyings from globals _and_ from entry point args/results
+            let mut vs_globals: Vec<_> = vs.global_variables.iter().collect();
+            vs_globals.sort_by_key(|(handle, _)| handle.index());
 
-            let mut fs_globals: Vec<_> = fs.global_variables.iter().collect();
-            fs_globals.sort_by_key(|(handle, _)| handle.index());
-
-            for (_handle, var) in fs_globals {
-                if let AddressSpace::Uniform | AddressSpace::Handle = var.space {
+            for (_handle, var) in vs_globals {
+                if var.space == AddressSpace::Handle
+                    || (var.space == AddressSpace::Uniform && var.binding.is_none())
+                {
                     if let Some(name) = &var.name {
                         if !p.uniforms.contains_key(name) {
                             let location = next_uniform_loc;
@@ -645,29 +617,108 @@ pub fn ctx_link_program(ctx: u32, program: u32) -> u32 {
                             p.uniforms.insert(name.clone(), location);
                             uniform_locations.insert(name.clone(), location as u32);
                             // Record uniform type info
-                            let ty = &fs.types[var.ty];
+                            let ty = &vs.types[var.ty];
                             let type_info = get_type_info(ty);
                             p.uniform_types.insert(name.clone(), type_info);
                         }
                     }
-                } else {
-                    // Treat any non-uniform/handle globals as varyings (covers Private / In / Out)
+                } else if var.space == AddressSpace::Uniform {
+                    // Collect uniform blocks
                     if let Some(name) = &var.name {
-                        if name != "color"
-                            && name != "gl_FragColor"
-                            && name != "gl_FragColor_1"
-                            && name != "fragColor"
-                            && !name.ends_with("Color")
-                            && !varying_locations.contains_key(name)
-                        {
-                            varying_locations.insert(name.clone(), next_varying_loc);
-                            // record FS type info
-                            let ty = &fs.types[var.ty];
-                            let type_info = get_type_info(ty);
-                            fs_varying_types.insert(name.clone(), type_info);
-                            p.varying_locations.insert(name.clone(), next_varying_loc);
-                            p.varying_types.insert(name.clone(), type_info);
-                            next_varying_loc += 1;
+                        if !p.uniform_blocks.contains(name) {
+                            p.uniform_blocks.push(name.clone());
+                        }
+                    }
+                }
+            }
+
+            if let Some(fs) = &p.fs_module {
+                // Also scan FS entry points for input varyings
+                for ep in &fs.entry_points {
+                    if ep.stage == ShaderStage::Fragment {
+                        for arg in &ep.function.arguments {
+                            if let Some(name) = &arg.name {
+                                if name != "color"
+                                    && name != "fragColor"
+                                    && !name.ends_with("Color")
+                                    && !p.uniforms.contains_key(name)
+                                    && !varying_locations.contains_key(name)
+                                {
+                                    if let Some(Binding::Location { location: loc, .. }) =
+                                        &arg.binding
+                                    {
+                                        if !varying_locations.values().any(|&v| v == *loc) {
+                                            varying_locations.insert(name.clone(), *loc);
+                                            // FS arg type info
+                                            let ty = &fs.types[arg.ty];
+                                            let type_info = get_type_info(ty);
+                                            fs_varying_types.insert(name.clone(), type_info);
+                                            p.varying_locations.insert(name.clone(), *loc);
+                                            p.varying_types.insert(name.clone(), type_info);
+                                            if *loc >= next_varying_loc {
+                                                next_varying_loc = *loc + 1;
+                                            }
+                                            continue;
+                                        }
+                                    }
+                                    varying_locations.insert(name.clone(), next_varying_loc);
+                                    let ty = &fs.types[arg.ty];
+                                    let type_info = get_type_info(ty);
+                                    fs_varying_types.insert(name.clone(), type_info);
+                                    p.varying_locations.insert(name.clone(), next_varying_loc);
+                                    p.varying_types.insert(name.clone(), type_info);
+                                    next_varying_loc += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let mut fs_globals: Vec<_> = fs.global_variables.iter().collect();
+                fs_globals.sort_by_key(|(handle, _)| handle.index());
+
+                for (_handle, var) in fs_globals {
+                    if var.space == AddressSpace::Handle
+                        || (var.space == AddressSpace::Uniform && var.binding.is_none())
+                    {
+                        if let Some(name) = &var.name {
+                            if !p.uniforms.contains_key(name) {
+                                let location = next_uniform_loc;
+                                next_uniform_loc += 1;
+                                p.uniforms.insert(name.clone(), location);
+                                uniform_locations.insert(name.clone(), location as u32);
+                                // Record uniform type info
+                                let ty = &fs.types[var.ty];
+                                let type_info = get_type_info(ty);
+                                p.uniform_types.insert(name.clone(), type_info);
+                            }
+                        }
+                    } else if var.space == AddressSpace::Uniform {
+                        // Uniform Block (has binding)
+                        if let Some(name) = &var.name {
+                            if !p.uniform_blocks.contains(name) {
+                                p.uniform_blocks.push(name.clone());
+                            }
+                        }
+                    } else {
+                        // Treat any non-uniform/handle globals as varyings (covers Private / In / Out)
+                        if let Some(name) = &var.name {
+                            if name != "color"
+                                && name != "gl_FragColor"
+                                && name != "gl_FragColor_1"
+                                && name != "fragColor"
+                                && !name.ends_with("Color")
+                                && !varying_locations.contains_key(name)
+                            {
+                                varying_locations.insert(name.clone(), next_varying_loc);
+                                // record FS type info
+                                let ty = &fs.types[var.ty];
+                                let type_info = get_type_info(ty);
+                                fs_varying_types.insert(name.clone(), type_info);
+                                p.varying_locations.insert(name.clone(), next_varying_loc);
+                                p.varying_types.insert(name.clone(), type_info);
+                                next_varying_loc += 1;
+                            }
                         }
                     }
                 }
@@ -944,6 +995,55 @@ pub fn ctx_get_uniform_location(ctx: u32, program: u32, name_ptr: u32, name_len:
         }
     } else {
         -1
+    }
+}
+
+pub fn ctx_get_uniform_block_index(ctx: u32, program: u32, name_ptr: u32, name_len: u32) -> u32 {
+    clear_last_error();
+    let reg = get_registry().borrow();
+    let ctx_obj = match reg.contexts.get(&ctx) {
+        Some(c) => c,
+        None => return 0xFFFFFFFF,
+    };
+
+    let name_slice =
+        unsafe { std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize) };
+    let name = String::from_utf8_lossy(name_slice).into_owned();
+
+    if let Some(p) = ctx_obj.programs.get(&program) {
+        for (i, block_name) in p.uniform_blocks.iter().enumerate() {
+            if block_name == &name {
+                return i as u32;
+            }
+        }
+        0xFFFFFFFF
+    } else {
+        0xFFFFFFFF
+    }
+}
+
+pub fn ctx_uniform_block_binding(ctx: u32, program: u32, index: u32, binding: u32) -> u32 {
+    clear_last_error();
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
+        Some(c) => c,
+        None => {
+            set_last_error("invalid context handle");
+            return ERR_INVALID_HANDLE;
+        }
+    };
+
+    if let Some(p) = ctx_obj.programs.get_mut(&program) {
+        if (index as usize) < p.uniform_blocks.len() {
+            p.uniform_block_bindings.insert(index, binding);
+            ERR_OK
+        } else {
+            set_last_error("uniform block index out of range");
+            GL_INVALID_VALUE
+        }
+    } else {
+        set_last_error("program not found");
+        ERR_INVALID_HANDLE
     }
 }
 
@@ -1455,11 +1555,10 @@ fn reflect_program_resources(p: &mut Program) {
                                     },
                                 );
 
-                                // Map both 'name' and 'name[0]' to the same location
-                                if !program_uniforms.contains_key(name) {
-                                    program_uniforms.insert(name.clone(), location);
-                                    if size > 1 {
-                                        program_uniforms.insert(final_name, location);
+                                // Only map 'name[0]' if we have a location for 'name'
+                                if size > 1 {
+                                    if let Some(&loc) = program_uniforms.get(name) {
+                                        program_uniforms.insert(final_name, loc);
                                     }
                                 }
                             }

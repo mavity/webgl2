@@ -335,17 +335,40 @@ pub fn ctx_enable(ctx: u32, cap: u32) -> u32 {
         }
     };
     match cap {
-        0x0C11 /* SCISSOR_TEST */ => ctx_obj.scissor_test_enabled = true,
-        0x0B71 /* DEPTH_TEST */ => ctx_obj.depth_state.enabled = true,
-        0x0BE2 /* BLEND */ => ctx_obj.blend_state.enabled = true,
-        0x0B90 /* STENCIL_TEST */ => ctx_obj.stencil_state.enabled = true,
-        0x0B44 /* CULL_FACE */ => ctx_obj.cull_face_enabled = true,
+        GL_SCISSOR_TEST => ctx_obj.scissor_test_enabled = true,
+        GL_DEPTH_TEST => ctx_obj.depth_state.enabled = true,
+        GL_BLEND => ctx_obj.blend_state.enabled = true,
+        GL_STENCIL_TEST => ctx_obj.stencil_state.enabled = true,
+        GL_CULL_FACE => ctx_obj.cull_face_enabled = true,
         _ => {
             set_last_error("unsupported capability");
             return ERR_NOT_IMPLEMENTED;
         }
     }
     ERR_OK
+}
+
+/// Check if a capability is enabled.
+pub fn ctx_is_enabled(ctx: u32, cap: u32) -> i32 {
+    clear_last_error();
+    let reg = get_registry().borrow();
+    let ctx_obj = match reg.contexts.get(&ctx) {
+        Some(c) => c,
+        None => return 0,
+    };
+    let val = match cap {
+        GL_SCISSOR_TEST => ctx_obj.scissor_test_enabled,
+        GL_DEPTH_TEST => ctx_obj.depth_state.enabled,
+        GL_BLEND => ctx_obj.blend_state.enabled,
+        GL_STENCIL_TEST => ctx_obj.stencil_state.enabled,
+        GL_CULL_FACE => ctx_obj.cull_face_enabled,
+        _ => false,
+    };
+    if val {
+        1
+    } else {
+        0
+    }
 }
 
 pub fn ctx_disable(ctx: u32, cap: u32) -> u32 {
@@ -359,11 +382,11 @@ pub fn ctx_disable(ctx: u32, cap: u32) -> u32 {
         }
     };
     match cap {
-        0x0C11 /* SCISSOR_TEST */ => ctx_obj.scissor_test_enabled = false,
-        0x0B71 /* DEPTH_TEST */ => ctx_obj.depth_state.enabled = false,
-        0x0BE2 /* BLEND */ => ctx_obj.blend_state.enabled = false,
-        0x0B90 /* STENCIL_TEST */ => ctx_obj.stencil_state.enabled = false,
-        0x0B44 /* CULL_FACE */ => ctx_obj.cull_face_enabled = false,
+        GL_SCISSOR_TEST => ctx_obj.scissor_test_enabled = false,
+        GL_DEPTH_TEST => ctx_obj.depth_state.enabled = false,
+        GL_BLEND => ctx_obj.blend_state.enabled = false,
+        GL_STENCIL_TEST => ctx_obj.stencil_state.enabled = false,
+        GL_CULL_FACE => ctx_obj.cull_face_enabled = false,
         _ => {
             set_last_error("unsupported capability");
             return ERR_NOT_IMPLEMENTED;
@@ -604,6 +627,64 @@ pub fn ctx_get_parameter_v(ctx: u32, pname: u32, dest_ptr: u32, dest_len: u32) -
             }
             let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
             dest[0] = ctx_obj.stencil_state.back.zpass as i32;
+            ERR_OK
+        }
+        0x8CA6 | 0x8CAA => {
+            // DRAW_FRAMEBUFFER_BINDING or READ_FRAMEBUFFER_BINDING
+            if dest_len < 4 {
+                return ERR_INVALID_ARGS;
+            }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            dest[0] = if pname == 0x8CA6 {
+                ctx_obj.bound_draw_framebuffer.unwrap_or(0) as i32
+            } else {
+                ctx_obj.bound_read_framebuffer.unwrap_or(0) as i32
+            };
+            ERR_OK
+        }
+        0x8CA7 => {
+            // RENDERBUFFER_BINDING
+            if dest_len < 4 {
+                return ERR_INVALID_ARGS;
+            }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            dest[0] = ctx_obj.bound_renderbuffer.unwrap_or(0) as i32;
+            ERR_OK
+        }
+        0x8824 => {
+            // MAX_DRAW_BUFFERS
+            if dest_len < 4 {
+                return ERR_INVALID_ARGS;
+            }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            dest[0] = 8;
+            ERR_OK
+        }
+        0x8CDF => {
+            // MAX_COLOR_ATTACHMENTS
+            if dest_len < 4 {
+                return ERR_INVALID_ARGS;
+            }
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            dest[0] = 8;
+            ERR_OK
+        }
+        0x8825..=0x882C => {
+            // DRAW_BUFFER0..7
+            if dest_len < 4 {
+                return ERR_INVALID_ARGS;
+            }
+            let idx = (pname - 0x8825) as usize;
+            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            if let Some(fb_handle) = ctx_obj.bound_draw_framebuffer {
+                if let Some(fb) = ctx_obj.framebuffers.get(&fb_handle) {
+                    dest[0] = fb.draw_buffers.get(idx).cloned().unwrap_or(0) as i32;
+                } else {
+                    dest[0] = 0;
+                }
+            } else {
+                dest[0] = ctx_obj.default_draw_buffers.get(idx).cloned().unwrap_or(0) as i32;
+            }
             ERR_OK
         }
         _ => {

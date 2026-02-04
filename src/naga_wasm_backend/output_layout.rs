@@ -89,12 +89,12 @@ pub fn get_webgl_uniform_data_offset(location: u32) -> u32 {
 
 #[inline]
 pub fn compute_texture_offset(location: u32) -> (u32, u32) {
-    (get_webgl_context_block_index(location), TEXTURE_PTR_GLOBAL)
+    (get_webgl_uniform_data_offset(location), UNIFORM_PTR_GLOBAL)
 }
 
 #[inline]
 pub fn compute_uniform_offset(location: u32) -> (u32, u32) {
-    (get_webgl_context_block_index(location), UNIFORM_PTR_GLOBAL)
+    (get_webgl_uniform_data_offset(location), UNIFORM_PTR_GLOBAL)
 }
 
 /// Description of the data layout within a uniform slot

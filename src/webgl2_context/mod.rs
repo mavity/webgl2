@@ -7,6 +7,7 @@ pub mod renderbuffers;
 pub mod shaders;
 pub mod state;
 pub mod textures;
+pub mod transform_feedback;
 pub mod types;
 pub mod vaos;
 
@@ -22,6 +23,7 @@ pub use renderbuffers::*;
 pub use shaders::*;
 pub use state::*;
 pub use textures::*;
+pub use transform_feedback::*;
 pub use types::{
     ERR_GL, ERR_INTERNAL, ERR_INVALID_ARGS, ERR_INVALID_ENUM, ERR_INVALID_HANDLE,
     ERR_INVALID_OPERATION, ERR_NOT_IMPLEMENTED, ERR_OK, ERR_OOM, GL_ACTIVE_ATTRIBUTES,

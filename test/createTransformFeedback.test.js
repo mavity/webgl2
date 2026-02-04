@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webGL2 } from '../index.js';
 
-test('createTransformFeedback throws not implemented', async () => {
+test('createTransformFeedback returns a transform feedback object', async () => {
   const gl = await webGL2();
-  try { assert.throws(() => gl.createTransformFeedback(), /not implemented/); } finally { gl.destroy(); }
+  try {
+    const tf = gl.createTransformFeedback();
+    assert.ok(tf && typeof tf === 'object');
+    assert.ok(gl.isTransformFeedback(tf));
+  } finally { gl.destroy(); }
 });

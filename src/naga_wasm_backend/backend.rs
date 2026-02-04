@@ -46,17 +46,19 @@ struct Compiler<'a> {
     name: Option<&'a str>,
     module: &'a Module,
 
-    // WASM module sections
+    // Sections
     types: TypeSection,
+    type_count: u32,
     imports: ImportSection,
     functions: FunctionSection,
+    function_count: u32,
     globals: wasm_encoder::GlobalSection,
     code: CodeSection,
     exports: ExportSection,
 
     // Tracking
     entry_points: HashMap<String, u32>,
-    function_count: u32,
+    import_fn_count: u32,
     naga_function_map: HashMap<naga::Handle<naga::Function>, u32>,
     function_registry: &'a super::functions::FunctionRegistry,
     global_offsets: HashMap<naga::Handle<naga::GlobalVariable>, (u32, u32)>,
@@ -100,13 +102,15 @@ impl<'a> Compiler<'a> {
             name,
             module: config.module,
             types: TypeSection::new(),
+            type_count: 0,
             imports: ImportSection::new(),
             functions: FunctionSection::new(),
+            function_count: 0,
             globals: wasm_encoder::GlobalSection::new(),
             code: CodeSection::new(),
             exports: ExportSection::new(),
             entry_points: HashMap::new(),
-            function_count: 0,
+            import_fn_count: 0,
             naga_function_map: HashMap::new(),
             function_registry,
             global_offsets: HashMap::new(),
@@ -157,40 +161,36 @@ impl<'a> Compiler<'a> {
     /// Emits a WASM helper function for integer texelFetch (ImageLoad in Naga).
     /// Covered by: test/samplers/r32ui.test.js, test/samplers/rgba32ui.test.js
     fn emit_image_load_helper(&mut self) {
-        let type_index = self.types.len();
+        let type_index = self.type_count;
+        self.type_count += 1;
         self.types.ty().function(
             vec![
-                ValType::I32,
-                ValType::I32,
-                ValType::I32,
-                ValType::I32,
-                ValType::I32,
+                ValType::I32, // desc_addr
+                ValType::I32, // x
+                ValType::I32, // y
+                ValType::I32, // z
             ],
             vec![ValType::F32, ValType::F32, ValType::F32, ValType::F32],
         );
 
-        let func_idx = self.function_count;
-        self.functions.function(type_index);
+        let func_idx = self.import_fn_count + self.function_count;
         self.function_count += 1;
+        self.functions.function(type_index);
         self.webgl_image_load_idx = Some(func_idx);
 
         let mut func = Function::new(vec![
-            (9, ValType::I32), // locals 5..13: desc_addr, width, height, depth, data_ptr, bpp, layout, address, format
+            (9, ValType::I32), // locals 4..12: width, height, depth, data_ptr, bpp, layout, address, format, temp
         ]);
 
-        let l_desc_addr = 5;
-        let l_width = 6;
-        let l_height = 7;
-        let l_depth = 8;
-        let l_data_ptr = 9;
-        let l_bpp = 10;
-        let l_layout = 11;
-        let l_addr = 12;
-        let l_format = 13;
-
-        // 1. Descriptor address is passed directly in arg 1
-        func.instruction(&Instruction::LocalGet(1));
-        func.instruction(&Instruction::LocalSet(l_desc_addr));
+        let l_desc_addr = 0; // Use parameter 0 directly
+        let l_width = 4;
+        let l_height = 5;
+        let l_depth = 6;
+        let l_data_ptr = 7;
+        let l_bpp = 8;
+        let l_layout = 9;
+        let l_addr = 10;
+        let l_format = 11;
 
         // 2. Load descriptor fields
         func.instruction(&Instruction::LocalGet(l_desc_addr));
@@ -267,11 +267,11 @@ impl<'a> Compiler<'a> {
         func.instruction(&Instruction::I32ShrU); // tiles_h
 
         // z * tiles_h
-        func.instruction(&Instruction::LocalGet(4)); // z
+        func.instruction(&Instruction::LocalGet(3)); // z
         func.instruction(&Instruction::I32Mul);
 
         // + tile_y
-        func.instruction(&Instruction::LocalGet(3)); // y
+        func.instruction(&Instruction::LocalGet(2)); // y
         func.instruction(&Instruction::I32Const(3));
         func.instruction(&Instruction::I32ShrU); // tile_y
         func.instruction(&Instruction::I32Add);
@@ -285,7 +285,7 @@ impl<'a> Compiler<'a> {
         func.instruction(&Instruction::I32Mul);
 
         // + tile_x
-        func.instruction(&Instruction::LocalGet(2)); // x
+        func.instruction(&Instruction::LocalGet(1)); // x
         func.instruction(&Instruction::I32Const(3));
         func.instruction(&Instruction::I32ShrU); // tile_x
         func.instruction(&Instruction::I32Add); // tile_idx
@@ -293,13 +293,13 @@ impl<'a> Compiler<'a> {
         func.instruction(&Instruction::I32Const(6));
         func.instruction(&Instruction::I32Shl); // tile_idx * 64
 
-        func.instruction(&Instruction::LocalGet(3)); // y
+        func.instruction(&Instruction::LocalGet(2)); // y
         func.instruction(&Instruction::I32Const(7));
         func.instruction(&Instruction::I32And); // inner_y
         func.instruction(&Instruction::I32Const(3));
         func.instruction(&Instruction::I32Shl); // inner_y * 8
 
-        func.instruction(&Instruction::LocalGet(2)); // x
+        func.instruction(&Instruction::LocalGet(1)); // x
         func.instruction(&Instruction::I32Const(7));
         func.instruction(&Instruction::I32And); // inner_x
 
@@ -308,14 +308,14 @@ impl<'a> Compiler<'a> {
         func.instruction(&Instruction::Else);
         // Linear
         // pixel_idx = (z * height + y) * width + x
-        func.instruction(&Instruction::LocalGet(4)); // z
+        func.instruction(&Instruction::LocalGet(3)); // z
         func.instruction(&Instruction::LocalGet(l_height));
         func.instruction(&Instruction::I32Mul);
-        func.instruction(&Instruction::LocalGet(3)); // y
+        func.instruction(&Instruction::LocalGet(2)); // y
         func.instruction(&Instruction::I32Add);
         func.instruction(&Instruction::LocalGet(l_width));
         func.instruction(&Instruction::I32Mul);
-        func.instruction(&Instruction::LocalGet(2)); // x
+        func.instruction(&Instruction::LocalGet(1)); // x
         func.instruction(&Instruction::I32Add);
         func.instruction(&Instruction::End);
 
@@ -480,20 +480,21 @@ impl<'a> Compiler<'a> {
             params.push(ValType::F32);
         }
 
-        let type_index = self.types.len();
+        let type_index = self.type_count;
+        self.type_count += 1;
         self.types.ty().function(
             params,
             vec![ValType::F32, ValType::F32, ValType::F32, ValType::F32],
         );
 
-        let func_idx = self.function_count;
-        self.functions.function(type_index);
+        let func_idx = self.import_fn_count + self.function_count;
         self.function_count += 1;
+        self.functions.function(type_index);
 
         let p_count = if is_3d { 5 } else { 4 };
         let mut func = Function::new(vec![
-            (24, ValType::I32), // locals: width... tz, addr, ws, wt, wr, layout, minf, magf, x0, y0, x1, y1, z0, z1, loop_cnt, temp
-            (11, ValType::F32), // locals: res_r, res_g, res_b, res_a, wx, wy, wz, tmp_r, tmp_g, tmp_b, tmp_a
+            (24, ValType::I32), // locals: width, height, ptr, depth, format, bpp, tx, ty, tz, addr, ws, wt, wr, layout, minf, magf, x0, y0, x1, y1, z0, z1, loop_cnt, temp_i
+            (12, ValType::F32), // locals: res_r, res_g, res_b, res_a, wx, wy, wz, temp_f, weight, tmp_rg, tmp_ba, unused
         ]);
 
         let l_tex_desc = 0;
@@ -522,7 +523,6 @@ impl<'a> Compiler<'a> {
         let l_z0 = p_count + 20;
         let l_z1 = p_count + 21;
         let l_loop_cnt = p_count + 22;
-        // p_count + 23 is temp
 
         let l_res_r = p_count + 24;
         let l_res_g = p_count + 25;
@@ -531,7 +531,8 @@ impl<'a> Compiler<'a> {
         let l_wx = p_count + 28;
         let l_wy = p_count + 29;
         let l_wz = p_count + 30;
-        let l_tmp_a = p_count + 34;
+        let l_temp_f = p_count + 31;
+        let l_weight = p_count + 32;
 
         // 1. Load texture metadata from l_tex_desc
         {
@@ -648,7 +649,7 @@ impl<'a> Compiler<'a> {
 
                 // x0 = floor(tx_raw)
                 func.instruction(&Instruction::F32Floor);
-                func.instruction(&Instruction::LocalTee(l_tmp_a)); // temp use l_tmp_a
+                func.instruction(&Instruction::LocalTee(l_temp_f)); // temp use l_temp_f
                 func.instruction(&Instruction::I32TruncF32S);
                 func.instruction(&Instruction::LocalSet(x0_local));
 
@@ -659,7 +660,7 @@ impl<'a> Compiler<'a> {
                 func.instruction(&Instruction::F32Mul);
                 func.instruction(&Instruction::F32Const(0.5));
                 func.instruction(&Instruction::F32Sub); // tx_raw
-                func.instruction(&Instruction::LocalGet(l_tmp_a)); // floor(tx_raw)
+                func.instruction(&Instruction::LocalGet(l_temp_f)); // floor(tx_raw)
                 func.instruction(&Instruction::F32Sub);
                 func.instruction(&Instruction::LocalSet(w_local)); // w_local = wx
 
@@ -888,7 +889,7 @@ impl<'a> Compiler<'a> {
             func.instruction(&Instruction::F32Mul);
         }
 
-        func.instruction(&Instruction::LocalSet(l_tmp_a)); // weight
+        func.instruction(&Instruction::LocalSet(l_weight)); // weight
 
         // 4b. Compute byte address
         func.instruction(&Instruction::LocalGet(l_layout));
@@ -1025,7 +1026,7 @@ impl<'a> Compiler<'a> {
             func.instruction(&Instruction::F32ConvertI32U);
             func.instruction(&Instruction::F32Const(255.0));
             func.instruction(&Instruction::F32Div);
-            func.instruction(&Instruction::LocalGet(l_tmp_a)); // weight
+            func.instruction(&Instruction::LocalGet(l_weight)); // weight
             func.instruction(&Instruction::F32Mul);
             func.instruction(&Instruction::LocalGet(l_res_r + i as u32));
             func.instruction(&Instruction::F32Add);
@@ -1044,7 +1045,7 @@ impl<'a> Compiler<'a> {
                 align: 2,
                 memory_index: 0,
             }));
-            func.instruction(&Instruction::LocalGet(l_tmp_a)); // weight
+            func.instruction(&Instruction::LocalGet(l_weight)); // weight
             func.instruction(&Instruction::F32Mul);
             func.instruction(&Instruction::LocalGet(l_res_r + i as u32));
             func.instruction(&Instruction::F32Add);
@@ -1062,13 +1063,13 @@ impl<'a> Compiler<'a> {
             align: 2,
             memory_index: 0,
         }));
-        func.instruction(&Instruction::LocalGet(l_tmp_a)); // weight
+        func.instruction(&Instruction::LocalGet(l_weight)); // weight
         func.instruction(&Instruction::F32Mul);
         func.instruction(&Instruction::LocalGet(l_res_r));
         func.instruction(&Instruction::F32Add);
         func.instruction(&Instruction::LocalSet(l_res_r));
 
-        func.instruction(&Instruction::LocalGet(l_tmp_a)); // weight (for alpha)
+        func.instruction(&Instruction::LocalGet(l_weight)); // weight (for alpha)
         func.instruction(&Instruction::LocalGet(l_res_a));
         func.instruction(&Instruction::F32Add);
         func.instruction(&Instruction::LocalSet(l_res_a));
@@ -1115,17 +1116,19 @@ impl<'a> Compiler<'a> {
 
         // Import debug_step if shader debugging is enabled for this backend
         if self._backend.config.debug_shaders {
+            let type_idx = self.type_count;
+            self.type_count += 1;
             self.imports.import(
                 "env",
                 "debug_step",
-                wasm_encoder::EntityType::Function(self.types.len()),
+                wasm_encoder::EntityType::Function(type_idx),
             );
             // Signature: (line: i32, func_id: i32, result_ptr: i32) -> ()
             self.types
                 .ty()
                 .function(vec![ValType::I32, ValType::I32, ValType::I32], vec![]);
-            self.debug_step_idx = Some(self.function_count);
-            self.function_count += 1;
+            self.debug_step_idx = Some(self.import_fn_count);
+            self.import_fn_count += 1;
         }
 
         // Add math imports for transcendental functions
@@ -1152,15 +1155,16 @@ impl<'a> Compiler<'a> {
 
         // TODO: Many of these math functions are missing dedicated precision and edge-case tests.
         for (func, name, param_count) in math_funcs {
-            let type_idx = self.types.len();
+            let type_idx = self.type_count;
+            self.type_count += 1;
             let params = vec![ValType::F32; param_count];
             let results = vec![ValType::F32];
             self.types.ty().function(params, results);
 
             self.imports
                 .import("env", name, wasm_encoder::EntityType::Function(type_idx));
-            self.math_import_map.insert(func, self.function_count);
-            self.function_count += 1;
+            self.math_import_map.insert(func, self.import_fn_count);
+            self.import_fn_count += 1;
         }
 
         // Emit the module-local texture sampling helpers
@@ -1251,12 +1255,11 @@ impl<'a> Compiler<'a> {
                         res
                     } else if let Some(name) = &var.name {
                         if let Some(&loc) = self.uniform_locations.get(name) {
-                            let off = if matches!(var.space, naga::AddressSpace::Handle) {
-                                output_layout::get_webgl_uniform_data_offset(loc)
+                            if matches!(var.space, naga::AddressSpace::Handle) {
+                                output_layout::compute_texture_offset(loc)
                             } else {
-                                output_layout::compute_uniform_offset(loc).0
-                            };
-                            (off, default_base_ptr)
+                                output_layout::compute_uniform_offset(loc)
+                            }
                         } else {
                             (0, default_base_ptr)
                         }
@@ -1365,7 +1368,7 @@ impl<'a> Compiler<'a> {
         entry_point: Option<&naga::EntryPoint>,
         func_handle: Option<naga::Handle<naga::Function>>,
     ) -> Result<u32, BackendError> {
-        let func_idx = self.function_count;
+        let func_idx = self.import_fn_count + self.function_count;
         self.function_count += 1;
 
         let mut params: Vec<ValType> = vec![];
@@ -1422,7 +1425,8 @@ impl<'a> Compiler<'a> {
             current_param_idx += params.len() as u32;
         }
 
-        let type_idx = self.types.len();
+        let type_idx = self.type_count;
+        self.type_count += 1;
         self.types.ty().function(params, results);
         self.functions.function(type_idx);
 

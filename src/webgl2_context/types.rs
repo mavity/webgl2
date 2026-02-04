@@ -27,8 +27,6 @@ pub const GL_COPY_READ_BUFFER: u32 = 0x8F36;
 pub const GL_COPY_WRITE_BUFFER: u32 = 0x8F37;
 pub const GL_PIXEL_PACK_BUFFER: u32 = 0x88EB;
 pub const GL_PIXEL_UNPACK_BUFFER: u32 = 0x88EC;
-pub const GL_UNIFORM_BUFFER: u32 = 0x8A11;
-pub const GL_TRANSFORM_FEEDBACK_BUFFER: u32 = 0x8C8E;
 
 pub const GL_COMPILE_STATUS: u32 = 0x8B81;
 pub const GL_LINK_STATUS: u32 = 0x8B82;
@@ -198,6 +196,31 @@ pub const GL_BLEND: u32 = 0x0BE2;
 pub const GL_CULL_FACE: u32 = 0x0B44;
 pub const GL_SCISSOR_TEST: u32 = 0x0C11;
 
+pub const GL_TRANSFORM_FEEDBACK_BUFFER: u32 = 0x8C8E;
+pub const GL_TRANSFORM_FEEDBACK_BUFFER_BINDING: u32 = 0x8C8F;
+pub const GL_TRANSFORM_FEEDBACK_BUFFER_START: u32 = 0x8C84;
+pub const GL_TRANSFORM_FEEDBACK_BUFFER_SIZE: u32 = 0x8C85;
+pub const GL_TRANSFORM_FEEDBACK_BINDING: u32 = 0x8E25;
+pub const GL_TRANSFORM_FEEDBACK_BUFFER_MODE: u32 = 0x8C7F;
+pub const GL_TRANSFORM_FEEDBACK_VARYINGS: u32 = 0x8C83;
+pub const GL_TRANSFORM_FEEDBACK_VARYING_MAX_LENGTH: u32 = 0x8C76;
+pub const GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS: u32 = 0x8C8B;
+pub const GL_MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS: u32 = 0x8C8A;
+pub const GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS: u32 = 0x8C80;
+pub const GL_INTERLEAVED_ATTRIBS: u32 = 0x8C8C;
+pub const GL_SEPARATE_ATTRIBS: u32 = 0x8C8D;
+pub const GL_TRANSFORM_FEEDBACK_PAUSED: u32 = 0x8E23;
+pub const GL_TRANSFORM_FEEDBACK_ACTIVE: u32 = 0x8E24;
+pub const GL_TRANSFORM_FEEDBACK: u32 = 0x8E22;
+
+pub const GL_RASTERIZER_DISCARD: u32 = 0x8C89;
+
+pub const GL_UNIFORM_BUFFER: u32 = 0x8A11;
+pub const GL_UNIFORM_BUFFER_BINDING: u32 = 0x8A28;
+pub const GL_UNIFORM_BUFFER_START: u32 = 0x8A29;
+pub const GL_UNIFORM_BUFFER_SIZE: u32 = 0x8A2A;
+pub const GL_MAX_UNIFORM_BUFFER_BINDINGS: u32 = 0x8A2F;
+
 pub const GL_KEEP: u32 = 0x1E00;
 pub const GL_REPLACE: u32 = 0x1E01;
 pub const GL_INCR: u32 = 0x1E02;
@@ -275,6 +298,13 @@ pub(crate) struct Sampler {
 }
 
 #[derive(Clone)]
+pub(crate) struct TransformFeedback {
+    pub(crate) active: bool,
+    pub(crate) paused: bool,
+    pub(crate) buffer_bindings: Vec<Option<IndexedBufferBinding>>,
+}
+
+#[derive(Clone)]
 pub(crate) struct Renderbuffer {
     pub(crate) width: u32,
     pub(crate) height: u32,
@@ -297,6 +327,13 @@ pub(crate) struct FramebufferObj {
     pub(crate) read_buffer: u32,
     pub(crate) depth_attachment: Option<Attachment>,
     pub(crate) stencil_attachment: Option<Attachment>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct IndexedBufferBinding {
+    pub(crate) buffer_handle: u32,
+    pub(crate) offset: u32,
+    pub(crate) size: u32,
 }
 
 #[derive(Clone)]
@@ -331,6 +368,8 @@ pub(crate) struct Program {
     pub(crate) attribute_bindings: HashMap<String, u32>,
     pub(crate) uniforms: HashMap<String, i32>,
     pub(crate) uniform_types: HashMap<String, (u8, u32)>,
+    pub(crate) uniform_blocks: Vec<String>,
+    pub(crate) uniform_block_bindings: HashMap<u32, u32>,
     pub(crate) active_attributes: Vec<ActiveInfo>,
     pub(crate) active_uniforms: Vec<ActiveInfo>,
     pub(crate) vs_module: Option<Arc<naga::Module>>,
@@ -351,6 +390,8 @@ pub(crate) struct Program {
     /// Function table indices for direct calling
     pub(crate) vs_table_idx: Option<u32>,
     pub(crate) fs_table_idx: Option<u32>,
+    pub(crate) tf_varyings: Vec<String>,
+    pub(crate) tf_buffer_mode: u32,
 }
 
 impl Drop for Program {
@@ -422,6 +463,7 @@ pub struct Context {
     pub(crate) vertex_arrays: HashMap<u32, VertexArray>,
     pub(crate) renderbuffers: HashMap<u32, Renderbuffer>,
     pub(crate) samplers: HashMap<u32, Sampler>,
+    pub(crate) transform_feedbacks: HashMap<u32, TransformFeedback>,
 
     pub(crate) next_texture_handle: u32,
     pub(crate) next_framebuffer_handle: u32,
@@ -430,13 +472,17 @@ pub struct Context {
     pub(crate) next_program_handle: u32,
     pub(crate) next_vertex_array_handle: u32,
     pub(crate) next_renderbuffer_handle: u32,
+    pub(crate) next_transform_feedback_handle: u32,
 
     pub(crate) bound_texture: Option<u32>,
     pub(crate) bound_read_framebuffer: Option<u32>,
     pub(crate) bound_draw_framebuffer: Option<u32>,
     pub(crate) bound_renderbuffer: Option<u32>,
     pub(crate) buffer_bindings: HashMap<u32, Option<u32>>,
+    pub(crate) uniform_buffer_bindings: Vec<Option<IndexedBufferBinding>>,
+    pub(crate) transform_feedback_buffer_bindings: Vec<Option<IndexedBufferBinding>>,
     pub(crate) bound_vertex_array: u32,
+    pub(crate) bound_transform_feedback: Option<u32>,
     pub(crate) current_program: Option<u32>,
 
     pub(crate) uniform_data: Vec<u8>,
@@ -490,6 +536,16 @@ impl Context {
         let mut vertex_arrays = HashMap::new();
         vertex_arrays.insert(0, VertexArray::default());
 
+        let mut transform_feedbacks = HashMap::new();
+        transform_feedbacks.insert(
+            0,
+            TransformFeedback {
+                active: false,
+                paused: false,
+                buffer_bindings: vec![None; 16],
+            },
+        );
+
         Context {
             textures: HashMap::new(),
             framebuffers: HashMap::new(),
@@ -499,6 +555,7 @@ impl Context {
             vertex_arrays,
             renderbuffers: HashMap::new(),
             samplers: HashMap::new(),
+            transform_feedbacks,
 
             next_texture_handle: FIRST_HANDLE,
             next_framebuffer_handle: FIRST_HANDLE,
@@ -507,13 +564,17 @@ impl Context {
             next_program_handle: FIRST_HANDLE,
             next_vertex_array_handle: FIRST_HANDLE,
             next_renderbuffer_handle: FIRST_HANDLE,
+            next_transform_feedback_handle: FIRST_HANDLE,
 
             bound_texture: None,
             bound_read_framebuffer: None,
             bound_draw_framebuffer: None,
             bound_renderbuffer: None,
             buffer_bindings: HashMap::new(),
+            uniform_buffer_bindings: vec![None; 24],
+            transform_feedback_buffer_bindings: vec![None; 16],
             bound_vertex_array: 0,
+            bound_transform_feedback: Some(0),
             current_program: None,
 
             uniform_data: {

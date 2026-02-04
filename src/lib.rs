@@ -883,6 +883,12 @@ pub extern "C" fn wasm_ctx_disable(ctx: u32, cap: u32) -> u32 {
     webgl2_context::ctx_disable(ctx, cap)
 }
 
+/// Check if a capability is enabled.
+#[no_mangle]
+pub extern "C" fn wasm_ctx_is_enabled(ctx: u32, cap: u32) -> i32 {
+    webgl2_context::ctx_is_enabled(ctx, cap)
+}
+
 /// Get the last GL error.
 #[no_mangle]
 pub extern "C" fn wasm_ctx_get_error(ctx: u32) -> u32 {
@@ -917,6 +923,23 @@ pub extern "C" fn wasm_ctx_delete_buffer(ctx: u32, buf: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn wasm_ctx_bind_buffer(ctx: u32, target: u32, buf: u32) -> u32 {
     webgl2_context::ctx_bind_buffer(ctx, target, buf)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_bind_buffer_range(
+    ctx: u32,
+    target: u32,
+    index: u32,
+    buf: u32,
+    offset: u32,
+    size: u32,
+) -> u32 {
+    webgl2_context::ctx_bind_buffer_range(ctx, target, index, buf, offset, size)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_bind_buffer_base(ctx: u32, target: u32, index: u32, buf: u32) -> u32 {
+    webgl2_context::ctx_bind_buffer_base(ctx, target, index, buf)
 }
 
 /// Upload data to the bound buffer.
@@ -1102,6 +1125,31 @@ pub extern "C" fn wasm_ctx_bind_attrib_location(
     len: u32,
 ) -> u32 {
     webgl2_context::ctx_bind_attrib_location(ctx, program, index, ptr, len)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_get_uniform_block_index(
+    ctx: u32,
+    program: u32,
+    ptr: u32,
+    len: u32,
+) -> u32 {
+    webgl2_context::ctx_get_uniform_block_index(ctx, program, ptr, len)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_uniform_block_binding(
+    ctx: u32,
+    program: u32,
+    uniform_block_index: u32,
+    uniform_block_binding: u32,
+) -> u32 {
+    webgl2_context::ctx_uniform_block_binding(
+        ctx,
+        program,
+        uniform_block_index,
+        uniform_block_binding,
+    )
 }
 
 /// Get uniform location.
@@ -1549,6 +1597,98 @@ pub extern "C" fn wasm_ctx_bind_vertex_array(ctx: u32, vao: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn wasm_ctx_is_vertex_array(ctx: u32, vao: u32) -> u32 {
     webgl2_context::ctx_is_vertex_array(ctx, vao)
+}
+
+// ---- Transform Feedback ----
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_create_transform_feedback(ctx: u32) -> u32 {
+    webgl2_context::ctx_create_transform_feedback(ctx)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_is_transform_feedback(ctx: u32, handle: u32) -> u32 {
+    if webgl2_context::ctx_is_transform_feedback(ctx, handle) {
+        1
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_delete_transform_feedback(ctx: u32, handle: u32) -> u32 {
+    webgl2_context::ctx_delete_transform_feedback(ctx, handle)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_bind_transform_feedback(ctx: u32, target: u32, handle: u32) -> u32 {
+    webgl2_context::ctx_bind_transform_feedback(ctx, target, handle)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_begin_transform_feedback(ctx: u32, mode: u32) -> u32 {
+    webgl2_context::ctx_begin_transform_feedback(ctx, mode)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_end_transform_feedback(ctx: u32) -> u32 {
+    webgl2_context::ctx_end_transform_feedback(ctx)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_pause_transform_feedback(ctx: u32) -> u32 {
+    webgl2_context::ctx_pause_transform_feedback(ctx)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_resume_transform_feedback(ctx: u32) -> u32 {
+    webgl2_context::ctx_resume_transform_feedback(ctx)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_transform_feedback_varyings(
+    ctx: u32,
+    program: u32,
+    ptr: u32,
+    len: u32,
+    buffer_mode: u32,
+) -> u32 {
+    // varyings is a packed null-separated list of names
+    let mut varyings = Vec::new();
+    let mem = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    let mut start = 0;
+    for (i, &b) in mem.iter().enumerate() {
+        if b == 0 {
+            if i > start {
+                if let Ok(s) = std::str::from_utf8(&mem[start..i]) {
+                    varyings.push(s.to_string());
+                }
+            }
+            start = i + 1;
+        }
+    }
+    webgl2_context::ctx_transform_feedback_varyings(ctx, program, varyings, buffer_mode)
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_ctx_get_transform_feedback_varying(
+    ctx: u32,
+    program: u32,
+    index: u32,
+    size_ptr: u32,
+    type_ptr: u32,
+    name_ptr: u32,
+    name_capacity: u32,
+) -> u32 {
+    webgl2_context::ctx_get_transform_feedback_varying(
+        ctx,
+        program,
+        index,
+        size_ptr,
+        type_ptr,
+        name_ptr,
+        name_capacity,
+    )
 }
 
 // ============================================================================
