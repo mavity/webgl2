@@ -76,6 +76,10 @@ mod native_fallbacks {
     pub static mut ACTIVE_TEXTURE_PTR: u32 = 0;
     pub static mut ACTIVE_FRAME_SP: u32 = 0;
 
+    /// Synchronize turbo globals from Rust into the host-provided WebAssembly.Global objects.
+    ///
+    /// # Safety
+    /// This function is unsafe because it modifies global mutable state.
     #[no_mangle]
     pub unsafe fn wasm_sync_turbo_globals(
         attr: u32,
@@ -93,19 +97,41 @@ mod native_fallbacks {
         ACTIVE_FRAME_SP = frame_sp;
     }
 
+    /// Print a string to the host console.
+    ///
+    /// # Safety
+    /// This function is unsafe because it reads from a raw pointer.
     pub unsafe fn print(_ptr: *const u8, _len: usize) {}
+
+    /// Dispatch an uncaptured error to the host.
+    ///
+    /// # Safety
+    /// This function is unsafe because it reads from a raw pointer.
     pub unsafe fn dispatch_uncaptured_error(_ptr: *const u8, _len: usize) {}
 
+    /// Register a shader with the host.
+    ///
+    /// # Safety
+    /// This function is unsafe because it reads from a raw pointer.
     pub unsafe fn wasm_register_shader(_ptr: *const u8, _len: usize) -> u32 {
         0
     }
 
+    /// Release a shader index with the host.
+    ///
+    /// # Safety
+    /// This function is unsafe because it is a stub for a host-provided function.
     pub unsafe fn wasm_release_shader_index(_idx: u32) {}
 
     pub static mut __heap_base_local: i32 = 0;
     #[no_mangle]
     pub static __heap_base: &i32 = unsafe { &__heap_base_local };
 
+    /// Execute a shader with the given parameters.
+    ///
+    /// # Safety
+    /// This function is unsafe because it is a stub for a host-provided function.
+    #[allow(clippy::too_many_arguments)]
     pub unsafe fn wasm_execute_shader(
         _ctx: u32,
         _type_: u32,

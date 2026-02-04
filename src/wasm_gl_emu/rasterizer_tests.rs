@@ -23,6 +23,7 @@ fn test_shader_memory_layout_custom() {
         varying_ptr: 0x3000,
         private_ptr: 0x4000,
         texture_ptr: 0x5000,
+        frame_sp: 0x6000,
     };
 
     assert_eq!(layout.attr_ptr, 0x1000);
@@ -116,17 +117,21 @@ fn test_rasterizer_draw_point() {
         color_mask: ColorMaskState::default(),
         depth: DepthState::default(),
         stencil: StencilState::default(),
+        cull_face_enabled: false,
+        cull_face_mode: 0x0405, // GL_BACK
+        front_face: 0x0901,     // GL_CCW
     };
 
     // Draw a point at (50, 50)
-    rasterizer.draw_point(&mut fb, 50.0, 50.0, &[255, 0, 0, 255], &state);
+    rasterizer.draw_point(&mut fb, 50.0, 50.0, &[vec![255, 0, 0, 255]], &state);
 
     // Check the pixel was written
-    let idx = fb.get_pixel_offset(50, 50, 0);
-    assert_eq!(fb.color[idx], 255);
-    assert_eq!(fb.color[idx + 1], 0);
-    assert_eq!(fb.color[idx + 2], 0);
-    assert_eq!(fb.color[idx + 3], 255);
+    let idx = fb.get_pixel_offset(50, 50, 0, 0x8058); // GL_RGBA8
+    let data = &fb.color_attachments[0].as_ref().unwrap().data;
+    assert_eq!(data[idx], 255);
+    assert_eq!(data[idx + 1], 0);
+    assert_eq!(data[idx + 2], 0);
+    assert_eq!(data[idx + 3], 255);
 }
 
 #[test]
@@ -147,14 +152,18 @@ fn test_rasterizer_draw_point_out_of_bounds() {
         color_mask: ColorMaskState::default(),
         depth: DepthState::default(),
         stencil: StencilState::default(),
+        cull_face_enabled: false,
+        cull_face_mode: 0x0405, // GL_BACK
+        front_face: 0x0901,     // GL_CCW
     };
 
     // Try to draw outside framebuffer
-    rasterizer.draw_point(&mut fb, -10.0, -10.0, &[255, 0, 0, 255], &state);
-    rasterizer.draw_point(&mut fb, 200.0, 200.0, &[255, 0, 0, 255], &state);
+    rasterizer.draw_point(&mut fb, -10.0, -10.0, &[vec![255, 0, 0, 255]], &state);
+    rasterizer.draw_point(&mut fb, 200.0, 200.0, &[vec![255, 0, 0, 255]], &state);
 
     // Framebuffer should remain unchanged (all zeros)
-    let all_zero = fb.color.iter().all(|&x| x == 0);
+    let data = &fb.color_attachments[0].as_ref().unwrap().data;
+    let all_zero = data.iter().all(|&x| x == 0);
     assert!(all_zero);
 }
 
@@ -170,11 +179,12 @@ fn test_rasterizer_draw_simple_triangle() {
     let p1 = (20.0, 10.0);
     let p2 = (15.0, 20.0);
 
-    rasterizer.draw_triangle(&mut fb, p0, p1, p2, [0, 255, 0, 255]);
+    rasterizer.draw_triangle(&mut fb, p0, p1, p2, &[vec![0, 255, 0, 255]]);
 
     // Check that some pixels were written (triangle center should be colored)
-    let idx = fb.get_pixel_offset(15, 15, 0);
-    assert_eq!(fb.color[idx + 1], 255); // Green channel
+    let idx = fb.get_pixel_offset(15, 15, 0, 0x8058); // GL_RGBA8
+    let data = &fb.color_attachments[0].as_ref().unwrap().data;
+    assert_eq!(data[idx + 1], 255); // Green channel
 }
 
 #[test]
@@ -208,6 +218,9 @@ fn test_render_state_creation() {
         color_mask: ColorMaskState::default(),
         depth: DepthState::default(),
         stencil: StencilState::default(),
+        cull_face_enabled: false,
+        cull_face_mode: 0x0405, // GL_BACK
+        front_face: 0x0901,     // GL_CCW
     };
 
     assert_eq!(state.viewport.2, 800);

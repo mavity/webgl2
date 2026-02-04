@@ -290,7 +290,7 @@ pub fn ctx_tex_image_2d(
             height,
             1,
             super::types::gl_to_wgt_format(storage_internal_format),
-            crate::wasm_gl_emu::device::StorageLayout::Linear,
+            crate::wasm_gl_emu::device::StorageLayout::Tiled8x8,
         );
 
         // Copy pixels using TransferEngine to handle tiling/linear
@@ -364,7 +364,7 @@ pub fn ctx_tex_image_3d(
 
     // Determine storage internal format from the requested internalFormat and type
     let requested_internal = internal_format as u32;
-    let is_3d = target == GL_TEXTURE_3D;
+    let _is_3d = target == GL_TEXTURE_3D;
     let storage_internal_format = match (requested_internal, _type_ as u32) {
         (GL_R32F, _) => GL_R32F,
         (GL_RG32F, _) => GL_RG32F,
@@ -448,12 +448,8 @@ pub fn ctx_tex_image_3d(
             tex.internal_format = storage_internal_format;
         }
 
-        // 3D textures are Tiled8x8, 2D arrays are Linear
-        let storage_layout = if is_3d {
-            crate::wasm_gl_emu::device::StorageLayout::Tiled8x8
-        } else {
-            crate::wasm_gl_emu::device::StorageLayout::Linear
-        };
+        // All 3D/Array textures use Tiled8x8 for better locality/SFC approximation
+        let storage_layout = crate::wasm_gl_emu::device::StorageLayout::Tiled8x8;
 
         let gpu_handle = ctx_obj.kernel.create_buffer(
             width,

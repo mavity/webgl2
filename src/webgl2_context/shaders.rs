@@ -1543,7 +1543,7 @@ fn reflect_program_resources(p: &mut Program) {
                                 name.clone()
                             };
 
-                            let location = handle.index() as i32;
+                            let _location = handle.index() as i32;
 
                             if !uni_map.contains_key(&final_name) {
                                 uni_map.insert(

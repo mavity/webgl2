@@ -679,8 +679,6 @@ pub fn translate_expression_component(
         }
         Expression::GlobalVariable(handle) => {
             if let Some(&(offset, base_ptr_idx)) = ctx.global_offsets.get(handle) {
-                let var = &ctx.module.global_variables[*handle];
-
                 ctx.wasm_func
                     .instruction(&Instruction::GlobalGet(base_ptr_idx));
 

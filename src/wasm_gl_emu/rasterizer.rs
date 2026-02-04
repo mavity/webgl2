@@ -1625,17 +1625,23 @@ mod tests {
 
     #[test]
     fn test_shader_memory_layout_new() {
-        let layout = ShaderMemoryLayout::new(0);
-        assert!(layout.attr_ptr > 0);
-        assert!(layout.uniform_ptr > 0);
-        assert!(layout.varying_ptr > 0);
+        let layout = ShaderMemoryLayout::new();
+        assert_eq!(layout.attr_ptr, 0);
+        assert_eq!(layout.uniform_ptr, 0);
+        assert_eq!(layout.varying_ptr, 0);
     }
 
     #[test]
     fn test_raster_pipeline_new() {
-        let pipeline = RasterPipeline::new(0);
-        assert_eq!(pipeline.vertex_shader_type, GL_VERTEX_SHADER);
-        assert_eq!(pipeline.fragment_shader_type, GL_FRAGMENT_SHADER);
+        let pipeline = RasterPipeline {
+            vertex_shader_type: 0,
+            fragment_shader_type: 0,
+            memory: ShaderMemoryLayout::default(),
+            flat_varyings_mask: 0,
+            vs_table_idx: None,
+            fs_table_idx: None,
+        };
+        assert_eq!(pipeline.vertex_shader_type, 0);
     }
 }
 

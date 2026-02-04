@@ -60,7 +60,6 @@ impl Default for DecompiledModule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::decompiler::ast::ScalarType;
 
     #[test]
     fn test_module_add_function() {

@@ -301,6 +301,7 @@ pub(crate) struct Sampler {
 pub(crate) struct TransformFeedback {
     pub(crate) active: bool,
     pub(crate) paused: bool,
+    #[allow(dead_code)]
     pub(crate) buffer_bindings: Vec<Option<IndexedBufferBinding>>,
 }
 
@@ -330,6 +331,7 @@ pub(crate) struct FramebufferObj {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub(crate) struct IndexedBufferBinding {
     pub(crate) buffer_handle: u32,
     pub(crate) offset: u32,

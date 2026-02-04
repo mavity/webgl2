@@ -149,7 +149,7 @@ fn main() -> Result<()> {
                 memory: module.memories.iter().next().unwrap().id(),
                 offset: ConstExpr::Value(ir::Value::I32(addr as i32)),
             },
-            (total_probes * 1).to_le_bytes().to_vec(),
+            total_probes.to_le_bytes().to_vec(),
         );
     }
     // Do NOT patch the global export for MAP_LEN
@@ -345,6 +345,7 @@ fn build_coverage_mapping(
     Ok((func_to_probes, probe_to_loc))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_probes_recursive(
     func: &walrus::LocalFunction,
     seq_id: walrus::ir::InstrSeqId,
@@ -352,7 +353,7 @@ fn collect_probes_recursive(
     next_probe_id: &mut u32,
     probe_to_loc: &mut HashMap<u32, (String, u32, u32)>,
     lookup: &DwarfLookup,
-    body: &wasmparser::FunctionBody,
+    _body: &wasmparser::FunctionBody,
     _code_section_offset: usize,
 ) -> Result<()> {
     // 1. Current sequence (always assigned an ID/None)
@@ -412,7 +413,7 @@ fn collect_probes_recursive(
                     next_probe_id,
                     probe_to_loc,
                     lookup,
-                    body,
+                    _body,
                     _code_section_offset,
                 )?;
             }
@@ -424,7 +425,7 @@ fn collect_probes_recursive(
                     next_probe_id,
                     probe_to_loc,
                     lookup,
-                    body,
+                    _body,
                     _code_section_offset,
                 )?;
             }
@@ -436,7 +437,7 @@ fn collect_probes_recursive(
                     next_probe_id,
                     probe_to_loc,
                     lookup,
-                    body,
+                    _body,
                     _code_section_offset,
                 )?;
                 collect_probes_recursive(
@@ -446,7 +447,7 @@ fn collect_probes_recursive(
                     next_probe_id,
                     probe_to_loc,
                     lookup,
-                    body,
+                    _body,
                     _code_section_offset,
                 )?;
             }
@@ -584,9 +585,9 @@ fn create_coverage_data(mapping: &HashMap<u32, (String, u32, u32)>) -> Result<(V
         let file_bytes = file.as_bytes();
 
         // Header: [ID: u32 | LINE: u32 | COL: u32 | PATH_LEN: u32] = 16 bytes
-        entries_data.extend_from_slice(&(id as u32).to_le_bytes());
-        entries_data.extend_from_slice(&(*line as u32).to_le_bytes());
-        entries_data.extend_from_slice(&(*col as u32).to_le_bytes());
+        entries_data.extend_from_slice(&id.to_le_bytes());
+        entries_data.extend_from_slice(&line.to_le_bytes());
+        entries_data.extend_from_slice(&col.to_le_bytes());
         entries_data.extend_from_slice(&(file_bytes.len() as u32).to_le_bytes());
 
         // Payload: [PATH_BYTES]
@@ -734,7 +735,7 @@ fn instrument_instr_seq(
         ));
 
         // Add original instructions
-        new_instrs.extend(instrs.drain(..));
+        new_instrs.append(instrs);
         *instrs = new_instrs;
 
         *probes_injected += 1;
