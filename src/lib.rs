@@ -250,7 +250,12 @@ pub extern "C" fn gl_log2(x: f32) -> f32 {
 
 #[no_mangle]
 pub extern "C" fn gl_pow(base: f32, exp: f32) -> f32 {
-    base.powf(exp)
+    (base as f64).powf(exp as f64) as f32
+}
+
+#[no_mangle]
+pub extern "C" fn gl_ldexp(mant: f32, exp: f32) -> f32 {
+    (mant as f64 * (2f64).powf(exp as f64)) as f32
 }
 
 #[no_mangle]

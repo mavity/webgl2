@@ -7,7 +7,7 @@ use super::{output_layout, BackendError, TranslationContext};
 use naga::{
     BinaryOperator, Expression, Literal, MathFunction, RelationalFunction, ScalarKind, TypeInner,
 };
-use wasm_encoder::Instruction;
+use wasm_encoder::{Instruction, ValType};
 
 /// Helper function to determine if a type should use I32 operations
 pub fn is_integer_type(type_inner: &TypeInner) -> bool {
@@ -1822,6 +1822,134 @@ pub fn translate_expression_component(
                     ctx.wasm_func.instruction(&Instruction::F32Mul);
 
                     ctx.wasm_func.instruction(&Instruction::F32Add);
+                }
+                MathFunction::Ldexp => {
+                    // ldexp(mantissa, exponent) == mantissa * exp2(float(exponent))
+                    let mant = *arg;
+                    let exp = *arg1.as_ref().unwrap();
+
+                    // exponent may be integer or float; handle scalar/vector cases
+                    let exp_ty = ctx.typifier.get(exp, &ctx.module.types);
+                    let exp_count = super::types::component_count(exp_ty, &ctx.module.types);
+                    let exp_idx = if exp_count > 1 { component_idx } else { 0 };
+
+                    // Emit: mant * exp2(float(exp))
+                    translate_expression_component(mant, component_idx, ctx)?;
+                    translate_expression_component(exp, exp_idx, ctx)?;
+                    if is_integer_type(exp_ty) {
+                        ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
+                    }
+                    // Call gl_exp2 to compute exp2(exp)
+                    let exp2_idx = *ctx
+                        .math_import_map
+                        .get(&MathFunction::Exp2)
+                        .expect("Math import missing");
+                    ctx.wasm_func.instruction(&Instruction::Call(exp2_idx));
+                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                }
+                MathFunction::Refract => {
+                    // refract(I, N, eta)
+                    let i = *arg;
+                    let n = *arg1.as_ref().unwrap();
+                    let eta = *arg2.as_ref().unwrap();
+
+                    // component count (vec size)
+                    let arg_ty = ctx.typifier.get(i, &ctx.module.types);
+                    let count = super::types::component_count(arg_ty, &ctx.module.types);
+
+                    // eta may be scalar or vector
+                    let eta_ty = ctx.typifier.get(eta, &ctx.module.types);
+                    let eta_count = super::types::component_count(eta_ty, &ctx.module.types);
+                    let eta_idx = if eta_count > 1 { component_idx } else { 0 };
+
+                    // We'll compute k and store it in a single scratch local (swap_f32_local),
+                    // and recompute dot per-component when needed to avoid clobbering shared temps.
+                    let temp_k = ctx.swap_f32_local;
+
+                    // compute k = 1.0 - A * (1 - dot*dot)
+                    // Push the 1.0 FIRST so the final subtraction is 1.0 - result
+                    ctx.wasm_func.instruction(&Instruction::F32Const(1.0));
+
+                    // Compute A = eta * eta
+                    translate_expression_component(eta, eta_idx, ctx)?;
+                    translate_expression_component(eta, eta_idx, ctx)?;
+                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+
+                    // Prepare for computing (1 - dot*dot): push 1.0 then compute dot twice and multiply
+                    ctx.wasm_func.instruction(&Instruction::F32Const(1.0));
+
+                    // first dot (N · I)
+                    ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                    for j in 0..count {
+                        translate_expression_component(n, j, ctx)?;
+                        translate_expression_component(i, j, ctx)?;
+                        ctx.wasm_func.instruction(&Instruction::F32Mul);
+                        ctx.wasm_func.instruction(&Instruction::F32Add);
+                    }
+
+                    // second dot (N · I)
+                    ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                    for j in 0..count {
+                        translate_expression_component(n, j, ctx)?;
+                        translate_expression_component(i, j, ctx)?;
+                        ctx.wasm_func.instruction(&Instruction::F32Mul);
+                        ctx.wasm_func.instruction(&Instruction::F32Add);
+                    }
+
+                    // dot * dot
+                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                    // compute 1.0 - dot*dot
+                    ctx.wasm_func.instruction(&Instruction::F32Sub);
+
+                    // multiply A * (1 - dot*dot)
+                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+
+                    // compute final k (now computes: 1.0 - result)
+                    ctx.wasm_func.instruction(&Instruction::F32Sub);
+
+                    // save k into temp local and test k < 0.0
+                    ctx.wasm_func.instruction(&Instruction::LocalTee(temp_k));
+                    ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                    ctx.wasm_func.instruction(&Instruction::F32Lt);
+
+                    // if k < 0 -> return 0.0 for this component, else compute refracted component
+                    ctx.wasm_func
+                        .instruction(&Instruction::If(wasm_encoder::BlockType::Result(
+                            ValType::F32,
+                        )));
+                    // true: total internal reflection -> zero component
+                    ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                    ctx.wasm_func.instruction(&Instruction::Else);
+
+                    // term1 = eta * I_comp
+                    translate_expression_component(eta, eta_idx, ctx)?;
+                    translate_expression_component(i, component_idx, ctx)?;
+                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+
+                    // term2 = eta * dot (recompute dot)
+                    ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                    for j in 0..count {
+                        translate_expression_component(n, j, ctx)?;
+                        translate_expression_component(i, j, ctx)?;
+                        ctx.wasm_func.instruction(&Instruction::F32Mul);
+                        ctx.wasm_func.instruction(&Instruction::F32Add);
+                    }
+                    translate_expression_component(eta, eta_idx, ctx)?;
+                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+
+                    // add sqrt(k)
+                    ctx.wasm_func.instruction(&Instruction::LocalGet(temp_k));
+                    ctx.wasm_func.instruction(&Instruction::F32Sqrt);
+                    ctx.wasm_func.instruction(&Instruction::F32Add);
+
+                    // multiply by N_comp
+                    translate_expression_component(n, component_idx, ctx)?;
+                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+
+                    // final: term1 - that
+                    ctx.wasm_func.instruction(&Instruction::F32Sub);
+
+                    ctx.wasm_func.instruction(&Instruction::End);
                 }
                 _ => {
                     // Default to 0.0 for unimplemented math functions

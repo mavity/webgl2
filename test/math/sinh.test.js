@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { webGL2 } from '../../index.js';
-import { PACK_FLOAT_GLSL, unpackFloat, canonicalize } from '../helpers/float-packing.js';
+import { PACK_FLOAT_GLSL, unpackFloat, canonicalize } from './-core.js';
 
 test('Math Builtin: sinh', async (t) => {
     const gl = await webGL2({ size: { width: 1, height: 1 } });

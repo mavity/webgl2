@@ -282,6 +282,7 @@ async function initWASM({ debug } = {}) {
         env.gl_log = Math.log;
         env.gl_log2 = Math.log2;
         env.gl_pow = Math.pow;
+        env.gl_ldexp = (mant, exp) => mant * Math.pow(2, exp);
         env.gl_sinh = Math.sinh;
         env.gl_cosh = Math.cosh;
         env.gl_tanh = Math.tanh;
