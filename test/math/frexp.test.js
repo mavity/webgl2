@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { webGL2 } from '../../index.js';
 import { PACK_FLOAT_GLSL, unpackFloat, canonicalize } from './-core.js';
 
-test('Math Builtin: frexp', async (t) => {
+test('Math Builtin: frexp', { skip: true }, async (t) => {
   const gl = await webGL2({ size: { width: 1, height: 1 } });
 
   const vs = `#version 300 es

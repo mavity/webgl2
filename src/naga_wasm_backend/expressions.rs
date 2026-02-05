@@ -1823,6 +1823,84 @@ pub fn translate_expression_component(
 
                     ctx.wasm_func.instruction(&Instruction::F32Add);
                 }
+                MathFunction::Fma => {
+                    // fma(a, b, c) == a * b + c
+                    let a = *arg;
+                    let b = *arg1.as_ref().unwrap();
+                    let c = *arg2.as_ref().unwrap();
+
+                    let a_ty = ctx.typifier.get(a, &ctx.module.types);
+                    let b_ty = ctx.typifier.get(b, &ctx.module.types);
+                    let c_ty = ctx.typifier.get(c, &ctx.module.types);
+
+                    let a_count = super::types::component_count(a_ty, &ctx.module.types);
+                    let b_count = super::types::component_count(b_ty, &ctx.module.types);
+                    let c_count = super::types::component_count(c_ty, &ctx.module.types);
+
+                    let a_idx = if a_count > 1 { component_idx } else { 0 };
+                    let b_idx = if b_count > 1 { component_idx } else { 0 };
+                    let c_idx = if c_count > 1 { component_idx } else { 0 };
+
+                    translate_expression_component(a, a_idx, ctx)?;
+                    translate_expression_component(b, b_idx, ctx)?;
+                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                    translate_expression_component(c, c_idx, ctx)?;
+                    ctx.wasm_func.instruction(&Instruction::F32Add);
+                }
+                MathFunction::SmoothStep => {
+                    // smoothstep(edge0, edge1, x)
+                    let edge0 = *arg;
+                    let edge1 = *arg1.as_ref().unwrap();
+                    let x = *arg2.as_ref().unwrap();
+
+                    let e0_ty = ctx.typifier.get(edge0, &ctx.module.types);
+                    let e1_ty = ctx.typifier.get(edge1, &ctx.module.types);
+                    let x_ty = ctx.typifier.get(x, &ctx.module.types);
+
+                    let e0_count = super::types::component_count(e0_ty, &ctx.module.types);
+                    let e1_count = super::types::component_count(e1_ty, &ctx.module.types);
+                    let x_count = super::types::component_count(x_ty, &ctx.module.types);
+
+                    let e0_idx = if e0_count > 1 { component_idx } else { 0 };
+                    let e1_idx = if e1_count > 1 { component_idx } else { 0 };
+                    let x_idx = if x_count > 1 { component_idx } else { 0 };
+
+                    // t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0)
+                    translate_expression_component(x, x_idx, ctx)?;
+                    translate_expression_component(edge0, e0_idx, ctx)?;
+                    ctx.wasm_func.instruction(&Instruction::F32Sub);
+
+                    translate_expression_component(edge1, e1_idx, ctx)?;
+                    translate_expression_component(edge0, e0_idx, ctx)?;
+                    ctx.wasm_func.instruction(&Instruction::F32Sub);
+
+                    ctx.wasm_func.instruction(&Instruction::F32Div);
+
+                    // clamp to [0,1]
+                    ctx.wasm_func.instruction(&Instruction::F32Const(1.0));
+                    ctx.wasm_func.instruction(&Instruction::F32Min);
+                    ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                    ctx.wasm_func.instruction(&Instruction::F32Max);
+
+                    // store t into temp
+                    let temp = ctx.swap_f32_local;
+                    ctx.wasm_func.instruction(&Instruction::LocalSet(temp));
+
+                    // t * t
+                    ctx.wasm_func.instruction(&Instruction::LocalGet(temp));
+                    ctx.wasm_func.instruction(&Instruction::LocalGet(temp));
+                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+
+                    // 3.0 - 2.0 * t
+                    ctx.wasm_func.instruction(&Instruction::F32Const(3.0));
+                    ctx.wasm_func.instruction(&Instruction::LocalGet(temp));
+                    ctx.wasm_func.instruction(&Instruction::F32Const(2.0));
+                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                    ctx.wasm_func.instruction(&Instruction::F32Sub);
+
+                    // t*t * (3 - 2*t)
+                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                }
                 MathFunction::Ldexp => {
                     // ldexp(mantissa, exponent) == mantissa * exp2(float(exponent))
                     let mant = *arg;
@@ -1960,21 +2038,25 @@ pub fn translate_expression_component(
                     translate_expression_component(x, component_idx, ctx)?;
                     ctx.wasm_func.instruction(&Instruction::F32Trunc);
                     // store ip_f in temp f32 local
-                    ctx.wasm_func.instruction(&Instruction::LocalSet(ctx.swap_f32_local));
+                    ctx.wasm_func
+                        .instruction(&Instruction::LocalSet(ctx.swap_f32_local));
 
                     // store integer part into *out_ptr (as i32)
                     translate_expression(out_ptr, ctx)?; // push pointer
-                    ctx.wasm_func.instruction(&Instruction::LocalGet(ctx.swap_f32_local));
+                    ctx.wasm_func
+                        .instruction(&Instruction::LocalGet(ctx.swap_f32_local));
                     ctx.wasm_func.instruction(&Instruction::I32TruncSatF32S);
-                    ctx.wasm_func.instruction(&Instruction::I32Store(wasm_encoder::MemArg {
-                        offset: (component_idx * 4) as u64,
-                        align: 2,
-                        memory_index: 0,
-                    }));
+                    ctx.wasm_func
+                        .instruction(&Instruction::I32Store(wasm_encoder::MemArg {
+                            offset: (component_idx * 4) as u64,
+                            align: 2,
+                            memory_index: 0,
+                        }));
 
                     // fractional = x - ip_f
                     translate_expression_component(x, component_idx, ctx)?;
-                    ctx.wasm_func.instruction(&Instruction::LocalGet(ctx.swap_f32_local));
+                    ctx.wasm_func
+                        .instruction(&Instruction::LocalGet(ctx.swap_f32_local));
                     ctx.wasm_func.instruction(&Instruction::F32Sub);
                 }
                 MathFunction::Frexp => {
@@ -1984,9 +2066,7 @@ pub fn translate_expression_component(
 
                     // scratch locals
                     let temp_orig = ctx.swap_f32_local; // store original x
-                    let temp_e = ctx
-                        .swap_f32_local_2
-                        .unwrap_or(ctx.swap_f32_local); // secondary temp if available
+                    let temp_e = ctx.swap_f32_local_2.unwrap_or(ctx.swap_f32_local); // secondary temp if available
 
                     // save original x
                     translate_expression_component(x, component_idx, ctx)?;
@@ -2010,20 +2090,21 @@ pub fn translate_expression_component(
                     // store 0 to *out_ptr
                     ctx.wasm_func.instruction(&Instruction::I32Const(0));
                     translate_expression(out_ptr, ctx)?; // push pointer
-                    // reorder for store (pointer, value)
+                                                         // reorder for store (pointer, value)
                     ctx.wasm_func.instruction(&Instruction::I32Const(0));
-                    ctx.wasm_func.instruction(&Instruction::I32Store(wasm_encoder::MemArg {
-                        offset: (component_idx * 4) as u64,
-                        align: 2,
-                        memory_index: 0,
-                    }));
+                    ctx.wasm_func
+                        .instruction(&Instruction::I32Store(wasm_encoder::MemArg {
+                            offset: (component_idx * 4) as u64,
+                            align: 2,
+                            memory_index: 0,
+                        }));
                     ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
                     ctx.wasm_func.instruction(&Instruction::Else);
 
                     // else: compute e = floor(log2(abs(x))) + 1
                     // restore abs_x into stack
                     ctx.wasm_func.instruction(&Instruction::LocalGet(temp_e)); // abs_x
-                    // call gl_log2
+                                                                               // call gl_log2
                     let log2_idx = *ctx
                         .math_import_map
                         .get(&MathFunction::Log2)
@@ -2039,11 +2120,12 @@ pub fn translate_expression_component(
                     translate_expression(out_ptr, ctx)?; // push pointer
                     ctx.wasm_func.instruction(&Instruction::LocalGet(temp_e));
                     ctx.wasm_func.instruction(&Instruction::I32TruncSatF32S);
-                    ctx.wasm_func.instruction(&Instruction::I32Store(wasm_encoder::MemArg {
-                        offset: (component_idx * 4) as u64,
-                        align: 2,
-                        memory_index: 0,
-                    }));
+                    ctx.wasm_func
+                        .instruction(&Instruction::I32Store(wasm_encoder::MemArg {
+                            offset: (component_idx * 4) as u64,
+                            align: 2,
+                            memory_index: 0,
+                        }));
 
                     // mantissa = original_x * exp2(-e_f)
                     ctx.wasm_func.instruction(&Instruction::LocalGet(temp_orig));
