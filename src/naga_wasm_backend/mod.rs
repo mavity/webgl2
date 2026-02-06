@@ -227,6 +227,10 @@ pub struct TranslationContext<'a> {
     pub swap_f32_local: u32,
     /// Second explicit swap local for f32 operations (for float modulo)
     pub swap_f32_local_2: Option<u32>,
+    /// Base index for per-inverse scratch f32 locals (if allocated)
+    pub inverse_scratch_base: Option<u32>,
+    /// Number of inverse scratch locals allocated
+    pub inverse_scratch_count: u32,
     /// Flattened list of local types (corresponding to WASM local indices starting
     /// at `param_count`). Use this to determine a local's declared type.
     pub local_types: &'a [wasm_encoder::ValType],
@@ -234,6 +238,11 @@ pub struct TranslationContext<'a> {
     pub private_memory_layout: Option<&'a memory_layout::PrivateMemoryLayout>,
     /// Number of function parameters (WASM locals reserved for params start at 0)
     pub param_count: u32,
+    /// ABI of the current function (if available)
+    pub abi: Option<&'a function_abi::FunctionABI>,
+    /// Optional debug marker counter used to inject i32.const/drop markers into
+    /// emitted instruction streams to help map WAT offsets back to source.
+    pub debug_marker_counter: Option<u32>,
 
     /// Index of the emitted module-local helper `__webgl_sampler_2d`
     pub webgl_sampler_2d_idx: Option<u32>,
@@ -247,6 +256,11 @@ pub struct TranslationContext<'a> {
     pub math_import_map: &'a HashMap<naga::MathFunction, u32>,
     /// Index of a temp I32 local for frame pointer calculations (if allocated)
     pub frame_temp_idx: Option<u32>,
+    /// Index of the gl_debug4 import (if present)
+    pub debug4_idx: Option<u32>,
+    /// Indexes of inverse helpers
+    pub inverse_mat2_idx: Option<u32>,
+    pub inverse_mat3_idx: Option<u32>,
     /// Stack of block labels for tracking break/continue targets.
     /// Each entry represents a block/loop with its depth from the current position.
     pub block_stack: Vec<BlockLabel>,

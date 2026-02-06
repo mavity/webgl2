@@ -38,7 +38,7 @@ layout(std430, binding = 0) buffer MemoryBuffer {
     int memory[];
 };
 
-void func_19() {
+void func_21() {
     int v0;
     float v1;
     int v2;
@@ -63,7 +63,7 @@ void main(int p0, int p1, int p2) {
     memory[((g2) + 4) >> 2] = floatBitsToInt(v4);
     v4 = /* unknown: __unsimplified__ */;
     memory[(g2) >> 2] = floatBitsToInt(v4);
-    return func_19();
+    return func_21();
 }
 `);
   } finally {
@@ -103,7 +103,7 @@ layout(std430, binding = 0) buffer MemoryBuffer {
     int memory[];
 };
 
-void func_19() {
+void func_21() {
     int v0;
     float v1;
     int v2;
@@ -129,7 +129,7 @@ void main(int p0, int p1) {
     memory[((g3) + 4) >> 2] = floatBitsToInt(v3);
     v3 = /* unknown: __unsimplified__ */;
     memory[(g3) >> 2] = floatBitsToInt(v3);
-    return func_19();
+    return func_21();
 }
 `);
   } finally {
@@ -183,7 +183,7 @@ layout(std430, binding = 0) buffer MemoryBuffer {
     int memory[];
 };
 
-void func_19() {
+void func_21() {
     int v0;
     float v1;
     int v2;
@@ -208,7 +208,7 @@ void main(int p0, int p1, int p2) {
     memory[((g2) + 4) >> 2] = floatBitsToInt(v4);
     v4 = /* unknown: __unsimplified__ */;
     memory[(g2) >> 2] = floatBitsToInt(v4);
-    return func_19();
+    return func_21();
 }
 `);
   } finally {

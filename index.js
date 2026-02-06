@@ -269,26 +269,30 @@ async function initWASM({ debug } = {}) {
           ACTIVE_FRAME_SP: turboGlobals.ACTIVE_FRAME_SP,
         };
         
-        // Map transcendental functions to JS Math equivalents for maximum accuracy
-        env.gl_sin = Math.sin;
-        env.gl_cos = Math.cos;
-        env.gl_tan = Math.tan;
-        env.gl_asin = Math.asin;
-        env.gl_acos = Math.acos;
-        env.gl_atan = Math.atan;
-        env.gl_atan2 = Math.atan2;
-        env.gl_exp = Math.exp;
-        env.gl_exp2 = (x) => Math.pow(2, x);
-        env.gl_log = Math.log;
-        env.gl_log2 = Math.log2;
-        env.gl_pow = Math.pow;
-        env.gl_ldexp = (mant, exp) => mant * Math.pow(2, exp);
-        env.gl_sinh = Math.sinh;
-        env.gl_cosh = Math.cosh;
-        env.gl_tanh = Math.tanh;
-        env.gl_asinh = Math.asinh;
-        env.gl_acosh = Math.acosh;
-        env.gl_atanh = Math.atanh;
+        env.gl_sin = instance.exports.gl_sin;
+        env.gl_cos = instance.exports.gl_cos;
+        env.gl_tan = instance.exports.gl_tan;
+        env.gl_asin = instance.exports.gl_asin;
+        env.gl_acos = instance.exports.gl_acos;
+        env.gl_atan = instance.exports.gl_atan;
+        env.gl_atan2 = instance.exports.gl_atan2;
+        env.gl_exp = instance.exports.gl_exp;
+        env.gl_exp2 = instance.exports.gl_exp2;
+        env.gl_log = instance.exports.gl_log;
+        env.gl_log2 = instance.exports.gl_log2;
+        env.gl_pow = instance.exports.gl_pow;
+        env.gl_ldexp = instance.exports.gl_ldexp;
+        env.gl_sinh = instance.exports.gl_sinh;
+        env.gl_cosh = instance.exports.gl_cosh;
+        env.gl_tanh = instance.exports.gl_tanh;
+        env.gl_asinh = instance.exports.gl_asinh;
+        env.gl_acosh = instance.exports.gl_acosh;
+        env.gl_atanh = instance.exports.gl_atanh;
+
+        // Link diagnostic and math helpers from the main module
+        env.gl_debug4 = instance.exports.gl_debug4;
+        env.gl_inverse_mat2 = instance.exports.gl_inverse_mat2;
+        env.gl_inverse_mat3 = instance.exports.gl_inverse_mat3;
 
         const shaderInstance = new WebAssembly.Instance(shaderModule, { env });
         if (shaderInstance.exports.main) {

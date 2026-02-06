@@ -26,8 +26,6 @@ test('basic vertex shader WAT', async () => {
 
     // Get WAT text for vertex shader - use program._handle to get the numeric handle
     const wat = getShaderWat(gl._ctxHandle, program._handle, gl.VERTEX_SHADER);
-
-    // WAT files start with (module
     assert.equal(
       wat, `(module
   (type (;0;) (func (param f32) (result f32)))
@@ -48,8 +46,9 @@ test('basic vertex shader WAT', async () => {
   (type (;15;) (func (param f32) (result f32)))
   (type (;16;) (func (param f32) (result f32)))
   (type (;17;) (func (param f32) (result f32)))
-  (type (;18;) (func))
-  (type (;19;) (func (param i32 i32 i32)))
+  (type (;18;) (func (param i32 i32)))
+  (type (;19;) (func))
+  (type (;20;) (func (param i32 i32 i32)))
   (import "env" "memory" (memory (;0;) 100))
   (import "env" "gl_sin" (func (;0;) (type 0)))
   (import "env" "gl_cos" (func (;1;) (type 1)))
@@ -69,14 +68,16 @@ test('basic vertex shader WAT', async () => {
   (import "env" "gl_asinh" (func (;15;) (type 15)))
   (import "env" "gl_acosh" (func (;16;) (type 16)))
   (import "env" "gl_atanh" (func (;17;) (type 17)))
+  (import "env" "gl_inverse_mat2" (func (;18;) (type 18)))
+  (import "env" "gl_inverse_mat3" (func (;19;) (type 18)))
   (import "env" "ACTIVE_ATTR_PTR" (global (;0;) (mut i32)))
   (import "env" "ACTIVE_UNIFORM_PTR" (global (;1;) (mut i32)))
   (import "env" "ACTIVE_VARYING_PTR" (global (;2;) (mut i32)))
   (import "env" "ACTIVE_PRIVATE_PTR" (global (;3;) (mut i32)))
   (import "env" "ACTIVE_TEXTURE_PTR" (global (;4;) (mut i32)))
   (import "env" "ACTIVE_FRAME_SP" (global (;5;) (mut i32)))
-  (export "main" (func 19))
-  (func (;18;) (type 18)
+  (export "main" (func 21))
+  (func (;20;) (type 19)
     (local i32 f32 i32)
     global.get 2
     f32.const 0x0p+0 (;=0;)
@@ -92,11 +93,11 @@ test('basic vertex shader WAT', async () => {
     f32.store offset=12
     return
   )
-  (func (;19;) (type 19) (param i32 i32 i32)
+  (func (;21;) (type 20) (param i32 i32 i32)
     (local i32 f32 i32)
     local.get 2
     global.set 2
-    call 18
+    call 20
     global.get 2
     f32.load
     global.get 2
@@ -159,8 +160,6 @@ test('basic fragment shader WAT', async () => {
 
     // Get WAT text for fragment shader - use program._handle to get the numeric handle
     const wat = getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER);
-
-    // WAT files start with (module
     assert.equal(
       wat, `(module
   (type (;0;) (func (param f32) (result f32)))
@@ -181,8 +180,9 @@ test('basic fragment shader WAT', async () => {
   (type (;15;) (func (param f32) (result f32)))
   (type (;16;) (func (param f32) (result f32)))
   (type (;17;) (func (param f32) (result f32)))
-  (type (;18;) (func))
-  (type (;19;) (func (param i32 i32)))
+  (type (;18;) (func (param i32 i32)))
+  (type (;19;) (func))
+  (type (;20;) (func (param i32 i32)))
   (import "env" "memory" (memory (;0;) 100))
   (import "env" "gl_sin" (func (;0;) (type 0)))
   (import "env" "gl_cos" (func (;1;) (type 1)))
@@ -202,14 +202,16 @@ test('basic fragment shader WAT', async () => {
   (import "env" "gl_asinh" (func (;15;) (type 15)))
   (import "env" "gl_acosh" (func (;16;) (type 16)))
   (import "env" "gl_atanh" (func (;17;) (type 17)))
+  (import "env" "gl_inverse_mat2" (func (;18;) (type 18)))
+  (import "env" "gl_inverse_mat3" (func (;19;) (type 18)))
   (import "env" "ACTIVE_ATTR_PTR" (global (;0;) (mut i32)))
   (import "env" "ACTIVE_UNIFORM_PTR" (global (;1;) (mut i32)))
   (import "env" "ACTIVE_VARYING_PTR" (global (;2;) (mut i32)))
   (import "env" "ACTIVE_PRIVATE_PTR" (global (;3;) (mut i32)))
   (import "env" "ACTIVE_TEXTURE_PTR" (global (;4;) (mut i32)))
   (import "env" "ACTIVE_FRAME_SP" (global (;5;) (mut i32)))
-  (export "main" (func 19))
-  (func (;18;) (type 18)
+  (export "main" (func 21))
+  (func (;20;) (type 19)
     (local i32 f32 i32)
     global.get 3
     f32.const 0x1p+0 (;=1;)
@@ -225,13 +227,13 @@ test('basic fragment shader WAT', async () => {
     f32.store offset=12
     return
   )
-  (func (;19;) (type 19) (param i32 i32)
+  (func (;21;) (type 20) (param i32 i32)
     (local i32 f32 i32)
     local.get 0
     global.set 2
     local.get 1
     global.set 3
-    call 18
+    call 20
     global.get 3
     f32.load
     global.get 3

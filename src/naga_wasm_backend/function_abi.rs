@@ -253,7 +253,7 @@ impl FunctionABI {
 
 /// Classification result for a type.
 #[derive(Debug, Clone, PartialEq)]
-enum TypeClass {
+pub(crate) enum TypeClass {
     /// Can be flattened into these WASM value types.
     Flattened(Vec<ValType>, u32), // valtypes, byte_size
     /// Must be passed via frame pointer.
@@ -261,7 +261,7 @@ enum TypeClass {
 }
 
 /// Classify a Naga type for ABI purposes.
-fn classify_type(module: &Module, ty: Handle<Type>) -> Result<TypeClass, ABIError> {
+pub(crate) fn classify_type(module: &Module, ty: Handle<Type>) -> Result<TypeClass, ABIError> {
     let type_info = &module.types[ty];
 
     match &type_info.inner {
@@ -370,7 +370,12 @@ fn classify_type(module: &Module, ty: Handle<Type>) -> Result<TypeClass, ABIErro
                 ArraySize::Constant(count) => {
                     let element_class = classify_type(module, *base)?;
                     let count = count.get();
-                    let total_bytes = *stride * count;
+                    let actual_stride = if *stride > 0 {
+                        *stride
+                    } else {
+                        type_alignment(module, *base).max(4) // Conservative fallback
+                    };
+                    let total_bytes = actual_stride * count;
 
                     // Arrays rarely flatten well, but allow small constant arrays
                     if total_bytes <= MAX_FLATTEN_BYTES {

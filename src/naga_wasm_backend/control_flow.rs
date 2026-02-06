@@ -72,10 +72,10 @@ fn store_components_to_memory(
             // Calculate byte offset for this component
             let comp_offset = offset + (i * 4);
 
-            // Load base pointer from global
+            // Push base address
             ctx.wasm_func.instruction(&Instruction::GlobalGet(base_ptr));
 
-            // Push value from swap local and store
+            // Push value back
             ctx.wasm_func
                 .instruction(&Instruction::LocalGet(swap_local));
 
@@ -115,7 +115,7 @@ fn store_single_value_to_output(
     ctx: &mut TranslationContext,
 ) {
     let num_components = super::types::component_count(&ty.inner, &ctx.module.types);
-    let is_int = super::expressions::is_integer_type(&ty.inner);
+    let is_int = super::expressions::is_integer_type(&ty.inner, &ctx.module.types);
     let (offset, base_ptr) = get_output_destination(binding, ctx);
     store_components_to_memory(offset, base_ptr, num_components, is_int, ctx);
 }
@@ -407,14 +407,16 @@ pub fn translate_statement(
             let num_components = super::types::component_count(value_ty, &ctx.module.types);
 
             // Use helper to determine if we should use I32Store or F32Store
-            let use_i32_store = super::expressions::is_integer_type(value_ty);
+            let use_i32_store = super::expressions::is_integer_type(value_ty, &ctx.module.types);
 
             for i in 0..num_components {
-                // Evaluate pointer (address)
+                // Address first (pushed to stack)
                 super::expressions::translate_expression(*pointer, ctx)?;
-                // Evaluate value component i
+
+                // Value second (pushed to stack)
                 super::expressions::translate_expression_component(*value, i, ctx)?;
-                // Store with appropriate instruction
+
+                // Perform store at offset i*4
                 if use_i32_store {
                     ctx.wasm_func
                         .instruction(&Instruction::I32Store(wasm_encoder::MemArg {
@@ -568,8 +570,10 @@ pub fn translate_statement(
                                         &member_ty.inner,
                                         &ctx.module.types,
                                     );
-                                    let is_int =
-                                        super::expressions::is_integer_type(&member_ty.inner);
+                                    let is_int = super::expressions::is_integer_type(
+                                        &member_ty.inner,
+                                        &ctx.module.types,
+                                    );
 
                                     // Determine offset and base pointer based on binding and shader stage
                                     let (offset, base_ptr) = if let Some(binding) = &member.binding
@@ -593,7 +597,10 @@ pub fn translate_statement(
                                 if let Some(binding) = &result.binding {
                                     let num_components =
                                         super::types::component_count(&ty.inner, &ctx.module.types);
-                                    let is_int = super::expressions::is_integer_type(&ty.inner);
+                                    let is_int = super::expressions::is_integer_type(
+                                        &ty.inner,
+                                        &ctx.module.types,
+                                    );
 
                                     let (offset, base_ptr) = get_output_destination(binding, ctx);
                                     store_components_to_memory(

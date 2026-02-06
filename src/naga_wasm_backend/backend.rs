@@ -70,6 +70,11 @@ struct Compiler<'a> {
     webgl_image_load_idx: Option<u32>,
     /// Mapping of Naga math functions to their imported WASM function indices
     math_import_map: HashMap<naga::MathFunction, u32>,
+    /// Index of the gl_debug4 import (if present)
+    debug4_idx: Option<u32>,
+    /// Indexes for inverse helpers
+    inverse_mat2_idx: Option<u32>,
+    inverse_mat3_idx: Option<u32>,
 
     // Debug info (if enabled)
     debug_generator: Option<super::debug::DwarfGenerator>,
@@ -120,6 +125,9 @@ impl<'a> Compiler<'a> {
             webgl_sampler_3d_idx: None,
             webgl_image_load_idx: None,
             math_import_map: HashMap::new(),
+            debug4_idx: None,
+            inverse_mat2_idx: None,
+            inverse_mat3_idx: None,
             debug_generator,
         }
     }
@@ -178,8 +186,10 @@ impl<'a> Compiler<'a> {
         self.functions.function(type_index);
         self.webgl_image_load_idx = Some(func_idx);
 
+        // Reserve an extra f32 temp local (after the 9 i32 locals)
         let mut func = Function::new(vec![
-            (9, ValType::I32), // locals 4..12: width, height, depth, data_ptr, bpp, layout, address, format, temp
+            (9, ValType::I32), // locals 4..12: width, height, depth, data_ptr, bpp, layout, address, format, temp_i32
+            (1, ValType::F32), // locals 13: temp_f32
         ]);
 
         let l_desc_addr = 0; // Use parameter 0 directly
@@ -191,6 +201,7 @@ impl<'a> Compiler<'a> {
         let l_layout = 9;
         let l_addr = 10;
         let l_format = 11;
+        let l_temp_f = 13; // float scratch local
 
         // 2. Load descriptor fields
         func.instruction(&Instruction::LocalGet(l_desc_addr));
@@ -319,6 +330,9 @@ impl<'a> Compiler<'a> {
         func.instruction(&Instruction::I32Add);
         func.instruction(&Instruction::End);
 
+        // DEBUG MARKER 101
+        func.instruction(&Instruction::I32Const(101));
+        func.instruction(&Instruction::Drop);
         func.instruction(&Instruction::LocalSet(l_addr));
 
         func.instruction(&Instruction::LocalGet(l_addr));
@@ -326,6 +340,9 @@ impl<'a> Compiler<'a> {
         func.instruction(&Instruction::I32Mul);
         func.instruction(&Instruction::LocalGet(l_data_ptr)); // data_ptr
         func.instruction(&Instruction::I32Add);
+        // DEBUG MARKER 102
+        func.instruction(&Instruction::I32Const(102));
+        func.instruction(&Instruction::Drop);
         func.instruction(&Instruction::LocalSet(l_addr)); // address
 
         // 4. Load RGBA based on bytes-per-pixel and format
@@ -355,6 +372,9 @@ impl<'a> Compiler<'a> {
             align: 2,
             memory_index: 0,
         }));
+        // Stabilize loaded f32 into float temp
+        func.instruction(&Instruction::LocalSet(l_temp_f));
+        func.instruction(&Instruction::LocalGet(l_temp_f));
         func.instruction(&Instruction::End);
 
         // G channel
@@ -386,6 +406,9 @@ impl<'a> Compiler<'a> {
             align: 2,
             memory_index: 0,
         }));
+        // Stabilize loaded f32 into float temp
+        func.instruction(&Instruction::LocalSet(l_temp_f));
+        func.instruction(&Instruction::LocalGet(l_temp_f));
         func.instruction(&Instruction::Else);
         func.instruction(&Instruction::F32Const(0.0));
         func.instruction(&Instruction::End);
@@ -420,6 +443,9 @@ impl<'a> Compiler<'a> {
             align: 2,
             memory_index: 0,
         }));
+        // Stabilize loaded f32 into float temp (was incorrectly using l_bpp)
+        func.instruction(&Instruction::LocalSet(l_temp_f));
+        func.instruction(&Instruction::LocalGet(l_temp_f));
         func.instruction(&Instruction::Else);
         func.instruction(&Instruction::F32Const(0.0));
         func.instruction(&Instruction::End);
@@ -454,6 +480,9 @@ impl<'a> Compiler<'a> {
             align: 2,
             memory_index: 0,
         }));
+        // Stabilize loaded f32 into float temp (was incorrectly using l_bpp)
+        func.instruction(&Instruction::LocalSet(l_temp_f));
+        func.instruction(&Instruction::LocalGet(l_temp_f));
         func.instruction(&Instruction::Else);
 
         // Alpha default: 1.0 (float) or 1 (int)
@@ -1167,6 +1196,30 @@ impl<'a> Compiler<'a> {
             self.import_fn_count += 1;
         }
 
+        // Add matrix inverse helpers if they are not listed in math_funcs above
+        // Signature: (i32, i32) -> ()
+        let helper_type_idx = self.type_count;
+        self.type_count += 1;
+        self.types
+            .ty()
+            .function(vec![ValType::I32, ValType::I32], vec![]);
+
+        self.imports.import(
+            "env",
+            "gl_inverse_mat2",
+            wasm_encoder::EntityType::Function(helper_type_idx),
+        );
+        self.inverse_mat2_idx = Some(self.import_fn_count);
+        self.import_fn_count += 1;
+
+        self.imports.import(
+            "env",
+            "gl_inverse_mat3",
+            wasm_encoder::EntityType::Function(helper_type_idx),
+        );
+        self.inverse_mat3_idx = Some(self.import_fn_count);
+        self.import_fn_count += 1;
+
         // Emit the module-local texture sampling helpers
         let (need_2d, need_3d) = self.has_image_sampling();
         if need_2d {
@@ -1374,7 +1427,6 @@ impl<'a> Compiler<'a> {
         let mut params: Vec<ValType> = vec![];
         let mut results: Vec<ValType> = vec![];
         let mut argument_local_offsets = HashMap::new();
-        let mut current_param_idx = 0;
 
         if let Some(ep) = entry_point {
             match ep.stage {
@@ -1394,7 +1446,6 @@ impl<'a> Compiler<'a> {
                 }
             }
             results = vec![];
-            current_param_idx = params.len() as u32;
         } else {
             let manifest = self
                 .function_registry
@@ -1413,7 +1464,7 @@ impl<'a> Compiler<'a> {
             // Map argument handles to parameter indices
             let mut param_offset = 0;
             for (i, arg_abi) in abi.params.iter().enumerate() {
-                argument_local_offsets.insert(i as u32, current_param_idx + param_offset);
+                argument_local_offsets.insert(i as u32, param_offset);
                 let count = match arg_abi {
                     super::function_abi::ParameterABI::Flattened { valtypes, .. } => {
                         valtypes.len() as u32
@@ -1422,12 +1473,11 @@ impl<'a> Compiler<'a> {
                 };
                 param_offset += count;
             }
-            current_param_idx += params.len() as u32;
         }
 
         let type_idx = self.type_count;
         self.type_count += 1;
-        self.types.ty().function(params, results);
+        self.types.ty().function(params.clone(), results.clone());
         self.functions.function(type_idx);
 
         let mut typifier = Typifier::new();
@@ -1532,7 +1582,7 @@ impl<'a> Compiler<'a> {
 
         let mut call_result_locals = HashMap::new();
         let mut locals_types = vec![];
-        let mut next_local_idx = current_param_idx;
+        let mut next_local_idx = params.len() as u32;
 
         // Track CallResult expressions and their declaration indices
         let mut call_result_decl_indices: Vec<(naga::Handle<naga::Expression>, u32, usize)> =
@@ -1547,8 +1597,8 @@ impl<'a> Compiler<'a> {
                     let decl_idx = next_local_idx;
                     let num_components = types.len();
                     call_result_decl_indices.push((handle, decl_idx, num_components));
-                    for _ in 0..num_components {
-                        locals_types.push((1, ValType::F32));
+                    for vtype in types {
+                        locals_types.push((1, vtype));
                     }
                     next_local_idx += num_components as u32;
                 }
@@ -1565,39 +1615,63 @@ impl<'a> Compiler<'a> {
         locals_types.push((1, ValType::F32)); // swap_f32_local
         next_local_idx += 1;
 
-        // Detect need for Float Modulo swap local
+        // Detect need for Float Modulo or Inverse swap locals
         let mut uses_float_modulo = false;
+        let mut uses_inverse = false;
+
         for (_handle, expr) in func.expressions.iter() {
-            if let naga::Expression::Binary {
-                op: naga::BinaryOperator::Modulo,
-                left,
-                ..
-            } = expr
-            {
-                let resolution = typifier.get(*left, &self.module.types);
-                match resolution {
-                    naga::TypeInner::Scalar(scalar) if scalar.kind == naga::ScalarKind::Float => {
-                        uses_float_modulo = true;
-                        break;
+            match expr {
+                naga::Expression::Binary {
+                    op: naga::BinaryOperator::Modulo,
+                    left,
+                    ..
+                } => {
+                    let resolution = typifier.get(*left, &self.module.types);
+                    match resolution {
+                        naga::TypeInner::Scalar(scalar)
+                            if scalar.kind == naga::ScalarKind::Float =>
+                        {
+                            uses_float_modulo = true;
+                        }
+                        naga::TypeInner::Vector { scalar, .. }
+                            if scalar.kind == naga::ScalarKind::Float =>
+                        {
+                            uses_float_modulo = true;
+                        }
+                        _ => {}
                     }
-                    naga::TypeInner::Vector { scalar, .. }
-                        if scalar.kind == naga::ScalarKind::Float =>
-                    {
-                        uses_float_modulo = true;
-                        break;
-                    }
-                    _ => {}
                 }
+                naga::Expression::Math {
+                    fun: naga::MathFunction::Inverse,
+                    ..
+                } => {
+                    uses_inverse = true;
+                }
+                _ => {}
             }
         }
 
-        let swap_f32_local_2 = if uses_float_modulo {
+        let needs_secondary_f32 = uses_float_modulo || uses_inverse;
+
+        let swap_f32_local_2 = if needs_secondary_f32 {
             let idx = next_local_idx;
-            locals_types.push((1, ValType::F32)); // swap_f32_local_2 for float modulo
+            locals_types.push((1, ValType::F32));
             next_local_idx += 1;
             Some(idx)
         } else {
             None
+        };
+
+        let (inverse_scratch_base, inverse_scratch_count) = if uses_inverse {
+            let base = next_local_idx;
+            let count = 9u32; // enough to hold per-component scratch f32s for mat3
+            for _ in 0..count {
+                locals_types.push((1, ValType::F32));
+            }
+            next_local_idx += count;
+            (Some(base), count)
+        } else {
+            (None, 0)
         };
 
         // Add frame temp local (conservative allocation for Phase 4)
@@ -1670,6 +1744,19 @@ impl<'a> Compiler<'a> {
         let stage = self.stage;
         let is_entry_point = entry_point.is_some();
 
+        // Get the ABI for the current function
+        let current_abi = if let Some(ep) = entry_point {
+            self.function_registry
+                .get_entry_point(&ep.name)
+                .map(|m| &m.abi)
+        } else if let Some(func_handle) = func_handle {
+            self.function_registry
+                .get_function(func_handle)
+                .map(|m| &m.abi)
+        } else {
+            None
+        };
+
         // Initialize local variables that have init expressions
         // This must happen before any statement execution
         for (handle, var) in func.local_variables.iter() {
@@ -1680,7 +1767,8 @@ impl<'a> Compiler<'a> {
                     let value_ty = &self.module.types[var.ty].inner;
                     let num_components =
                         super::types::component_count(value_ty, &self.module.types);
-                    let use_i32_store = super::expressions::is_integer_type(value_ty);
+                    let use_i32_store =
+                        super::expressions::is_integer_type(value_ty, &self.module.types);
 
                     for i in 0..num_components {
                         // Compute address: private_ptr + offset + (i * 4)
@@ -1721,12 +1809,19 @@ impl<'a> Compiler<'a> {
                             swap_f32_local,
                             swap_f32_local_2,
                             local_types: &flattened_local_types,
-                            param_count: current_param_idx,
+                            param_count: params.len() as u32,
+                            abi: current_abi,
                             webgl_sampler_2d_idx: self.webgl_sampler_2d_idx,
                             webgl_sampler_3d_idx: self.webgl_sampler_3d_idx,
                             webgl_image_load_idx: self.webgl_image_load_idx,
                             frame_temp_idx: Some(frame_temp_local),
                             sample_f32_locals,
+                            inverse_scratch_base,
+                            inverse_scratch_count,
+                            debug4_idx: self.debug4_idx,
+                            inverse_mat2_idx: self.inverse_mat2_idx,
+                            inverse_mat3_idx: self.inverse_mat3_idx,
+                            debug_marker_counter: Some(1),
                             block_stack: Vec::new(),
                         };
                         super::expressions::translate_expression_component(
@@ -1785,12 +1880,19 @@ impl<'a> Compiler<'a> {
             swap_f32_local_2,
             // Local types and parameter count for type-aware lowering
             local_types: &flattened_local_types,
-            param_count: current_param_idx,
+            param_count: params.len() as u32,
+            abi: current_abi,
             webgl_sampler_2d_idx: self.webgl_sampler_2d_idx,
             webgl_sampler_3d_idx: self.webgl_sampler_3d_idx,
             webgl_image_load_idx: self.webgl_image_load_idx,
             frame_temp_idx: Some(frame_temp_local),
             sample_f32_locals,
+            inverse_scratch_base,
+            inverse_scratch_count,
+            debug4_idx: self.debug4_idx,
+            inverse_mat2_idx: self.inverse_mat2_idx,
+            inverse_mat3_idx: self.inverse_mat3_idx,
+            debug_marker_counter: Some(1),
             block_stack: Vec::new(),
         };
 
@@ -1868,6 +1970,17 @@ impl<'a> Compiler<'a> {
         let mut func_names = NameMap::new();
         let mut has_names = false;
 
+        // Map function handles to their names from Naga if available
+        for (handle, &idx) in self.naga_function_map.iter() {
+            if let Some(name) = &self.module.functions[*handle].name {
+                // Skip "main" to avoid collisions with entry point wrapper exports
+                if name != "main" {
+                    func_names.append(idx, name);
+                    has_names = true;
+                }
+            }
+        }
+
         if let Some(idx) = self.webgl_sampler_2d_idx {
             func_names.append(idx, "__webgl_sampler_2d");
             has_names = true;
@@ -1911,6 +2024,21 @@ impl<'a> Compiler<'a> {
         };
 
         let wasm_bytes = module.finish();
+
+        // No debug dump: finished compilation
+        // Attempt to write WAT text for easier debugging
+        if self._backend.config.debug_shaders {
+            match wasmprinter::print_bytes(&wasm_bytes) {
+                Ok(wat) => {
+                    eprintln!("--- DEBUG WAT START ---\n{}\n--- DEBUG WAT END ---", wat);
+                    let _ = std::fs::write("debug_shader.wat", wat);
+                }
+                Err(e) => {
+                    let _ =
+                        std::fs::write("debug_shader.wat", format!("<wasmprinter error: {}>", e));
+                }
+            }
+        }
 
         tracing::info!(
             "Finished compilation: {} bytes, {} entry points",

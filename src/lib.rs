@@ -146,6 +146,76 @@ mod native_fallbacks {
     }
 }
 
+#[no_mangle]
+pub unsafe fn gl_debug4(a: i32, b: i32, c: i32, d: i32) {
+    let fa = f32::from_bits(a as u32);
+    let fb = f32::from_bits(b as u32);
+    let fc = f32::from_bits(c as u32);
+    let fd = f32::from_bits(d as u32);
+    crate::js_print(&format!(
+        "gl_debug4: det={:?} a={:?} b={:?} c={:?}",
+        fa, fb, fc, fd
+    ));
+}
+
+#[no_mangle]
+pub unsafe fn gl_inverse_mat2(in_ptr: i32, out_ptr: i32) {
+    let m = core::slice::from_raw_parts(in_ptr as *const f32, 4);
+    let out = core::slice::from_raw_parts_mut(out_ptr as *mut f32, 4);
+
+    let det = m[0] * m[3] - m[1] * m[2];
+    if det.abs() < 1e-10 {
+        out.fill(0.0);
+        return;
+    }
+    let inv_det = 1.0 / det;
+    out[0] = m[3] * inv_det;
+    out[1] = -m[1] * inv_det;
+    out[2] = -m[2] * inv_det;
+    out[3] = m[0] * inv_det;
+}
+
+#[no_mangle]
+pub unsafe fn gl_inverse_mat3(in_ptr: i32, out_ptr: i32) {
+    let m = core::slice::from_raw_parts(in_ptr as *const f32, 9);
+    let out = core::slice::from_raw_parts_mut(out_ptr as *mut f32, 9);
+
+    let a00 = m[0];
+    let a10 = m[1];
+    let a20 = m[2];
+    let a01 = m[3];
+    let a11 = m[4];
+    let a21 = m[5];
+    let a02 = m[6];
+    let a12 = m[7];
+    let a22 = m[8];
+
+    let b01 = a22 * a11 - a12 * a21;
+    let b11 = -a22 * a10 + a12 * a20;
+    let b21 = a21 * a10 - a11 * a20;
+
+    let det = a00 * b01 + a01 * b11 + a02 * b21;
+
+    if det.abs() < 1e-10 {
+        out.fill(0.0);
+        return;
+    }
+
+    let inv_det = 1.0 / det;
+
+    out[0] = b01 * inv_det;
+    out[1] = b11 * inv_det;
+    out[2] = b21 * inv_det;
+
+    out[3] = (-a22 * a01 + a02 * a21) * inv_det;
+    out[4] = (a22 * a00 - a02 * a20) * inv_det;
+    out[5] = (-a21 * a00 + a01 * a20) * inv_det;
+
+    out[6] = (a12 * a01 - a02 * a11) * inv_det;
+    out[7] = (-a12 * a00 + a02 * a10) * inv_det;
+    out[8] = (a11 * a00 - a01 * a10) * inv_det;
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub use native_fallbacks::*;
 

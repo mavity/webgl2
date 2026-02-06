@@ -10,7 +10,8 @@ use naga::{
 use wasm_encoder::{Instruction, ValType};
 
 /// Helper function to determine if a type should use I32 operations
-pub fn is_integer_type(type_inner: &TypeInner) -> bool {
+/// Helper function to determine if a type should use I32 operations
+pub fn is_integer_type(type_inner: &TypeInner, types: &naga::UniqueArena<naga::Type>) -> bool {
     match type_inner {
         TypeInner::Scalar(s) => matches!(
             s.kind,
@@ -20,6 +21,23 @@ pub fn is_integer_type(type_inner: &TypeInner) -> bool {
             scalar.kind,
             ScalarKind::Sint | ScalarKind::Uint | ScalarKind::Bool
         ),
+        TypeInner::Image { .. } | TypeInner::Sampler { .. } => true,
+        TypeInner::Atomic(s) => matches!(
+            s.kind,
+            ScalarKind::Sint | ScalarKind::Uint | ScalarKind::Bool
+        ),
+        TypeInner::Array { base, .. } => is_integer_type(&types[*base].inner, types),
+        TypeInner::Struct { members, .. } => {
+            // Structs are considered "integer" if they contain only integers?
+            // No, that's not right. Structs should be handled member by member.
+            // But for simple "use_i32_store" check, we just check first member?
+            // Fallback to false for now.
+            if let Some(m) = members.first() {
+                is_integer_type(&types[m.ty].inner, types)
+            } else {
+                false
+            }
+        }
         _ => false,
     }
 }
@@ -89,7 +107,7 @@ fn translate_const_expression_component(
             }
             if !found {
                 let inner = &ctx.module.types[*ty].inner;
-                if is_integer_type(inner) {
+                if is_integer_type(inner, &ctx.module.types) {
                     ctx.wasm_func.instruction(&Instruction::I32Const(0));
                 } else {
                     ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
@@ -98,7 +116,7 @@ fn translate_const_expression_component(
         }
         Expression::ZeroValue(ty) => {
             let inner = &ctx.module.types[*ty].inner;
-            if is_integer_type(inner) {
+            if is_integer_type(inner, &ctx.module.types) {
                 ctx.wasm_func.instruction(&Instruction::I32Const(0));
             } else {
                 ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
@@ -175,7 +193,7 @@ pub fn translate_expression_component(
             }
             if !found {
                 let inner = &ctx.module.types[*ty].inner;
-                if is_integer_type(inner) {
+                if is_integer_type(inner, &ctx.module.types) {
                     ctx.wasm_func.instruction(&Instruction::I32Const(0));
                 } else {
                     ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
@@ -184,7 +202,7 @@ pub fn translate_expression_component(
         }
         Expression::ZeroValue(ty) => {
             let inner = &ctx.module.types[*ty].inner;
-            if is_integer_type(inner) {
+            if is_integer_type(inner, &ctx.module.types) {
                 ctx.wasm_func.instruction(&Instruction::I32Const(0));
             } else {
                 ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
@@ -522,7 +540,7 @@ pub fn translate_expression_component(
             translate_expression_component(*expr, component_idx, ctx)?;
 
             let expr_ty = ctx.typifier.get(*expr, &ctx.module.types);
-            let is_int = is_integer_type(expr_ty);
+            let is_int = is_integer_type(expr_ty, &ctx.module.types);
 
             match op {
                 naga::UnaryOperator::Negate => {
@@ -544,9 +562,10 @@ pub fn translate_expression_component(
             }
         }
         Expression::FunctionArgument(idx) => {
-            if ctx.is_entry_point {
-                let arg = &ctx.func.arguments[*idx as usize];
+            let arg = &ctx.func.arguments[*idx as usize];
+            let mut override_is_int = false;
 
+            if ctx.is_entry_point {
                 // Tier 2: Built-ins that are passed as direct arguments
                 if let Some(naga::Binding::BuiltIn(bi)) = arg.binding {
                     match (bi, ctx.stage) {
@@ -624,7 +643,6 @@ pub fn translate_expression_component(
                 let arg_ty = &ctx.module.types[arg.ty].inner;
 
                 // Allow program-level type maps to override IR-inferred type
-                let mut override_is_int = false;
                 if ctx.stage == naga::ShaderStage::Vertex {
                     if let Some(name) = &arg.name {
                         if let Some((type_code, _)) = ctx.attribute_types.get(name) {
@@ -655,7 +673,10 @@ pub fn translate_expression_component(
                     }
                 }
 
-                if override_is_int || is_integer_type(arg_ty) {
+                // Use I32Load for integer types, F32Load for float types
+                let is_int = is_integer_type(arg_ty, &ctx.module.types) || override_is_int;
+
+                if is_int {
                     ctx.wasm_func
                         .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
                             offset: 0,
@@ -671,10 +692,128 @@ pub fn translate_expression_component(
                         }));
                 }
             } else {
-                // If it's an internal function, we use LocalGet
+                // If it's an internal function, we use LocalGet or Load from pointer
                 let base_idx = ctx.argument_local_offsets.get(idx).cloned().unwrap_or(*idx);
+                let arg = &ctx.func.arguments[*idx as usize];
+                let arg_ty = &ctx.module.types[arg.ty].inner;
+
+                // Check if this argument was passed by Frame using the actual ABI
+                // or if it's already a pointer in Naga IR
+                let is_ptr_like = if let Some(abi) = ctx.abi {
+                    if (*idx as usize) < abi.params.len() {
+                        matches!(
+                            abi.params[*idx as usize],
+                            super::function_abi::ParameterABI::Frame { .. }
+                        )
+                    } else {
+                        matches!(
+                            arg_ty,
+                            TypeInner::Pointer { .. } | TypeInner::ValuePointer { .. }
+                        )
+                    }
+                } else {
+                    matches!(
+                        arg_ty,
+                        TypeInner::Pointer { .. } | TypeInner::ValuePointer { .. }
+                    ) || super::types::type_size(arg_ty).unwrap_or(0) > 16
+                };
+
+                if is_ptr_like {
+                    // Pointer-like argument (Frame-passed or real Pointer)
+                    // Load the component from that pointer.
+                    ctx.wasm_func.instruction(&Instruction::LocalGet(base_idx));
+
+                    if component_idx > 0 {
+                        ctx.wasm_func
+                            .instruction(&Instruction::I32Const((component_idx * 4) as i32));
+                        ctx.wasm_func.instruction(&Instruction::I32Add);
+                    }
+
+                    // Determine if the component is an integer
+                    let is_int = match arg_ty {
+                        TypeInner::Array { base, .. } => {
+                            is_integer_type(&ctx.module.types[*base].inner, &ctx.module.types)
+                        }
+                        TypeInner::Struct { members, .. } => {
+                            let mut current_comp = 0;
+                            let mut found_int = false;
+                            for member in members {
+                                let member_ty = &ctx.module.types[member.ty].inner;
+                                let count =
+                                    super::types::component_count(member_ty, &ctx.module.types);
+                                if component_idx < current_comp + count {
+                                    found_int = is_integer_type(member_ty, &ctx.module.types);
+                                    break;
+                                }
+                                current_comp += count;
+                            }
+                            found_int
+                        }
+                        TypeInner::Pointer { base, .. } => {
+                            // Elements of the pointed type
+                            let pointed_inner = &ctx.module.types[*base].inner;
+                            match pointed_inner {
+                                TypeInner::Array {
+                                    base: elem_base, ..
+                                } => is_integer_type(
+                                    &ctx.module.types[*elem_base].inner,
+                                    &ctx.module.types,
+                                ),
+                                _ => is_integer_type(pointed_inner, &ctx.module.types),
+                            }
+                        }
+                        _ => is_integer_type(arg_ty, &ctx.module.types),
+                    } || override_is_int;
+
+                    if is_int {
+                        ctx.wasm_func
+                            .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                                offset: 0,
+                                align: 2,
+                                memory_index: 0,
+                            }));
+                    } else {
+                        ctx.wasm_func
+                            .instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+                                offset: 0,
+                                align: 2,
+                                memory_index: 0,
+                            }));
+                    }
+                } else {
+                    ctx.wasm_func
+                        .instruction(&Instruction::LocalGet(base_idx + component_idx));
+                }
+            }
+        }
+        Expression::LocalVariable(handle) => {
+            if let Some(&ptr_local) = ctx.local_offsets.get(handle) {
+                // Return the VALUE of the component by loading from the local's memory
                 ctx.wasm_func
-                    .instruction(&Instruction::LocalGet(base_idx + component_idx));
+                    .instruction(&Instruction::GlobalGet(output_layout::PRIVATE_PTR_GLOBAL));
+                ctx.wasm_func.instruction(&Instruction::I32Const(
+                    (ptr_local + component_idx * 4) as i32,
+                ));
+                ctx.wasm_func.instruction(&Instruction::I32Add);
+
+                let ty = &ctx.module.types[ctx.func.local_variables[*handle].ty].inner;
+                if is_integer_type(ty, &ctx.module.types) {
+                    ctx.wasm_func
+                        .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                            offset: 0,
+                            align: 2,
+                            memory_index: 0,
+                        }));
+                } else {
+                    ctx.wasm_func
+                        .instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+                            offset: 0,
+                            align: 2,
+                            memory_index: 0,
+                        }));
+                }
+            } else {
+                ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
             }
         }
         Expression::GlobalVariable(handle) => {
@@ -689,22 +828,37 @@ pub fn translate_expression_component(
                 }
 
                 // If this is a WebGPU uniform, follow the context block indirection
-                if ctx.uniform_locations.is_empty()
-                    && base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL
-                {
-                    ctx.wasm_func
-                        .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
-                            offset: 0,
-                            align: 2,
-                            memory_index: 0,
-                        }));
-                }
-
                 let final_offset = component_idx * 4;
                 if final_offset > 0 {
                     ctx.wasm_func
                         .instruction(&Instruction::I32Const(final_offset as i32));
                     ctx.wasm_func.instruction(&Instruction::I32Add);
+                }
+
+                // If this is a WebGPU uniform, follow the context block indirection
+                if ctx.uniform_locations.is_empty()
+                    && base_ptr_idx == output_layout::UNIFORM_PTR_GLOBAL
+                {
+                    // Choose the correct load type based on the global variable's base type
+                    let var = &ctx.module.global_variables[*handle];
+                    let var_ty = &ctx.module.types[var.ty].inner;
+                    let uses_int = is_integer_type(var_ty, &ctx.module.types);
+
+                    if uses_int {
+                        ctx.wasm_func
+                            .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
+                                offset: 0,
+                                align: 2,
+                                memory_index: 0,
+                            }));
+                    } else {
+                        ctx.wasm_func
+                            .instruction(&Instruction::F32Load(wasm_encoder::MemArg {
+                                offset: 0,
+                                align: 2,
+                                memory_index: 0,
+                            }));
+                    }
                 }
             } else {
                 ctx.wasm_func.instruction(&Instruction::I32Const(0));
@@ -772,7 +926,7 @@ pub fn translate_expression_component(
                 // No underlying global found; leave override_is_int as detected from pointer type
             }
 
-            if override_is_int || is_integer_type(load_ty) {
+            if override_is_int || is_integer_type(load_ty, &ctx.module.types) {
                 ctx.wasm_func
                     .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
                         offset: 0,
@@ -792,6 +946,9 @@ pub fn translate_expression_component(
             let base_ty = ctx.typifier.get(*base, &ctx.module.types);
             match base_ty {
                 naga::TypeInner::Pointer {
+                    base: pointed_ty, ..
+                }
+                | naga::TypeInner::Array {
                     base: pointed_ty, ..
                 } => {
                     translate_expression(*base, ctx)?;
@@ -858,7 +1015,7 @@ pub fn translate_expression_component(
                         }
                     }
 
-                    if override_is_int || is_integer_type(element_ty) {
+                    if override_is_int || is_integer_type(element_ty, &ctx.module.types) {
                         ctx.wasm_func
                             .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
                                 offset: 0,
@@ -875,8 +1032,35 @@ pub fn translate_expression_component(
                     }
                 }
                 _ => {
-                    // Accessing a component of a value
-                    translate_expression_component(*base, *index + component_idx, ctx)?;
+                    // Accessing a component of a value (e.g. array of vectors or vector)
+                    let elem_count = match base_ty {
+                        naga::TypeInner::Array { base, .. } => super::types::component_count(
+                            &ctx.module.types[*base].inner,
+                            &ctx.module.types,
+                        ),
+                        naga::TypeInner::Vector { .. } => 1,
+                        naga::TypeInner::Matrix { rows, .. } => *rows as u32,
+                        naga::TypeInner::Struct { members, .. } => {
+                            // Sum of components of previous members
+                            let mut sum = 0;
+                            for i in 0..*index {
+                                sum += super::types::component_count(
+                                    &ctx.module.types[members[i as usize].ty].inner,
+                                    &ctx.module.types,
+                                );
+                            }
+                            sum
+                        }
+                        _ => 1,
+                    };
+
+                    let final_idx = if matches!(base_ty, naga::TypeInner::Struct { .. }) {
+                        elem_count + component_idx
+                    } else {
+                        (*index * elem_count) + component_idx
+                    };
+
+                    translate_expression_component(*base, final_idx, ctx)?;
                 }
             }
         }
@@ -885,8 +1069,11 @@ pub fn translate_expression_component(
             match base_ty {
                 naga::TypeInner::Pointer {
                     base: pointed_ty, ..
+                }
+                | naga::TypeInner::Array {
+                    base: pointed_ty, ..
                 } => {
-                    // Base is a pointer, calculate address
+                    // Base is a pointer or array in memory, calculate address
                     translate_expression(*base, ctx)?;
 
                     // Index is dynamic
@@ -962,7 +1149,7 @@ pub fn translate_expression_component(
                         }
                     }
 
-                    if override_is_int || is_integer_type(element_ty) {
+                    if override_is_int || is_integer_type(element_ty, &ctx.module.types) {
                         ctx.wasm_func
                             .instruction(&Instruction::I32Load(wasm_encoder::MemArg {
                                 offset: 0,
@@ -1467,7 +1654,7 @@ pub fn translate_expression_component(
                 MathFunction::Abs => {
                     translate_expression_component(*arg, component_idx, ctx)?;
                     let ty = ctx.typifier.get(*arg, &ctx.module.types);
-                    if is_integer_type(ty) {
+                    if is_integer_type(ty, &ctx.module.types) {
                         // abs(x) = (x ^ (x >> 31)) - (x >> 31)
                         // But simpler for WASM: push 0, sub, then select max
                         ctx.wasm_func
@@ -1490,11 +1677,11 @@ pub fn translate_expression_component(
                     if let Some(a1) = arg1 {
                         translate_expression_component(*a1, component_idx, ctx)?;
                         let ty = ctx.typifier.get(*arg, &ctx.module.types);
-                        if is_integer_type(ty) {
+                        if is_integer_type(ty, &ctx.module.types) {
                             // i32.min: select if a < b
                             let temp_a = ctx.swap_i32_local;
-                            let temp_b = ctx.swap_f32_local; // repurpose as i32 if needed, but better to use i32 swap
-                            ctx.wasm_func.instruction(&Instruction::LocalSet(temp_b)); // actually i32 bits
+                            let temp_b = ctx.swap_i32_local; // use i32 swap local explicitly
+                            ctx.wasm_func.instruction(&Instruction::LocalSet(temp_b));
                             ctx.wasm_func.instruction(&Instruction::LocalTee(temp_a));
                             ctx.wasm_func.instruction(&Instruction::LocalGet(temp_b));
                             ctx.wasm_func.instruction(&Instruction::LocalGet(temp_a));
@@ -1511,9 +1698,9 @@ pub fn translate_expression_component(
                     if let Some(a1) = arg1 {
                         translate_expression_component(*a1, component_idx, ctx)?;
                         let ty = ctx.typifier.get(*arg, &ctx.module.types);
-                        if is_integer_type(ty) {
+                        if is_integer_type(ty, &ctx.module.types) {
                             let temp_a = ctx.swap_i32_local;
-                            let temp_b = ctx.swap_f32_local;
+                            let temp_b = ctx.swap_i32_local; // use i32 swap local explicitly
                             ctx.wasm_func.instruction(&Instruction::LocalSet(temp_b));
                             ctx.wasm_func.instruction(&Instruction::LocalTee(temp_a));
                             ctx.wasm_func.instruction(&Instruction::LocalGet(temp_b));
@@ -1533,14 +1720,14 @@ pub fn translate_expression_component(
                     let max_val = arg2.expect("Clamp needs 3 arguments");
 
                     let ty = ctx.typifier.get(x, &ctx.module.types);
-                    let is_int = is_integer_type(ty);
+                    let is_int = is_integer_type(ty, &ctx.module.types);
 
                     if is_int {
                         // min(x, max)
                         translate_expression_component(x, component_idx, ctx)?;
                         translate_expression_component(max_val, component_idx, ctx)?;
                         let temp_a = ctx.swap_i32_local;
-                        let temp_b = ctx.swap_f32_local;
+                        let temp_b = ctx.swap_i32_local;
                         ctx.wasm_func.instruction(&Instruction::LocalSet(temp_b));
                         ctx.wasm_func.instruction(&Instruction::LocalTee(temp_a));
                         ctx.wasm_func.instruction(&Instruction::LocalGet(temp_b));
@@ -1720,7 +1907,7 @@ pub fn translate_expression_component(
                 MathFunction::Sign => {
                     translate_expression_component(*arg, component_idx, ctx)?;
                     let ty = ctx.typifier.get(*arg, &ctx.module.types);
-                    if is_integer_type(ty) {
+                    if is_integer_type(ty, &ctx.module.types) {
                         ctx.wasm_func
                             .instruction(&Instruction::LocalTee(ctx.swap_i32_local));
                         ctx.wasm_func.instruction(&Instruction::I32Const(0));
@@ -1914,7 +2101,7 @@ pub fn translate_expression_component(
                     // Emit: mant * exp2(float(exp))
                     translate_expression_component(mant, component_idx, ctx)?;
                     translate_expression_component(exp, exp_idx, ctx)?;
-                    if is_integer_type(exp_ty) {
+                    if is_integer_type(exp_ty, &ctx.module.types) {
                         ctx.wasm_func.instruction(&Instruction::F32ConvertI32S);
                     }
                     // Call gl_exp2 to compute exp2(exp)
@@ -2029,6 +2216,245 @@ pub fn translate_expression_component(
 
                     ctx.wasm_func.instruction(&Instruction::End);
                 }
+                MathFunction::Reflect => {
+                    // reflect(I, N) = I - 2 * dot(N, I) * N
+                    let i = *arg;
+                    let n = *arg1.as_ref().unwrap();
+                    let arg_ty = ctx.typifier.get(i, &ctx.module.types);
+                    let count = super::types::component_count(arg_ty, &ctx.module.types);
+
+                    // compute dot = dot(N, I)
+                    ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                    for j in 0..count {
+                        translate_expression_component(n, j, ctx)?;
+                        translate_expression_component(i, j, ctx)?;
+                        ctx.wasm_func.instruction(&Instruction::F32Mul);
+                        ctx.wasm_func.instruction(&Instruction::F32Add);
+                    }
+                    ctx.wasm_func
+                        .instruction(&Instruction::LocalSet(ctx.swap_f32_local));
+
+                    // I_comp - 2.0 * dot * N_comp
+                    translate_expression_component(i, component_idx, ctx)?;
+                    ctx.wasm_func
+                        .instruction(&Instruction::LocalGet(ctx.swap_f32_local));
+                    ctx.wasm_func.instruction(&Instruction::F32Const(2.0));
+                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                    translate_expression_component(n, component_idx, ctx)?;
+                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                    ctx.wasm_func.instruction(&Instruction::F32Sub);
+                }
+                MathFunction::FaceForward => {
+                    // faceforward(N, I, Nref) = (dot(Nref,I) < 0.0) ? N : -N
+                    let n = *arg;
+                    let i = *arg1.as_ref().unwrap();
+                    let nref = *arg2.as_ref().unwrap();
+
+                    // compute d = dot(nref, i)
+                    ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                    let arg_ty = ctx.typifier.get(i, &ctx.module.types);
+                    let count = super::types::component_count(arg_ty, &ctx.module.types);
+                    for j in 0..count {
+                        translate_expression_component(nref, j, ctx)?;
+                        translate_expression_component(i, j, ctx)?;
+                        ctx.wasm_func.instruction(&Instruction::F32Mul);
+                        ctx.wasm_func.instruction(&Instruction::F32Add);
+                    }
+                    ctx.wasm_func
+                        .instruction(&Instruction::LocalTee(ctx.swap_f32_local));
+                    ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                    ctx.wasm_func.instruction(&Instruction::F32Lt);
+                    ctx.wasm_func
+                        .instruction(&Instruction::If(wasm_encoder::BlockType::Result(
+                            ValType::F32,
+                        )));
+                    // true: return n_comp
+                    translate_expression_component(n, component_idx, ctx)?;
+                    ctx.wasm_func.instruction(&Instruction::Else);
+                    // false: return -n_comp
+                    translate_expression_component(n, component_idx, ctx)?;
+                    ctx.wasm_func.instruction(&Instruction::F32Neg);
+                    ctx.wasm_func.instruction(&Instruction::End);
+                }
+                MathFunction::Distance => {
+                    if component_idx == 0 {
+                        let a = *arg;
+                        let b = *arg1.as_ref().unwrap();
+                        let arg_ty = ctx.typifier.get(a, &ctx.module.types);
+                        let count = super::types::component_count(arg_ty, &ctx.module.types);
+                        ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                        for j in 0..count {
+                            translate_expression_component(a, j, ctx)?;
+                            translate_expression_component(b, j, ctx)?;
+                            ctx.wasm_func.instruction(&Instruction::F32Sub);
+                            ctx.wasm_func.instruction(&Instruction::F32Mul);
+                            ctx.wasm_func.instruction(&Instruction::F32Add);
+                        }
+                        ctx.wasm_func.instruction(&Instruction::F32Sqrt);
+                    } else {
+                        ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                    }
+                }
+                MathFunction::Determinant => {
+                    if component_idx == 0 {
+                        let arg_ty = ctx.typifier.get(*arg, &ctx.module.types);
+                        if let naga::TypeInner::Matrix { columns, rows, .. } = arg_ty {
+                            match (*columns, *rows) {
+                                (naga::VectorSize::Bi, naga::VectorSize::Bi) => {
+                                    // mat2: a00=0 a10=1 a01=2 a11=3
+                                    translate_expression_component(*arg, 0, ctx)?; // a00
+                                    translate_expression_component(*arg, 3, ctx)?; // a11
+                                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                                    translate_expression_component(*arg, 2, ctx)?; // a01
+                                    translate_expression_component(*arg, 1, ctx)?; // a10
+                                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                                    ctx.wasm_func.instruction(&Instruction::F32Sub);
+                                    // stabilize the stack: save determinant into temp local and restore
+                                    ctx.wasm_func
+                                        .instruction(&Instruction::LocalSet(ctx.swap_f32_local));
+                                    // restore value on stack
+                                    ctx.wasm_func
+                                        .instruction(&Instruction::LocalGet(ctx.swap_f32_local));
+                                }
+                                (naga::VectorSize::Tri, naga::VectorSize::Tri) => {
+                                    // a00=0 a01=3 a02=6 a10=1 a11=4 a12=7 a20=2 a21=5 a22=8
+                                    // Compute determinant using one temporary to avoid stack ordering errors
+                                    let temp1 = ctx.swap_f32_local; // tmp for intermediate
+
+                                    // tmp1 = a11*a22 - a12*a21
+                                    translate_expression_component(*arg, 4, ctx)?; // a11
+                                    translate_expression_component(*arg, 8, ctx)?; // a22
+                                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                                    translate_expression_component(*arg, 7, ctx)?; // a12
+                                    translate_expression_component(*arg, 5, ctx)?; // a21
+                                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                                    ctx.wasm_func.instruction(&Instruction::F32Sub);
+                                    ctx.wasm_func.instruction(&Instruction::LocalSet(temp1));
+
+                                    // s = a00 * tmp1
+                                    translate_expression_component(*arg, 0, ctx)?; // a00
+                                    ctx.wasm_func.instruction(&Instruction::LocalGet(temp1));
+                                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+
+                                    // - a01*(a10*a22 - a12*a20)
+                                    translate_expression_component(*arg, 3, ctx)?; // a01
+                                    translate_expression_component(*arg, 1, ctx)?; // a10
+                                    translate_expression_component(*arg, 8, ctx)?; // a22
+                                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                                    translate_expression_component(*arg, 7, ctx)?; // a12
+                                    translate_expression_component(*arg, 2, ctx)?; // a20
+                                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                                    ctx.wasm_func.instruction(&Instruction::F32Sub);
+                                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                                    ctx.wasm_func.instruction(&Instruction::F32Neg);
+                                    ctx.wasm_func.instruction(&Instruction::F32Add);
+
+                                    // + a02 * (a10*a21 - a11*a20)
+                                    translate_expression_component(*arg, 6, ctx)?; // a02
+                                    translate_expression_component(*arg, 1, ctx)?; // a10
+                                    translate_expression_component(*arg, 5, ctx)?; // a21
+                                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                                    translate_expression_component(*arg, 4, ctx)?; // a11
+                                    translate_expression_component(*arg, 2, ctx)?; // a20
+                                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                                    ctx.wasm_func.instruction(&Instruction::F32Sub);
+                                    ctx.wasm_func.instruction(&Instruction::F32Mul);
+                                    ctx.wasm_func.instruction(&Instruction::F32Add);
+                                    // stabilize the stack: save determinant into temp local and restore
+                                    ctx.wasm_func
+                                        .instruction(&Instruction::LocalSet(ctx.swap_f32_local));
+                                    // restore value on stack
+                                    ctx.wasm_func
+                                        .instruction(&Instruction::LocalGet(ctx.swap_f32_local));
+                                }
+                                _ => {
+                                    ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                                }
+                            }
+                        } else {
+                            ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                        }
+                    } else {
+                        ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                    }
+                }
+                MathFunction::Inverse => {
+                    // Optimized matrix inversion using host imports to avoid huge instruction bloat
+                    let arg_ty = ctx.typifier.get(*arg, &ctx.module.types);
+                    if let naga::TypeInner::Matrix { columns, rows, .. } = arg_ty {
+                        let count = (*columns as u32) * (*rows as u32);
+                        let helper_idx = match (*columns, *rows) {
+                            (naga::VectorSize::Bi, naga::VectorSize::Bi) => ctx.inverse_mat2_idx,
+                            (naga::VectorSize::Tri, naga::VectorSize::Tri) => ctx.inverse_mat3_idx,
+                            _ => None,
+                        };
+
+                        if let Some(func_idx) = helper_idx {
+                            let frame_temp = ctx.frame_temp_idx.expect("Frame temp local missing");
+                            // Space for both input and output matrices
+                            let frame_size = count * 4 * 2;
+
+                            // 1. Allocate frame storage
+                            ctx.wasm_func.instruction(&Instruction::GlobalGet(
+                                output_layout::FRAME_SP_GLOBAL,
+                            ));
+                            ctx.wasm_func
+                                .instruction(&Instruction::LocalTee(frame_temp));
+                            ctx.wasm_func
+                                .instruction(&Instruction::I32Const(frame_size as i32));
+                            ctx.wasm_func.instruction(&Instruction::I32Add);
+                            ctx.wasm_func.instruction(&Instruction::GlobalSet(
+                                output_layout::FRAME_SP_GLOBAL,
+                            ));
+
+                            // 2. Store input matrix to frame (at frame_temp)
+                            for i in 0..count {
+                                ctx.wasm_func
+                                    .instruction(&Instruction::LocalGet(frame_temp));
+                                translate_expression_component(*arg, i, ctx)?;
+                                ctx.wasm_func.instruction(&Instruction::F32Store(
+                                    wasm_encoder::MemArg {
+                                        offset: (i * 4) as u64,
+                                        align: 2,
+                                        memory_index: 0,
+                                    },
+                                ));
+                            }
+
+                            // 3. Call host helper: helper(in_ptr, out_ptr)
+                            ctx.wasm_func
+                                .instruction(&Instruction::LocalGet(frame_temp)); // in_ptr
+                            ctx.wasm_func
+                                .instruction(&Instruction::LocalGet(frame_temp));
+                            ctx.wasm_func
+                                .instruction(&Instruction::I32Const((count * 4) as i32));
+                            ctx.wasm_func.instruction(&Instruction::I32Add); // out_ptr
+                            ctx.wasm_func.instruction(&Instruction::Call(func_idx));
+
+                            // 4. Load the requested component from the output matrix on the frame
+                            ctx.wasm_func
+                                .instruction(&Instruction::LocalGet(frame_temp));
+                            ctx.wasm_func.instruction(&Instruction::F32Load(
+                                wasm_encoder::MemArg {
+                                    offset: (count * 4 + component_idx * 4) as u64,
+                                    align: 2,
+                                    memory_index: 0,
+                                },
+                            ));
+
+                            // 5. Restore frame pointer
+                            ctx.wasm_func
+                                .instruction(&Instruction::LocalGet(frame_temp));
+                            ctx.wasm_func.instruction(&Instruction::GlobalSet(
+                                output_layout::FRAME_SP_GLOBAL,
+                            ));
+                        } else {
+                            ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                        }
+                    } else {
+                        ctx.wasm_func.instruction(&Instruction::F32Const(0.0));
+                    }
+                }
                 MathFunction::Modf => {
                     // modf(x, out ip): returns fractional part, stores integer part (trunc toward 0) into ip
                     let x = *arg;
@@ -2088,9 +2514,7 @@ pub fn translate_expression_component(
                         )));
                     // true: zero input -> write 0 to exp and return 0.0 mantissa
                     // store 0 to *out_ptr
-                    ctx.wasm_func.instruction(&Instruction::I32Const(0));
                     translate_expression(out_ptr, ctx)?; // push pointer
-                                                         // reorder for store (pointer, value)
                     ctx.wasm_func.instruction(&Instruction::I32Const(0));
                     ctx.wasm_func
                         .instruction(&Instruction::I32Store(wasm_encoder::MemArg {
@@ -2211,7 +2635,10 @@ pub fn translate_expression(
     let ty = ctx.typifier.get(expr_handle, &ctx.module.types);
 
     // If it's a pointer type, we want the address
-    if let naga::TypeInner::Pointer { .. } = ty {
+    if matches!(
+        ty,
+        naga::TypeInner::Pointer { .. } | naga::TypeInner::ValuePointer { .. }
+    ) {
         match expr {
             Expression::LocalVariable(handle) => {
                 ctx.wasm_func
@@ -2282,32 +2709,60 @@ pub fn translate_expression(
                     }
                 }
             }
+            Expression::Access { base, index } => {
+                translate_expression(*base, ctx)?;
+                let base_ty = ctx.typifier.get(*base, &ctx.module.types);
+                let element_size = match base_ty {
+                    TypeInner::Pointer {
+                        base: pointed_ty, ..
+                    } => {
+                        let element_inner = &ctx.module.types[*pointed_ty].inner;
+                        match element_inner {
+                            naga::TypeInner::Array { stride, .. } => *stride,
+                            naga::TypeInner::Vector { .. } => 4,
+                            naga::TypeInner::Matrix { rows, .. } => (*rows as u32) * 4,
+                            _ => super::types::type_size(element_inner).unwrap_or(4),
+                        }
+                    }
+                    TypeInner::ValuePointer { .. } => 4,
+                    _ => 4,
+                };
+                translate_expression(*index, ctx)?;
+                if element_size != 1 {
+                    ctx.wasm_func
+                        .instruction(&Instruction::I32Const(element_size as i32));
+                    ctx.wasm_func.instruction(&Instruction::I32Mul);
+                }
+                ctx.wasm_func.instruction(&Instruction::I32Add);
+            }
             Expression::AccessIndex { base, index } => {
                 translate_expression(*base, ctx)?;
-                // Use element size for indexing instead of assuming 4 bytes
                 let base_ty = ctx.typifier.get(*base, &ctx.module.types);
-                if let TypeInner::Pointer {
-                    base: pointed_ty, ..
-                } = base_ty
-                {
-                    let element_inner = &ctx.module.types[*pointed_ty].inner;
-                    let element_size = match element_inner {
-                        naga::TypeInner::Array { stride, .. } => *stride,
-                        _ => super::types::type_size(element_inner).unwrap_or(4),
-                    };
-                    if *index > 0 {
-                        ctx.wasm_func
-                            .instruction(&Instruction::I32Const((*index * element_size) as i32));
-                        ctx.wasm_func.instruction(&Instruction::I32Add);
+                let element_size = match base_ty {
+                    TypeInner::Pointer {
+                        base: pointed_ty, ..
+                    } => {
+                        let element_inner = &ctx.module.types[*pointed_ty].inner;
+                        match element_inner {
+                            naga::TypeInner::Array { stride, .. } => *stride,
+                            naga::TypeInner::Vector { .. } => 4,
+                            naga::TypeInner::Matrix { rows, .. } => (*rows as u32) * 4,
+                            _ => super::types::type_size(element_inner).unwrap_or(4),
+                        }
                     }
-                } else {
-                    // Fallback to 4-byte stride if not a pointer
-                    if *index > 0 {
-                        ctx.wasm_func
-                            .instruction(&Instruction::I32Const((*index * 4) as i32));
-                        ctx.wasm_func.instruction(&Instruction::I32Add);
-                    }
+                    TypeInner::ValuePointer { .. } => 4,
+                    _ => 4,
+                };
+
+                if *index > 0 {
+                    ctx.wasm_func
+                        .instruction(&Instruction::I32Const((*index * element_size) as i32));
+                    ctx.wasm_func.instruction(&Instruction::I32Add);
                 }
+            }
+            Expression::FunctionArgument(idx) => {
+                let base_idx = ctx.argument_local_offsets.get(idx).cloned().unwrap_or(*idx);
+                ctx.wasm_func.instruction(&Instruction::LocalGet(base_idx));
             }
             _ => {
                 return Err(BackendError::UnsupportedFeature(format!(

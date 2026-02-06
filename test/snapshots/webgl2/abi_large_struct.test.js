@@ -22,7 +22,13 @@ test('ABI: large struct parameter uses frame allocation (WAT or null)', async ()
     const program = gl.createProgram();
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
-    assert.throws(() => gl.linkProgram(program));
+    gl.linkProgram(program);
+    assert.strictEqual(gl.getProgramParameter(program, gl.LINK_STATUS), true);
+
+    const fsWat = getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER);
+    assert.ok(fsWat.includes('f32.load'), 'Should load data member');
+    assert.ok(fsWat.includes('i32.const 20'), 'Should have offset for b.y');
+    assert.ok(fsWat.includes('i32.const 60'), 'Should have offset for d.w');
   } finally {
     gl.destroy();
   }
@@ -48,7 +54,13 @@ test('ABI: nested large struct (WAT or null)', async () => {
     const program = gl.createProgram();
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
-    assert.throws(() =>gl.linkProgram(program));
+    gl.linkProgram(program);
+    assert.strictEqual(gl.getProgramParameter(program, gl.LINK_STATUS), true);
+
+    const fsWat = getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER);
+    assert.ok(fsWat.includes('f32.load'), 'Should load data member');
+    assert.ok(fsWat.includes('i32.const 52'), 'Should load o.i2.b.y');
+    assert.ok(fsWat.includes('i32.const 72'), 'Should load o.extra.z');
   } finally {
     gl.destroy();
   }

@@ -1036,7 +1036,10 @@ export class WasmWebGL2RenderingContext {
     const mathFuncs = [
       'gl_sin', 'gl_cos', 'gl_tan', 'gl_asin', 'gl_acos', 'gl_atan', 'gl_atan2',
       'gl_exp', 'gl_exp2', 'gl_log', 'gl_log2', 'gl_pow',
-      'gl_sinh', 'gl_cosh', 'gl_tanh', 'gl_asinh', 'gl_acosh', 'gl_atanh'
+      'gl_sinh', 'gl_cosh', 'gl_tanh', 'gl_asinh', 'gl_acosh', 'gl_atanh',
+      'gl_inverse_mat2', 'gl_inverse_mat3',
+      'gl_debug4'
+
     ];
     for (const name of mathFuncs) {
       if (this._instance.exports[name]) {
@@ -1056,7 +1059,19 @@ export class WasmWebGL2RenderingContext {
     }
 
     let fsModule;
+    // Dump WASM to disk when debug_shaders is enabled to aid diagnostics
+    if (this._debugShaders) {
+      try {
+        require('fs').writeFileSync('test_debug/failing_fragment.wasm', Buffer.from(fsWasm));
+      } catch (e) {
+        // Best-effort; ignore write failures in constrained environments
+      }
+    }
+    if (this._debug) {
+        console.log("Compiling FS Module...");
+    }
     fsModule = new WebAssembly.Module(fsWasm);
+
     const fsInstanceRef = { current: null };
     const fsDebugEnv = createDebugEnv(this.FRAGMENT_SHADER, fsInstanceRef);
 
@@ -1077,6 +1092,10 @@ export class WasmWebGL2RenderingContext {
         fsEnv[name] = this._instance.exports[name];
       }
     }
+
+    if (!fsEnv.gl_debug4) fsEnv.gl_debug4 = (a, b, c, d) => {};
+    if (!fsEnv.gl_inverse_mat2) fsEnv.gl_inverse_mat2 = (in_ptr, out_ptr) => {};
+    if (!fsEnv.gl_inverse_mat3) fsEnv.gl_inverse_mat3 = (in_ptr, out_ptr) => {};
 
     program._fsInstance = new WebAssembly.Instance(fsModule, {
       env: fsEnv

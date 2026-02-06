@@ -260,12 +260,6 @@ fn copy_value_to_frame(
         .find(|(_, ty)| &ty.inner == type_inner)
         .map(|(handle, _)| handle);
 
-    // Translate expression (pushes 'count' values to stack)
-    super::expressions::translate_expression(expr, ctx)?;
-
-    // Store each component in reverse order (LIFO stack)
-    // We need to use temp locals because the stack is LIFO
-    let mut temp_locals = Vec::new();
     for i in 0..count {
         // Determine the value type for this component
         let val_type = if let Some(handle) = type_handle {
@@ -275,24 +269,8 @@ fn copy_value_to_frame(
             ValType::F32
         };
 
-        let temp = match val_type {
-            ValType::F32 => ctx.swap_f32_local,
-            ValType::I32 => ctx.swap_i32_local,
-            _ => {
-                return Err(BackendError::UnsupportedFeature(
-                    "Unsupported value type for frame copy".to_string(),
-                ))
-            }
-        };
-        temp_locals.push((temp, val_type));
-        ctx.wasm_func.instruction(&Instruction::LocalSet(temp));
-    }
-
-    // Now store from locals to memory in forward order
-    for (i, (temp_local, val_type)) in temp_locals.iter().enumerate().rev() {
+        // 1. Push address: frame_base + offset + i*4
         let offset = frame_offset + (i as u32 * 4);
-
-        // Calculate address: frame_base + offset
         ctx.wasm_func
             .instruction(&Instruction::LocalGet(frame_base_local));
         if offset > 0 {
@@ -301,11 +279,10 @@ fn copy_value_to_frame(
             ctx.wasm_func.instruction(&Instruction::I32Add);
         }
 
-        // Load value from temp local
-        ctx.wasm_func
-            .instruction(&Instruction::LocalGet(*temp_local));
+        // 2. Push value (one component)
+        super::expressions::translate_expression_component(expr, i, ctx)?;
 
-        // Store to memory
+        // 3. Store to memory
         let memarg = MemArg {
             offset: 0,
             align: 2, // 4-byte alignment (2^2 = 4)

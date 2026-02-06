@@ -37,8 +37,7 @@ test('ABI: small constant array should not produce WAT (backend unsupported)', a
     gl.attachShader(program, fs);
     gl.linkProgram(program);
     const fsWat = getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER);
-    // not supported??
-    assert.strictEqual(fsWat, null);
+    assert.ok(fsWat.includes('(func $sumArray'));
   } finally {
     gl.destroy();
   }
@@ -79,9 +78,9 @@ test('ABI: large constant array should not produce WAT (backend unsupported)', a
     const program = gl.createProgram();
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
+    gl.linkProgram(program);
     const fsWat = getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER);
-    // not supported!
-    assert.strictEqual(fsWat, null);
+    assert.ok(fsWat.includes('(func $sumLargeArray'));
   } finally {
     gl.destroy();
   }
@@ -120,7 +119,7 @@ test('ABI: vec4 array should not produce WAT (backend unsupported)', async () =>
     gl.linkProgram(program);
 
     const fsWat = getShaderWat(gl._ctxHandle, program._handle, gl.FRAGMENT_SHADER);
-    assert.strictEqual(fsWat, null);
+    assert.ok(fsWat.includes('(func $processVecArray'));
   } finally {
     gl.destroy();
   }
