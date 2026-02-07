@@ -176,11 +176,7 @@ pub fn ctx_transform_feedback_varyings(
 /// - bytes [ptr-12 .. ptr-1]: `reserved: 12 bytes` (zero)
 ///
 /// Returns 0 on failure (check last error).
-pub fn ctx_get_transform_feedback_varying(
-    ctx_handle: u32,
-    program: u32,
-    index: u32,
-) -> u32 {
+pub fn ctx_get_transform_feedback_varying(ctx_handle: u32, program: u32, index: u32) -> u32 {
     let mut reg = get_registry().borrow_mut();
     let ctx = match reg.contexts.get_mut(&ctx_handle) {
         Some(c) => c,

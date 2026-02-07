@@ -652,6 +652,13 @@ pub fn ctx_get_parameter(ctx_handle: u32, pname: u32) -> u32 {
             dest[0] = ctx.bound_renderbuffer.unwrap_or(0) as i32;
             ptr
         }
+        0x8869 => {
+            // MAX_VERTEX_ATTRIBS
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = 16;
+            ptr
+        }
         0x8824 => {
             // MAX_DRAW_BUFFERS
             let ptr = ctx.alloc_small(4);

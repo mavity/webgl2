@@ -2219,10 +2219,6 @@ export class WasmWebGL2RenderingContext {
       throw new Error('wasm_ctx_get_parameter not found');
     }
 
-    if (pname === 0x8869 /* MAX_VERTEX_ATTRIBS */) {
-      return 16;
-    }
-
     const ptr = ex.wasm_ctx_get_parameter(this._ctxHandle, pname);
     if (ptr === 0) {
       return null;
@@ -2230,71 +2226,67 @@ export class WasmWebGL2RenderingContext {
 
     const dv = new DataView(ex.memory.buffer);
 
-    if (pname === 0x1F00 || pname === 0x1F01 || pname === 0x1F02 || pname === 0x8B8C) {
-      const len = dv.getUint32(ptr - 16, true);
-      const bytes = new Uint8Array(ex.memory.buffer, ptr, len);
-      return new TextDecoder().decode(bytes);
-    }
+    switch (pname) {
+      case this.VENDOR:
+      case this.RENDERER:
+      case this.VERSION:
+      case this.SHADING_LANGUAGE_VERSION: {
+        const len = dv.getUint32(ptr - 16, true);
+        const bytes = new Uint8Array(ex.memory.buffer, ptr, len);
+        return new TextDecoder().decode(bytes);
+      }
 
-    if (pname === 0x0BA2 /* VIEWPORT */) {
-      return new Int32Array(ex.memory.buffer.slice(ptr, ptr + 16));
-    }
+      case this.VIEWPORT:
+        return new Int32Array(ex.memory.buffer.slice(ptr, ptr + 16));
 
-    if (pname === 0x0C22 /* COLOR_CLEAR_VALUE */) {
-      return new Float32Array(ex.memory.buffer.slice(ptr, ptr + 16));
-    }
+      case this.COLOR_CLEAR_VALUE:
+        return new Float32Array(ex.memory.buffer.slice(ptr, ptr + 16));
 
-    if (pname === 0x0C23 /* COLOR_WRITEMASK */) {
-      const mem = new Uint8Array(ex.memory.buffer, ptr, 4);
-      return [mem[0] !== 0, mem[1] !== 0, mem[2] !== 0, mem[3] !== 0];
-    }
+      case this.COLOR_WRITEMASK: {
+        const mem = new Uint8Array(ex.memory.buffer, ptr, 4);
+        return [mem[0] !== 0, mem[1] !== 0, mem[2] !== 0, mem[3] !== 0];
+      }
 
-    if (pname === 0x8CA6 /* DRAW_FRAMEBUFFER_BINDING */ || pname === 0x8CAA /* READ_FRAMEBUFFER_BINDING */) {
-      const handle = dv.getInt32(ptr, true);
-      if (handle === 0) return null;
-      return this._fbHandles.get(handle) || null;
-    }
+      case this.DRAW_FRAMEBUFFER_BINDING:
+      case this.READ_FRAMEBUFFER_BINDING: {
+        const handle = dv.getInt32(ptr, true);
+        if (handle === 0) return null;
+        return this._fbHandles.get(handle) || null;
+      }
 
-    if (pname === 0x8CA7 /* RENDERBUFFER_BINDING */) {
-      const handle = dv.getInt32(ptr, true);
-      if (handle === 0) return null;
-      return this._rbHandles.get(handle) || null;
-    }
+      case this.RENDERBUFFER_BINDING: {
+        const handle = dv.getInt32(ptr, true);
+        if (handle === 0) return null;
+        return this._rbHandles.get(handle) || null;
+      }
 
-    if (pname === 0x8824 /* MAX_DRAW_BUFFERS */ || pname === 0x8CDF /* MAX_COLOR_ATTACHMENTS */) {
-      return dv.getInt32(ptr, true);
-    }
+      case this.MAX_DRAW_BUFFERS:
+      case this.MAX_COLOR_ATTACHMENTS:
+      case this.MAX_VERTEX_ATTRIBS:
+      case this.STENCIL_WRITEMASK:
+      case this.STENCIL_BACK_WRITEMASK:
+      case this.DEPTH_FUNC:
+      case this.STENCIL_FUNC:
+      case this.STENCIL_VALUE_MASK:
+      case this.STENCIL_REF:
+      case this.STENCIL_BACK_FUNC:
+      case this.STENCIL_BACK_VALUE_MASK:
+      case this.STENCIL_BACK_REF:
+      case this.STENCIL_FAIL:
+      case this.STENCIL_PASS_DEPTH_FAIL:
+      case this.STENCIL_PASS_DEPTH_PASS:
+      case this.STENCIL_BACK_FAIL:
+      case this.STENCIL_BACK_PASS_DEPTH_FAIL:
+      case this.STENCIL_BACK_PASS_DEPTH_PASS:
+        return dv.getInt32(ptr, true);
 
-    if (pname >= 0x8825 /* DRAW_BUFFER0 */ && pname <= 0x882C /* DRAW_BUFFER7 */) {
-      return dv.getInt32(ptr, true);
-    }
+      case this.DEPTH_WRITEMASK:
+        return dv.getUint8(ptr) !== 0;
 
-    if (pname === 0x0B72 /* DEPTH_WRITEMASK */) {
-      return dv.getUint8(ptr) !== 0;
-    }
-
-    if (pname === 0x0B98 /* STENCIL_WRITEMASK */ || pname === 0x8CA5 /* STENCIL_BACK_WRITEMASK */) {
-      return dv.getInt32(ptr, true);
-    }
-
-    const singleIntParams = [
-      0x0B74, // DEPTH_FUNC
-      0x0B92, // STENCIL_FUNC
-      0x0B93, // STENCIL_VALUE_MASK
-      0x0B97, // STENCIL_REF
-      0x8800, // STENCIL_BACK_FUNC
-      0x8CA4, // STENCIL_BACK_VALUE_MASK
-      0x8CA3, // STENCIL_BACK_REF
-      0x0B94, // STENCIL_FAIL
-      0x0B95, // STENCIL_PASS_DEPTH_FAIL
-      0x0B96, // STENCIL_PASS_DEPTH_PASS
-      0x8801, // STENCIL_BACK_FAIL
-      0x8802, // STENCIL_BACK_PASS_DEPTH_FAIL
-      0x8803, // STENCIL_BACK_PASS_DEPTH_PASS
-    ];
-
-    if (singleIntParams.includes(pname)) {
-      return dv.getInt32(ptr, true);
+      default:
+        if (pname >= this.DRAW_BUFFER0 && pname <= this.DRAW_BUFFER7) {
+          return dv.getInt32(ptr, true);
+        }
     }
 
     throw new Error(`getParameter for ${pname} not implemented`);

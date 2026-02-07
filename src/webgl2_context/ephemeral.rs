@@ -44,11 +44,11 @@ pub fn alloc_string(ctx: &mut Context, s: &str) -> u32 {
     let bytes = s.as_bytes();
     let len = bytes.len();
     let total_needed = len + 16;
-    
+
     if ctx.string_arena.len() < total_needed {
         ctx.string_arena.resize(total_needed, 0);
     }
-    
+
     write_header(&mut ctx.string_arena, 0, len as u32);
     ctx.string_arena[16..16 + len].copy_from_slice(bytes);
     (ctx.string_arena.as_ptr() as u32) + 16

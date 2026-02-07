@@ -375,8 +375,7 @@ pub unsafe fn ctx_read_pixels(
     };
 
     // Get the source handle and dimensions
-    let (src_handle, _src_width, _src_height, _src_format) =
-        ctx.get_color_attachment_info(true);
+    let (src_handle, _src_width, _src_height, _src_format) = ctx.get_color_attachment_info(true);
 
     if !src_handle.is_valid() {
         set_last_error("no color attachment to read from");

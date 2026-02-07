@@ -1324,21 +1324,13 @@ pub extern "C" fn wasm_ctx_use_program(ctx: u32, program: u32) -> u32 {
 
 /// Get active uniform info.
 #[no_mangle]
-pub extern "C" fn wasm_ctx_get_active_uniform(
-    ctx: u32,
-    program: u32,
-    index: u32,
-) -> u32 {
+pub extern "C" fn wasm_ctx_get_active_uniform(ctx: u32, program: u32, index: u32) -> u32 {
     webgl2_context::ctx_get_active_uniform(ctx, program, index)
 }
 
 /// Get active attribute info.
 #[no_mangle]
-pub extern "C" fn wasm_ctx_get_active_attrib(
-    ctx: u32,
-    program: u32,
-    index: u32,
-) -> u32 {
+pub extern "C" fn wasm_ctx_get_active_attrib(ctx: u32, program: u32, index: u32) -> u32 {
     webgl2_context::ctx_get_active_attrib(ctx, program, index)
 }
 
@@ -1467,10 +1459,7 @@ pub extern "C" fn wasm_ctx_vertex_attrib_divisor(ctx: u32, index: u32, divisor: 
 
 /// Get a parameter (vector version).
 #[no_mangle]
-pub extern "C" fn wasm_ctx_get_parameter(
-    ctx: u32,
-    pname: u32,
-) -> u32 {
+pub extern "C" fn wasm_ctx_get_parameter(ctx: u32, pname: u32) -> u32 {
     webgl2_context::ctx_get_parameter(ctx, pname)
 }
 
