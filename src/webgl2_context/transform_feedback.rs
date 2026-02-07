@@ -157,56 +157,74 @@ pub fn ctx_transform_feedback_varyings(
     }
 }
 
+/// Get active transform feedback varying info.
+/// Returns a pointer to an ephemeral payload:
+/// - bytes [ptr+0 .. ptr+3]: `size: i32`
+/// - bytes [ptr+4 .. ptr+7]: `type: u32`
+/// - bytes [ptr+8 .. ptr+8+len-1]: `name: [u8]`
+///
+/// # Ephemeral Pointer
+///
+/// The returned pointer is **ephemeral** and valid only until the next call into WASM
+/// on the same context. JavaScript must copy the data out of linear memory immediately
+/// and must not assume the payload lifetime beyond the next WASM call.
+///
+/// # Header
+///
+/// The 16 bytes immediately preceding the returned pointer contain the header:
+/// - bytes [ptr-16 .. ptr-13]: `len: u32` (total payload length in bytes)
+/// - bytes [ptr-12 .. ptr-1]: `reserved: 12 bytes` (zero)
+///
+/// Returns 0 on failure (check last error).
 pub fn ctx_get_transform_feedback_varying(
-    ctx: u32,
+    ctx_handle: u32,
     program: u32,
     index: u32,
-    size_ptr: u32,
-    type_ptr: u32,
-    name_ptr: u32,
-    name_capacity: u32,
 ) -> u32 {
-    let reg = get_registry().borrow();
-    if let Some(ctx) = reg.contexts.get(&ctx) {
-        if let Some(p) = ctx.programs.get(&program) {
-            if index >= p.tf_varyings.len() as u32 {
-                return GL_INVALID_VALUE;
-            }
+    let mut reg = get_registry().borrow_mut();
+    let ctx = match reg.contexts.get_mut(&ctx_handle) {
+        Some(c) => c,
+        None => return 0,
+    };
 
-            let name = &p.tf_varyings[index as usize];
-            // Look up type info from linked varying info
-            let (type_code, components) = p.varying_types.get(name).cloned().unwrap_or((0, 1));
-
-            // Map internal type info back to GL enum
-            let gl_type = match (type_code, components) {
-                (0, 1) => 0x1406, // FLOAT
-                (0, 2) => 0x8B50, // FLOAT_VEC2
-                (0, 3) => 0x8B51, // FLOAT_VEC3
-                (0, 4) => 0x8B52, // FLOAT_VEC4
-                (1, 1) => 0x1404, // INT
-                (2, 1) => 0x1405, // UNSIGNED_INT
-                _ => 0x1406,
-            };
-
-            unsafe {
-                if size_ptr != 0 {
-                    *(size_ptr as *mut i32) = 1; // Assuming size 1 for now
-                }
-                if type_ptr != 0 {
-                    *(type_ptr as *mut u32) = gl_type;
-                }
-                if name_ptr != 0 && name_capacity > 0 {
-                    let bytes = name.as_bytes();
-                    let len = bytes.len().min(name_capacity as usize - 1);
-                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), name_ptr as *mut u8, len);
-                    *(name_ptr as *mut u8).add(len) = 0;
-                }
-            }
-            ERR_OK
-        } else {
-            ERR_INVALID_HANDLE
+    if let Some(p) = ctx.programs.get(&program) {
+        if index >= p.tf_varyings.len() as u32 {
+            return 0;
         }
+
+        let name = p.tf_varyings[index as usize].clone();
+        // Look up type info from linked varying info
+        let (type_code, components) = p.varying_types.get(&name).cloned().unwrap_or((0, 1));
+
+        // Map internal type info back to GL enum
+        let gl_type = match (type_code, components) {
+            (0, 1) => 0x1406, // FLOAT
+            (0, 2) => 0x8B50, // FLOAT_VEC2
+            (0, 3) => 0x8B51, // FLOAT_VEC3
+            (0, 4) => 0x8B52, // FLOAT_VEC4
+            (1, 1) => 0x1404, // INT
+            (2, 1) => 0x1405, // UNSIGNED_INT
+            _ => 0x1406,
+        };
+
+        let name_bytes = name.as_bytes();
+        let payload_len = 8 + name_bytes.len() as u32;
+
+        let ptr = if payload_len <= 128 {
+            ctx.alloc_small(payload_len)
+        } else {
+            ctx.alloc_blob(payload_len)
+        };
+
+        unsafe {
+            *(ptr as *mut i32) = 1; // Assuming size 1 for now
+            *((ptr + 4) as *mut u32) = gl_type;
+            let dest = std::slice::from_raw_parts_mut((ptr + 8) as *mut u8, name_bytes.len());
+            dest.copy_from_slice(name_bytes);
+        }
+
+        ptr
     } else {
-        ERR_INVALID_HANDLE
+        0
     }
 }

@@ -547,6 +547,16 @@ pub extern "C" fn wasm_last_error_len() -> u32 {
     webgl2_context::last_error_len()
 }
 
+/// Get an ephemeral pointer to the last error message.
+#[no_mangle]
+pub extern "C" fn wasm_last_error() -> u32 {
+    if let Some(msg) = crate::error::get_last_error_message() {
+        webgl2_context::ephemeral::alloc_tls_string(&msg)
+    } else {
+        0
+    }
+}
+
 // ---- Texture Operations ----
 
 /// Create a texture in the given context.
@@ -803,10 +813,8 @@ pub unsafe extern "C" fn wasm_ctx_read_pixels(
     height: u32,
     format: u32,
     type_: u32,
-    dest_ptr: u32,
-    dest_len: u32,
 ) -> u32 {
-    webgl2_context::ctx_read_pixels(ctx, x, y, width, height, format, type_, dest_ptr, dest_len)
+    webgl2_context::ctx_read_pixels(ctx, x, y, width, height, format, type_)
 }
 
 // ---- State Management ----
@@ -1130,8 +1138,8 @@ pub extern "C" fn wasm_ctx_get_shader_parameter(ctx: u32, shader: u32, pname: u3
 
 /// Get shader info log.
 #[no_mangle]
-pub extern "C" fn wasm_ctx_get_shader_info_log(ctx: u32, shader: u32, ptr: u32, len: u32) -> u32 {
-    webgl2_context::ctx_get_shader_info_log(ctx, shader, ptr, len)
+pub extern "C" fn wasm_ctx_get_shader_info_log(ctx: u32, shader: u32) -> u32 {
+    webgl2_context::ctx_get_shader_info_log(ctx, shader)
 }
 
 /// Create a program.
@@ -1176,8 +1184,8 @@ pub extern "C" fn wasm_ctx_get_program_parameter(ctx: u32, program: u32, pname: 
 
 /// Get program info log.
 #[no_mangle]
-pub extern "C" fn wasm_ctx_get_program_info_log(ctx: u32, program: u32, ptr: u32, len: u32) -> u32 {
-    webgl2_context::ctx_get_program_info_log(ctx, program, ptr, len)
+pub extern "C" fn wasm_ctx_get_program_info_log(ctx: u32, program: u32) -> u32 {
+    webgl2_context::ctx_get_program_info_log(ctx, program)
 }
 
 /// Register compiled shader function table indices.
@@ -1320,20 +1328,8 @@ pub extern "C" fn wasm_ctx_get_active_uniform(
     ctx: u32,
     program: u32,
     index: u32,
-    size_ptr: u32,
-    type_ptr: u32,
-    name_ptr: u32,
-    name_capacity: u32,
 ) -> u32 {
-    webgl2_context::ctx_get_active_uniform(
-        ctx,
-        program,
-        index,
-        size_ptr,
-        type_ptr,
-        name_ptr,
-        name_capacity,
-    )
+    webgl2_context::ctx_get_active_uniform(ctx, program, index)
 }
 
 /// Get active attribute info.
@@ -1342,20 +1338,8 @@ pub extern "C" fn wasm_ctx_get_active_attrib(
     ctx: u32,
     program: u32,
     index: u32,
-    size_ptr: u32,
-    type_ptr: u32,
-    name_ptr: u32,
-    name_capacity: u32,
 ) -> u32 {
-    webgl2_context::ctx_get_active_attrib(
-        ctx,
-        program,
-        index,
-        size_ptr,
-        type_ptr,
-        name_ptr,
-        name_capacity,
-    )
+    webgl2_context::ctx_get_active_attrib(ctx, program, index)
 }
 
 /// Enable vertex attribute array.
@@ -1483,13 +1467,11 @@ pub extern "C" fn wasm_ctx_vertex_attrib_divisor(ctx: u32, index: u32, divisor: 
 
 /// Get a parameter (vector version).
 #[no_mangle]
-pub extern "C" fn wasm_ctx_get_parameter_v(
+pub extern "C" fn wasm_ctx_get_parameter(
     ctx: u32,
     pname: u32,
-    dest_ptr: u32,
-    dest_len: u32,
 ) -> u32 {
-    webgl2_context::ctx_get_parameter_v(ctx, pname, dest_ptr, dest_len)
+    webgl2_context::ctx_get_parameter(ctx, pname)
 }
 
 /// Set GL error.
@@ -1583,60 +1565,21 @@ pub extern "C" fn wasm_ctx_get_program_wat_ref(ctx: u32, program: u32, shader_ty
 
 // ---- GLSL Decompiler Support (docs/11.b-decompile-theory.md) ----
 
-/// Thread-local storage for decompiled GLSL output.
-/// This is used to return the decompiled GLSL string to JavaScript.
-use std::cell::RefCell;
-thread_local! {
-    static DECOMPILED_GLSL: RefCell<String> = const { RefCell::new(String::new()) };
-}
-
-/// Decompile WASM bytes to GLSL and store the result.
-/// The wasm_bytes are read from linear memory at the given pointer and length.
-/// Returns the length of the decompiled GLSL string, or 0 on error.
-///
-/// # Safety
-///
-/// The caller must ensure that `wasm_ptr` points to a valid WASM module in linear memory.
+/// Decompile WASM bytes to GLSL.
+/// Returns an ephemeral pointer to the GLSL string.
 #[no_mangle]
 pub unsafe extern "C" fn wasm_decompile_to_glsl(wasm_ptr: u32, wasm_len: u32) -> u32 {
-    // Read WASM bytes from linear memory
     let wasm_bytes = std::slice::from_raw_parts(wasm_ptr as *const u8, wasm_len as usize);
 
-    match decompiler::decompile_to_glsl(wasm_bytes) {
-        Ok(glsl) => {
-            let len = glsl.len() as u32;
-            DECOMPILED_GLSL.with(|cell| {
-                *cell.borrow_mut() = glsl;
-            });
-            len
-        }
-        Err(e) => {
-            // Store error message in GLSL output
-            let error_msg = format!("// Error: {}", e);
-            let len = error_msg.len() as u32;
-            DECOMPILED_GLSL.with(|cell| {
-                *cell.borrow_mut() = error_msg;
-            });
-            len
-        }
-    }
-}
-
-/// Get a pointer to the decompiled GLSL string.
-/// Must be called after wasm_decompile_to_glsl.
-#[no_mangle]
-pub extern "C" fn wasm_get_decompiled_glsl_ptr() -> u32 {
-    DECOMPILED_GLSL.with(|cell| cell.borrow().as_ptr() as u32)
-}
-
-/// Get the length of the decompiled GLSL string.
-#[no_mangle]
-pub extern "C" fn wasm_get_decompiled_glsl_len() -> u32 {
-    DECOMPILED_GLSL.with(|cell| cell.borrow().len() as u32)
+    let glsl = match decompiler::decompile_to_glsl(wasm_bytes) {
+        Ok(glsl) => glsl,
+        Err(e) => format!("// Error: {}", e),
+    };
+    webgl2_context::ephemeral::alloc_tls_string(&glsl)
 }
 
 /// Decompile a single function from WASM bytes to GLSL.
-/// Returns the length of the decompiled GLSL string, or 0 on error.
+/// Returns an ephemeral pointer to the GLSL string.
 ///
 /// # Safety
 ///
@@ -1649,23 +1592,11 @@ pub unsafe extern "C" fn wasm_decompile_function_to_glsl(
 ) -> u32 {
     let wasm_bytes = std::slice::from_raw_parts(wasm_ptr as *const u8, wasm_len as usize);
 
-    match decompiler::decompile_function_to_glsl(wasm_bytes, func_idx) {
-        Ok(glsl) => {
-            let len = glsl.len() as u32;
-            DECOMPILED_GLSL.with(|cell| {
-                *cell.borrow_mut() = glsl;
-            });
-            len
-        }
-        Err(e) => {
-            let error_msg = format!("// Error: {}", e);
-            let len = error_msg.len() as u32;
-            DECOMPILED_GLSL.with(|cell| {
-                *cell.borrow_mut() = error_msg;
-            });
-            len
-        }
-    }
+    let glsl = match decompiler::decompile_function_to_glsl(wasm_bytes, func_idx) {
+        Ok(glsl) => glsl,
+        Err(e) => format!("// Error: {}", e),
+    };
+    webgl2_context::ephemeral::alloc_tls_string(&glsl)
 }
 
 // ---- Coverage Support (when enabled) ----
@@ -1776,20 +1707,8 @@ pub extern "C" fn wasm_ctx_get_transform_feedback_varying(
     ctx: u32,
     program: u32,
     index: u32,
-    size_ptr: u32,
-    type_ptr: u32,
-    name_ptr: u32,
-    name_capacity: u32,
 ) -> u32 {
-    webgl2_context::ctx_get_transform_feedback_varying(
-        ctx,
-        program,
-        index,
-        size_ptr,
-        type_ptr,
-        name_ptr,
-        name_capacity,
-    )
+    webgl2_context::ctx_get_transform_feedback_varying(ctx, program, index)
 }
 
 // ============================================================================

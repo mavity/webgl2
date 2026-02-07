@@ -441,255 +441,250 @@ pub fn ctx_get_error(ctx: u32) -> u32 {
     err
 }
 
-/// Get a parameter (vector version).
-pub fn ctx_get_parameter_v(ctx: u32, pname: u32, dest_ptr: u32, dest_len: u32) -> u32 {
+/// Get a GL parameter value.
+/// Returns a pointer to an ephemeral payload containing the parameter value(s).
+///
+/// # Ephemeral Pointer
+///
+/// The returned pointer is **ephemeral** and valid only until the next call into WASM
+/// on the same context. JavaScript must copy the data out of linear memory immediately
+/// and must not assume the payload lifetime beyond the next WASM call.
+///
+/// # Header
+///
+/// The 16 bytes immediately preceding the returned pointer contain the header:
+/// - bytes [ptr-16 .. ptr-13]: `len: u32` (total payload length in bytes)
+/// - bytes [ptr-12 .. ptr-1]: `reserved: 12 bytes` (zero)
+///
+/// Returns 0 on failure (check last error).
+pub fn ctx_get_parameter(ctx_handle: u32, pname: u32) -> u32 {
     clear_last_error();
-    let reg = get_registry().borrow();
-    let ctx_obj = match reg.contexts.get(&ctx) {
+    let mut reg = get_registry().borrow_mut();
+    let ctx = match reg.contexts.get_mut(&ctx_handle) {
         Some(c) => c,
-        None => return ERR_INVALID_HANDLE,
+        None => return 0,
     };
 
     match pname {
+        0x1F00 => {
+            // GL_VENDOR
+            let s = "GitHub";
+            let ptr = ctx.alloc_string(s.len() as u32);
+            unsafe { std::ptr::copy_nonoverlapping(s.as_ptr(), ptr as *mut u8, s.len()) };
+            ptr
+        }
+        0x1F01 => {
+            // GL_RENDERER
+            let s = "WebGL2 WASM (Gemini)";
+            let ptr = ctx.alloc_string(s.len() as u32);
+            unsafe { std::ptr::copy_nonoverlapping(s.as_ptr(), ptr as *mut u8, s.len()) };
+            ptr
+        }
+        0x1F02 => {
+            // GL_VERSION
+            let s = "WebGL 2.0 (OpenGL ES 3.0)";
+            let ptr = ctx.alloc_string(s.len() as u32);
+            unsafe { std::ptr::copy_nonoverlapping(s.as_ptr(), ptr as *mut u8, s.len()) };
+            ptr
+        }
+        0x8B8C => {
+            // GL_SHADING_LANGUAGE_VERSION
+            let s = "WebGL GLSL ES 3.00";
+            let ptr = ctx.alloc_string(s.len() as u32);
+            unsafe { std::ptr::copy_nonoverlapping(s.as_ptr(), ptr as *mut u8, s.len()) };
+            ptr
+        }
         GL_VIEWPORT => {
-            if dest_len < 16 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 4) };
-            dest[0] = ctx_obj.viewport.0;
-            dest[1] = ctx_obj.viewport.1;
-            dest[2] = ctx_obj.viewport.2 as i32;
-            dest[3] = ctx_obj.viewport.3 as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(16);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 4) };
+            dest[0] = ctx.viewport.0;
+            dest[1] = ctx.viewport.1;
+            dest[2] = ctx.viewport.2 as i32;
+            dest[3] = ctx.viewport.3 as i32;
+            ptr
         }
         GL_COLOR_CLEAR_VALUE => {
-            if dest_len < 16 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut f32, 4) };
-            dest[0] = ctx_obj.clear_color[0];
-            dest[1] = ctx_obj.clear_color[1];
-            dest[2] = ctx_obj.clear_color[2];
-            dest[3] = ctx_obj.clear_color[3];
-            ERR_OK
+            let ptr = ctx.alloc_small(16);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut f32, 4) };
+            dest[0] = ctx.clear_color[0];
+            dest[1] = ctx.clear_color[1];
+            dest[2] = ctx.clear_color[2];
+            dest[3] = ctx.clear_color[3];
+            ptr
         }
         0x0C23 => {
             // COLOR_WRITEMASK
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut u8, 4) };
-            dest[0] = ctx_obj.color_mask.r as u8;
-            dest[1] = ctx_obj.color_mask.g as u8;
-            dest[2] = ctx_obj.color_mask.b as u8;
-            dest[3] = ctx_obj.color_mask.a as u8;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut u8, 4) };
+            dest[0] = ctx.color_mask.r as u8;
+            dest[1] = ctx.color_mask.g as u8;
+            dest[2] = ctx.color_mask.b as u8;
+            dest[3] = ctx.color_mask.a as u8;
+            ptr
         }
         0x0B72 => {
             // DEPTH_WRITEMASK
-            if dest_len < 1 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut u8, 1) };
-            dest[0] = ctx_obj.depth_state.mask as u8;
-            ERR_OK
+            let ptr = ctx.alloc_small(1);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut u8, 1) };
+            dest[0] = ctx.depth_state.mask as u8;
+            ptr
         }
         0x0B98 => {
             // STENCIL_WRITEMASK
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.stencil_state.front.write_mask as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.stencil_state.front.write_mask as i32;
+            ptr
         }
         0x8CA5 => {
             // STENCIL_BACK_WRITEMASK
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.stencil_state.back.write_mask as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.stencil_state.back.write_mask as i32;
+            ptr
         }
         0x0B74 => {
             // DEPTH_FUNC
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.depth_state.func as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.depth_state.func as i32;
+            ptr
         }
         0x0B92 => {
             // STENCIL_FUNC
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.stencil_state.front.func as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.stencil_state.front.func as i32;
+            ptr
         }
         0x0B93 => {
             // STENCIL_VALUE_MASK
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.stencil_state.front.mask as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.stencil_state.front.mask as i32;
+            ptr
         }
         0x0B97 => {
             // STENCIL_REF
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.stencil_state.front.ref_val as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.stencil_state.front.ref_val as i32;
+            ptr
         }
         0x8800 => {
             // STENCIL_BACK_FUNC
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.stencil_state.back.func as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.stencil_state.back.func as i32;
+            ptr
         }
         0x8CA4 => {
             // STENCIL_BACK_VALUE_MASK
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.stencil_state.back.mask as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.stencil_state.back.mask as i32;
+            ptr
         }
         0x8CA3 => {
             // STENCIL_BACK_REF
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.stencil_state.back.ref_val as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.stencil_state.back.ref_val as i32;
+            ptr
         }
         0x0B94 => {
             // STENCIL_FAIL
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.stencil_state.front.fail as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.stencil_state.front.fail as i32;
+            ptr
         }
         0x0B95 => {
             // STENCIL_PASS_DEPTH_FAIL
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.stencil_state.front.zfail as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.stencil_state.front.zfail as i32;
+            ptr
         }
         0x0B96 => {
             // STENCIL_PASS_DEPTH_PASS
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.stencil_state.front.zpass as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.stencil_state.front.zpass as i32;
+            ptr
         }
         0x8801 => {
             // STENCIL_BACK_FAIL
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.stencil_state.back.fail as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.stencil_state.back.fail as i32;
+            ptr
         }
         0x8802 => {
             // STENCIL_BACK_PASS_DEPTH_FAIL
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.stencil_state.back.zfail as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.stencil_state.back.zfail as i32;
+            ptr
         }
         0x8803 => {
             // STENCIL_BACK_PASS_DEPTH_PASS
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.stencil_state.back.zpass as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.stencil_state.back.zpass as i32;
+            ptr
         }
         0x8CA6 | 0x8CAA => {
             // DRAW_FRAMEBUFFER_BINDING or READ_FRAMEBUFFER_BINDING
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
             dest[0] = if pname == 0x8CA6 {
-                ctx_obj.bound_draw_framebuffer.unwrap_or(0) as i32
+                ctx.bound_draw_framebuffer.unwrap_or(0) as i32
             } else {
-                ctx_obj.bound_read_framebuffer.unwrap_or(0) as i32
+                ctx.bound_read_framebuffer.unwrap_or(0) as i32
             };
-            ERR_OK
+            ptr
         }
         0x8CA7 => {
             // RENDERBUFFER_BINDING
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            dest[0] = ctx_obj.bound_renderbuffer.unwrap_or(0) as i32;
-            ERR_OK
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = ctx.bound_renderbuffer.unwrap_or(0) as i32;
+            ptr
         }
         0x8824 => {
             // MAX_DRAW_BUFFERS
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
             dest[0] = 8;
-            ERR_OK
+            ptr
         }
         0x8CDF => {
             // MAX_COLOR_ATTACHMENTS
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
             dest[0] = 8;
-            ERR_OK
+            ptr
         }
         0x8825..=0x882C => {
             // DRAW_BUFFER0..7
-            if dest_len < 4 {
-                return ERR_INVALID_ARGS;
-            }
             let idx = (pname - 0x8825) as usize;
-            let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut i32, 1) };
-            if let Some(fb_handle) = ctx_obj.bound_draw_framebuffer {
-                if let Some(fb) = ctx_obj.framebuffers.get(&fb_handle) {
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            if let Some(fb_handle) = ctx.bound_draw_framebuffer {
+                if let Some(fb) = ctx.framebuffers.get(&fb_handle) {
                     dest[0] = fb.draw_buffers.get(idx).cloned().unwrap_or(0) as i32;
                 } else {
                     dest[0] = 0;
                 }
             } else {
-                dest[0] = ctx_obj.default_draw_buffers.get(idx).cloned().unwrap_or(0) as i32;
+                dest[0] = ctx.default_draw_buffers.get(idx).cloned().unwrap_or(0) as i32;
             }
-            ERR_OK
+            ptr
         }
         _ => {
             set_last_error("unsupported parameter");
-            ERR_INVALID_ARGS
+            0
         }
     }
 }

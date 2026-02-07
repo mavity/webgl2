@@ -1,6 +1,7 @@
 pub mod blend;
 pub mod buffers;
 pub mod drawing;
+pub mod ephemeral;
 pub mod framebuffers;
 pub mod registry;
 pub mod renderbuffers;

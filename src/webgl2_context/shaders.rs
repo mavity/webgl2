@@ -194,24 +194,36 @@ pub fn ctx_get_shader_parameter(ctx: u32, shader: u32, pname: u32) -> i32 {
 }
 
 /// Get shader info log.
-pub fn ctx_get_shader_info_log(ctx: u32, shader: u32, dest_ptr: u32, dest_len: u32) -> u32 {
+/// Returns a pointer to an ephemeral payload containing the log string.
+///
+/// # Ephemeral Pointer
+///
+/// The returned pointer is **ephemeral** and valid only until the next call into WASM
+/// on the same context. JavaScript must copy the data out of linear memory immediately
+/// and must not assume the payload lifetime beyond the next WASM call.
+///
+/// # Header
+///
+/// The 16 bytes immediately preceding the returned pointer contain the header:
+/// - bytes [ptr-16 .. ptr-13]: `len: u32` (string length in bytes)
+/// - bytes [ptr-12 .. ptr-1]: `reserved: 12 bytes` (zero)
+///
+/// Returns 0 on failure (check last error).
+pub fn ctx_get_shader_info_log(ctx: u32, shader: u32) -> u32 {
     clear_last_error();
-    let reg = get_registry().borrow();
-    let ctx_obj = match reg.contexts.get(&ctx) {
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
         Some(c) => c,
-        None => return ERR_INVALID_HANDLE,
+        None => return 0,
     };
 
-    if let Some(s) = ctx_obj.shaders.get(&shader) {
-        let bytes = s.info_log.as_bytes();
-        let len = std::cmp::min(bytes.len(), dest_len as usize);
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), dest_ptr as *mut u8, len);
-        }
-        len as u32
+    let log = if let Some(s) = ctx_obj.shaders.get(&shader) {
+        s.info_log.clone()
     } else {
-        0
-    }
+        return 0;
+    };
+
+    super::ephemeral::alloc_string(ctx_obj, &log)
 }
 
 /// Create a program.
@@ -861,24 +873,36 @@ pub fn ctx_get_program_parameter(ctx: u32, program: u32, pname: u32) -> i32 {
 }
 
 /// Get program info log.
-pub fn ctx_get_program_info_log(ctx: u32, program: u32, dest_ptr: u32, dest_len: u32) -> u32 {
+/// Returns a pointer to an ephemeral payload containing the log string.
+///
+/// # Ephemeral Pointer
+///
+/// The returned pointer is **ephemeral** and valid only until the next call into WASM
+/// on the same context. JavaScript must copy the data out of linear memory immediately
+/// and must not assume the payload lifetime beyond the next WASM call.
+///
+/// # Header
+///
+/// The 16 bytes immediately preceding the returned pointer contain the header:
+/// - bytes [ptr-16 .. ptr-13]: `len: u32` (string length in bytes)
+/// - bytes [ptr-12 .. ptr-1]: `reserved: 12 bytes` (zero)
+///
+/// Returns 0 on failure (check last error).
+pub fn ctx_get_program_info_log(ctx: u32, program: u32) -> u32 {
     clear_last_error();
-    let reg = get_registry().borrow();
-    let ctx_obj = match reg.contexts.get(&ctx) {
+    let mut reg = get_registry().borrow_mut();
+    let ctx_obj = match reg.contexts.get_mut(&ctx) {
         Some(c) => c,
-        None => return ERR_INVALID_HANDLE,
+        None => return 0,
     };
 
-    if let Some(p) = ctx_obj.programs.get(&program) {
-        let bytes = p.info_log.as_bytes();
-        let len = std::cmp::min(bytes.len(), dest_len as usize);
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), dest_ptr as *mut u8, len);
-        }
-        len as u32
+    let log = if let Some(p) = ctx_obj.programs.get(&program) {
+        p.info_log.clone()
     } else {
-        0
-    }
+        return 0;
+    };
+
+    super::ephemeral::alloc_string(ctx_obj, &log)
 }
 
 /// Get the length of the generated WASM for a program's shader.
@@ -1580,18 +1604,33 @@ fn reflect_program_resources(p: &mut Program) {
     p.active_uniforms = uniforms;
 }
 
+/// Get active uniform info.
+/// Returns a pointer to an ephemeral payload:
+/// - bytes [ptr+0 .. ptr+3]: `size: i32`
+/// - bytes [ptr+4 .. ptr+7]: `type: u32`
+/// - bytes [ptr+8 .. ptr+8+len-1]: `name: [u8]`
+///
+/// # Ephemeral Pointer
+///
+/// The returned pointer is **ephemeral** and valid only until the next call into WASM
+/// on the same context. JavaScript must copy the data out of linear memory immediately
+/// and must not assume the payload lifetime beyond the next WASM call.
+///
+/// # Header
+///
+/// The 16 bytes immediately preceding the returned pointer contain the header:
+/// - bytes [ptr-16 .. ptr-13]: `len: u32` (total payload length in bytes)
+/// - bytes [ptr-12 .. ptr-1]: `reserved: 12 bytes` (zero)
+///
+/// Returns 0 on failure (check last error).
 pub fn ctx_get_active_uniform(
-    ctx: u32,
+    ctx_handle: u32,
     program: u32,
     index: u32,
-    size_ptr: u32,
-    type_ptr: u32,
-    name_ptr: u32,
-    name_capacity: u32,
 ) -> u32 {
     clear_last_error();
-    let reg = get_registry().borrow();
-    let ctx_obj = match reg.contexts.get(&ctx) {
+    let mut reg = get_registry().borrow_mut();
+    let ctx = match reg.contexts.get_mut(&ctx_handle) {
         Some(c) => c,
         None => {
             set_last_error("invalid context handle");
@@ -1599,48 +1638,62 @@ pub fn ctx_get_active_uniform(
         }
     };
 
-    if let Some(p) = ctx_obj.programs.get(&program) {
+    if let Some(p) = ctx.programs.get(&program) {
         if index as usize >= p.active_uniforms.len() {
             set_last_error("invalid uniform index");
             return 0;
         }
-        let info = &p.active_uniforms[index as usize];
+        let info = p.active_uniforms[index as usize].clone();
+        let name_bytes = info.name.as_bytes();
+        let payload_len = 8 + name_bytes.len() as u32;
+
+        let ptr = if payload_len <= 128 {
+            ctx.alloc_small(payload_len)
+        } else {
+            ctx.alloc_blob(payload_len)
+        };
 
         unsafe {
-            *(size_ptr as *mut i32) = info.size;
-            *(type_ptr as *mut u32) = info.type_;
+            *(ptr as *mut i32) = info.size;
+            *((ptr + 4) as *mut u32) = info.type_;
+            let dest = std::slice::from_raw_parts_mut((ptr + 8) as *mut u8, name_bytes.len());
+            dest.copy_from_slice(name_bytes);
         }
 
-        let name_bytes = info.name.as_bytes();
-        let name_len = name_bytes.len();
-
-        if name_capacity > 0 {
-            let copy_len = std::cmp::min(name_len, name_capacity as usize);
-            unsafe {
-                let dest = std::slice::from_raw_parts_mut(name_ptr as *mut u8, copy_len);
-                dest.copy_from_slice(&name_bytes[0..copy_len]);
-            }
-        }
-
-        name_len as u32
+        ptr
     } else {
         set_last_error("program not found");
         0
     }
 }
 
+/// Get active attribute info.
+/// Returns a pointer to an ephemeral payload:
+/// - bytes [ptr+0 .. ptr+3]: `size: i32`
+/// - bytes [ptr+4 .. ptr+7]: `type: u32`
+/// - bytes [ptr+8 .. ptr+8+len-1]: `name: [u8]`
+///
+/// # Ephemeral Pointer
+///
+/// The returned pointer is **ephemeral** and valid only until the next call into WASM
+/// on the same context. JavaScript must copy the data out of linear memory immediately
+/// and must not assume the payload lifetime beyond the next WASM call.
+///
+/// # Header
+///
+/// The 16 bytes immediately preceding the returned pointer contain the header:
+/// - bytes [ptr-16 .. ptr-13]: `len: u32` (total payload length in bytes)
+/// - bytes [ptr-12 .. ptr-1]: `reserved: 12 bytes` (zero)
+///
+/// Returns 0 on failure (check last error).
 pub fn ctx_get_active_attrib(
-    ctx: u32,
+    ctx_handle: u32,
     program: u32,
     index: u32,
-    size_ptr: u32,
-    type_ptr: u32,
-    name_ptr: u32,
-    name_capacity: u32,
 ) -> u32 {
     clear_last_error();
-    let reg = get_registry().borrow();
-    let ctx_obj = match reg.contexts.get(&ctx) {
+    let mut reg = get_registry().borrow_mut();
+    let ctx = match reg.contexts.get_mut(&ctx_handle) {
         Some(c) => c,
         None => {
             set_last_error("invalid context handle");
@@ -1648,30 +1701,29 @@ pub fn ctx_get_active_attrib(
         }
     };
 
-    if let Some(p) = ctx_obj.programs.get(&program) {
+    if let Some(p) = ctx.programs.get(&program) {
         if index as usize >= p.active_attributes.len() {
             set_last_error("invalid attribute index");
             return 0;
         }
-        let info = &p.active_attributes[index as usize];
+        let info = p.active_attributes[index as usize].clone();
+        let name_bytes = info.name.as_bytes();
+        let payload_len = 8 + name_bytes.len() as u32;
+
+        let ptr = if payload_len <= 128 {
+            ctx.alloc_small(payload_len)
+        } else {
+            ctx.alloc_blob(payload_len)
+        };
 
         unsafe {
-            *(size_ptr as *mut i32) = info.size;
-            *(type_ptr as *mut u32) = info.type_;
+            *(ptr as *mut i32) = info.size;
+            *((ptr + 4) as *mut u32) = info.type_;
+            let dest = std::slice::from_raw_parts_mut((ptr + 8) as *mut u8, name_bytes.len());
+            dest.copy_from_slice(name_bytes);
         }
 
-        let name_bytes = info.name.as_bytes();
-        let name_len = name_bytes.len();
-
-        if name_capacity > 0 {
-            let copy_len = std::cmp::min(name_len, name_capacity as usize);
-            unsafe {
-                let dest = std::slice::from_raw_parts_mut(name_ptr as *mut u8, copy_len);
-                dest.copy_from_slice(&name_bytes[0..copy_len]);
-            }
-        }
-
-        name_len as u32
+        ptr
     } else {
         set_last_error("program not found");
         0

@@ -494,6 +494,10 @@ pub struct Context {
     pub(crate) texture_metadata: Vec<u8>,
     pub(crate) frame_stack: Vec<u8>,
 
+    pub(crate) small_arena: Vec<u8>,
+    pub(crate) blob_arena: Vec<u8>,
+    pub(crate) string_arena: Vec<u8>,
+
     pub width: u32,
     pub height: u32,
     pub is_destroyed: bool,
@@ -595,6 +599,10 @@ impl Context {
             private_buffer: vec![0u8; 16384],   // 16KB default
             texture_metadata: vec![0u8; 16384], // 16KB default
             frame_stack: vec![0u8; 131072],     // 128KB default
+
+            small_arena: vec![0u8; 128 + 16], // 128B payload + 16B header
+            blob_arena: Vec::new(),
+            string_arena: Vec::new(),
 
             width,
             height,
@@ -1132,6 +1140,36 @@ impl Context {
                 .and_then(|vao| vao.element_array_buffer);
         }
         self.buffer_bindings.get(&target).cloned().flatten()
+    }
+
+    pub(crate) fn alloc_small(&mut self, len: u32) -> u32 {
+        let total_size = (len + 16) as usize;
+        if self.small_arena.len() < total_size {
+            self.small_arena.resize(total_size, 0);
+        }
+        self.small_arena[0..4].copy_from_slice(&len.to_le_bytes());
+        self.small_arena[4..16].fill(0);
+        (self.small_arena.as_ptr() as u32) + 16
+    }
+
+    pub(crate) fn alloc_blob(&mut self, len: u32) -> u32 {
+        let total_size = (len + 16) as usize;
+        if self.blob_arena.len() < total_size {
+            self.blob_arena.resize(total_size, 0);
+        }
+        self.blob_arena[0..4].copy_from_slice(&len.to_le_bytes());
+        self.blob_arena[4..16].fill(0);
+        (self.blob_arena.as_ptr() as u32) + 16
+    }
+
+    pub(crate) fn alloc_string(&mut self, len: u32) -> u32 {
+        let total_size = (len + 16) as usize;
+        if self.string_arena.len() < total_size {
+            self.string_arena.resize(total_size, 0);
+        }
+        self.string_arena[0..4].copy_from_slice(&len.to_le_bytes());
+        self.string_arena[4..16].fill(0);
+        (self.string_arena.as_ptr() as u32) + 16
     }
 }
 

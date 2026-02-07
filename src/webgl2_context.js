@@ -709,48 +709,31 @@ export class WasmWebGL2RenderingContext {
       throw new Error('wasm_ctx_read_pixels not found');
     }
 
-    let bpp = 4;
-    if (type_ === 0x1406) { // GL_FLOAT
-      if (format === 0x1908) bpp = 16;      // GL_RGBA
-      else if (format === 0x8227) bpp = 8;  // GL_RG
-      else if (format === 0x1903) bpp = 4;  // GL_RED
-    } else if (type_ === 0x1405 || type_ === 0x1404) { // GL_UNSIGNED_INT or GL_INT
-      if (format === 0x8D9E) bpp = 16;      // GL_RGBA_INTEGER
-      else if (format === 0x8228) bpp = 8;  // GL_RG_INTEGER
-      else if (format === 0x8D94) bpp = 4;  // GL_RED_INTEGER
-    } else if (type_ === 0x1401) { // GL_UNSIGNED_BYTE
-      if (format === 0x1908) bpp = 4;
+    const ptr = ex.wasm_ctx_read_pixels(
+      this._ctxHandle,
+      x | 0,
+      y | 0,
+      width >>> 0,
+      height >>> 0,
+      format >>> 0,
+      type_ >>> 0
+    );
+
+    if (ptr === 0) {
+      const msg = readErrorMessage(this._instance);
+      throw new Error(`readPixels failed: ${msg}`);
     }
 
-    const len = width * height * bpp;
+    const dv = new DataView(ex.memory.buffer);
+    const len = dv.getUint32(ptr - 16, true);
+
     if (!out || out.byteLength < len) {
       throw new Error(`output buffer too small (need ${len} bytes, have ${out ? out.byteLength : 0})`);
     }
 
-    const ptr = ex.wasm_alloc(len);
-    if (ptr === 0) throw new Error('Failed to allocate memory for readPixels output');
-
-    try {
-      const code = ex.wasm_ctx_read_pixels(
-        this._ctxHandle,
-        x | 0,
-        y | 0,
-        width >>> 0,
-        height >>> 0,
-        format >>> 0,
-        type_ >>> 0,
-        ptr >>> 0,
-        len >>> 0
-      );
-      _checkErr(code, this._instance);
-
-      const mem = new Uint8Array(ex.memory.buffer);
-      const src = mem.subarray(ptr, ptr + len);
-      const out_bytes = new Uint8Array(out.buffer, out.byteOffset, len);
-      out_bytes.set(src);
-    } finally {
-      ex.wasm_free(ptr);
-    }
+    const src = new Uint8Array(ex.memory.buffer, ptr, len);
+    const out_bytes = new Uint8Array(out.buffer, out.byteOffset, len);
+    out_bytes.set(src);
   }
 
   // --- Stubs for unimplemented WebGL2 methods (forwarding API surface) ---
@@ -856,43 +839,18 @@ export class WasmWebGL2RenderingContext {
     }
     const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
 
-    // Allocate buffers: size(4) + type(4) + name(256)
-    const sizePtr = ex.wasm_alloc(4);
-    const typePtr = ex.wasm_alloc(4);
-    const nameMaxLen = 256;
-    const namePtr = ex.wasm_alloc(nameMaxLen);
+    const ptr = ex.wasm_ctx_get_active_uniform(this._ctxHandle, programHandle, index >>> 0);
+    if (ptr === 0) return null;
 
-    try {
-      const nameLen = ex.wasm_ctx_get_active_uniform(
-        this._ctxHandle,
-        programHandle,
-        index >>> 0,
-        sizePtr,
-        typePtr,
-        namePtr,
-        nameMaxLen
-      );
+    const dv = new DataView(ex.memory.buffer);
+    const totalLen = dv.getUint32(ptr - 16, true);
+    const size = dv.getInt32(ptr, true);
+    const type_ = dv.getUint32(ptr + 4, true);
+    const nameLen = totalLen - 8;
+    const nameBytes = new Uint8Array(ex.memory.buffer, ptr + 8, nameLen);
+    const name = new TextDecoder('utf-8').decode(nameBytes);
 
-      if (nameLen === 0) {
-        return null;
-      }
-
-      const mem32SizeIdx = sizePtr >>> 2;
-      const mem32TypeIdx = typePtr >>> 2;
-
-      const size = new Int32Array(ex.memory.buffer)[mem32SizeIdx];
-      const type_ = new Uint32Array(ex.memory.buffer)[mem32TypeIdx];
-
-      const nameBytes = new Uint8Array(ex.memory.buffer, namePtr, nameLen);
-      const name = new TextDecoder().decode(nameBytes);
-
-      return { name, size, type: type_ };
-
-    } finally {
-      ex.wasm_free(sizePtr);
-      ex.wasm_free(typePtr);
-      ex.wasm_free(namePtr);
-    }
+    return { name, size, type: type_ };
   }
 
   getActiveAttrib(program, index) {
@@ -903,43 +861,18 @@ export class WasmWebGL2RenderingContext {
     }
     const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
 
-    // Allocate buffers: size(4) + type(4) + name(256)
-    const sizePtr = ex.wasm_alloc(4);
-    const typePtr = ex.wasm_alloc(4);
-    const nameMaxLen = 256;
-    const namePtr = ex.wasm_alloc(nameMaxLen);
+    const ptr = ex.wasm_ctx_get_active_attrib(this._ctxHandle, programHandle, index >>> 0);
+    if (ptr === 0) return null;
 
-    try {
-      const nameLen = ex.wasm_ctx_get_active_attrib(
-        this._ctxHandle,
-        programHandle,
-        index >>> 0,
-        sizePtr,
-        typePtr,
-        namePtr,
-        nameMaxLen
-      );
+    const dv = new DataView(ex.memory.buffer);
+    const totalLen = dv.getUint32(ptr - 16, true);
+    const size = dv.getInt32(ptr, true);
+    const type_ = dv.getUint32(ptr + 4, true);
+    const nameLen = totalLen - 8;
+    const nameBytes = new Uint8Array(ex.memory.buffer, ptr + 8, nameLen);
+    const name = new TextDecoder('utf-8').decode(nameBytes);
 
-      if (nameLen === 0) {
-        return null;
-      }
-
-      const mem32SizeIdx = sizePtr >>> 2;
-      const mem32TypeIdx = typePtr >>> 2;
-
-      const size = new Int32Array(ex.memory.buffer)[mem32SizeIdx];
-      const type_ = new Uint32Array(ex.memory.buffer)[mem32TypeIdx];
-
-      const nameBytes = new Uint8Array(ex.memory.buffer, namePtr, nameLen);
-      const name = new TextDecoder().decode(nameBytes);
-
-      return { name, size, type: type_ };
-
-    } finally {
-      ex.wasm_free(sizePtr);
-      ex.wasm_free(typePtr);
-      ex.wasm_free(namePtr);
-    }
+    return { name, size, type: type_ };
   }
 
   linkProgram(program) {
@@ -1216,18 +1149,14 @@ export class WasmWebGL2RenderingContext {
     }
     const shaderHandle = shader && typeof shader === 'object' && typeof shader._handle === 'number' ? shader._handle : (shader >>> 0);
 
-    const maxLen = 1024;
-    const ptr = ex.wasm_alloc(maxLen);
-    if (ptr === 0) throw new Error('Failed to allocate memory for getShaderInfoLog');
+    const ptr = ex.wasm_ctx_get_shader_info_log(this._ctxHandle, shaderHandle);
+    if (ptr === 0) return "";
 
-    try {
-      const len = ex.wasm_ctx_get_shader_info_log(this._ctxHandle, shaderHandle, ptr, maxLen);
-      const mem = new Uint8Array(ex.memory.buffer);
-      const bytes = mem.subarray(ptr, ptr + len);
-      return new TextDecoder().decode(bytes);
-    } finally {
-      ex.wasm_free(ptr);
-    }
+    const dv = new DataView(ex.memory.buffer);
+    const len = dv.getUint32(ptr - 16, true);
+    const mem = new Uint8Array(ex.memory.buffer);
+    const bytes = mem.slice(ptr, ptr + len);
+    return new TextDecoder().decode(bytes);
   }
 
   getProgramInfoLog(program) {
@@ -1238,18 +1167,14 @@ export class WasmWebGL2RenderingContext {
     }
     const programHandle = program && typeof program === 'object' && typeof program._handle === 'number' ? program._handle : (program >>> 0);
 
-    const maxLen = 1024;
-    const ptr = ex.wasm_alloc(maxLen);
-    if (ptr === 0) throw new Error('Failed to allocate memory for getProgramInfoLog');
+    const ptr = ex.wasm_ctx_get_program_info_log(this._ctxHandle, programHandle);
+    if (ptr === 0) return "";
 
-    try {
-      const len = ex.wasm_ctx_get_program_info_log(this._ctxHandle, programHandle, ptr, maxLen);
-      const mem = new Uint8Array(ex.memory.buffer);
-      const bytes = mem.subarray(ptr, ptr + len);
-      return new TextDecoder().decode(bytes);
-    } finally {
-      ex.wasm_free(ptr);
-    }
+    const dv = new DataView(ex.memory.buffer);
+    const len = dv.getUint32(ptr - 16, true);
+    const mem = new Uint8Array(ex.memory.buffer);
+    const bytes = mem.slice(ptr, ptr + len);
+    return new TextDecoder().decode(bytes);
   }
 
   getProgramWasm(program, shaderType) {
@@ -1918,45 +1843,18 @@ export class WasmWebGL2RenderingContext {
     }
     const programHandle = program && typeof program === "object" && typeof program._handle === "number" ? program._handle : (program >>> 0);
 
-    const sizePtr = ex.wasm_alloc(4);
-    const typePtr = ex.wasm_alloc(4);
-    const nameCapacity = 256;
-    const namePtr = ex.wasm_alloc(nameCapacity);
+    const ptr = ex.wasm_ctx_get_transform_feedback_varying(this._ctxHandle, programHandle, index >>> 0);
+    if (ptr === 0) return null;
 
-    if (sizePtr === 0 || typePtr === 0 || namePtr === 0) {
-      if (sizePtr) ex.wasm_free(sizePtr);
-      if (typePtr) ex.wasm_free(typePtr);
-      if (namePtr) ex.wasm_free(namePtr);
-      throw new Error("Failed to allocate memory for getTransformFeedbackVarying");
-    }
+    const dv = new DataView(ex.memory.buffer);
+    const totalLen = dv.getUint32(ptr - 16, true);
+    const size = dv.getInt32(ptr, true);
+    const type = dv.getUint32(ptr + 4, true);
+    const nameLen = totalLen - 8;
+    const nameBytes = new Uint8Array(ex.memory.buffer, ptr + 8, nameLen);
+    const name = new TextDecoder('utf-8').decode(nameBytes);
 
-    try {
-      const code = ex.wasm_ctx_get_transform_feedback_varying(
-        this._ctxHandle,
-        programHandle,
-        index >>> 0,
-        sizePtr,
-        typePtr,
-        namePtr,
-        nameCapacity
-      );
-      _checkErr(code, this._instance);
-
-      const mem = new DataView(ex.memory.buffer);
-      const size = mem.getInt32(sizePtr, true);
-      const type = mem.getUint32(typePtr, true);
-
-      const nameBytes = new Uint8Array(ex.memory.buffer, namePtr, nameCapacity);
-      let nameLen = 0;
-      while (nameLen < nameCapacity && nameBytes[nameLen] !== 0) nameLen++;
-      const name = new TextDecoder().decode(nameBytes.subarray(0, nameLen));
-
-      return { name, size, type };
-    } finally {
-      ex.wasm_free(sizePtr);
-      ex.wasm_free(typePtr);
-      ex.wasm_free(namePtr);
-    }
+    return { name, size, type };
   }
 
   createQuery() { this._assertNotDestroyed(); throw new Error('not implemented'); }
@@ -2317,116 +2215,66 @@ export class WasmWebGL2RenderingContext {
   getParameter(pname) {
     this._assertNotDestroyed();
     const ex = this._instance.exports;
-    if (!ex || typeof ex.wasm_ctx_get_parameter_v !== 'function') {
-      throw new Error('wasm_ctx_get_parameter_v not found');
+    if (!ex || typeof ex.wasm_ctx_get_parameter !== 'function') {
+      throw new Error('wasm_ctx_get_parameter not found');
+    }
+
+    if (pname === 0x8869 /* MAX_VERTEX_ATTRIBS */) {
+      return 16;
+    }
+
+    const ptr = ex.wasm_ctx_get_parameter(this._ctxHandle, pname);
+    if (ptr === 0) {
+      return null;
+    }
+
+    const dv = new DataView(ex.memory.buffer);
+
+    if (pname === 0x1F00 || pname === 0x1F01 || pname === 0x1F02 || pname === 0x8B8C) {
+      const len = dv.getUint32(ptr - 16, true);
+      const bytes = new Uint8Array(ex.memory.buffer, ptr, len);
+      return new TextDecoder().decode(bytes);
     }
 
     if (pname === 0x0BA2 /* VIEWPORT */) {
-      const ptr = ex.wasm_alloc(16);
-      try {
-        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 16);
-        _checkErr(code, this._instance);
-        const mem = new Int32Array(ex.memory.buffer, ptr, 4);
-        return new Int32Array(mem);
-      } finally {
-        ex.wasm_free(ptr, 16);
-      }
+      return new Int32Array(ex.memory.buffer.slice(ptr, ptr + 16));
     }
 
     if (pname === 0x0C22 /* COLOR_CLEAR_VALUE */) {
-      const ptr = ex.wasm_alloc(16);
-      try {
-        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 16);
-        _checkErr(code, this._instance);
-        const mem = new Float32Array(ex.memory.buffer, ptr, 4);
-        return new Float32Array(mem);
-      } finally {
-        ex.wasm_free(ptr, 16);
-      }
+      return new Float32Array(ex.memory.buffer.slice(ptr, ptr + 16));
     }
 
     if (pname === 0x0C23 /* COLOR_WRITEMASK */) {
-      const ptr = ex.wasm_alloc(4);
-      try {
-        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
-        _checkErr(code, this._instance);
-        const mem = new Uint8Array(ex.memory.buffer, ptr, 4);
-        return [mem[0] !== 0, mem[1] !== 0, mem[2] !== 0, mem[3] !== 0];
-      } finally {
-        ex.wasm_free(ptr, 4);
-      }
+      const mem = new Uint8Array(ex.memory.buffer, ptr, 4);
+      return [mem[0] !== 0, mem[1] !== 0, mem[2] !== 0, mem[3] !== 0];
     }
 
     if (pname === 0x8CA6 /* DRAW_FRAMEBUFFER_BINDING */ || pname === 0x8CAA /* READ_FRAMEBUFFER_BINDING */) {
-      const ptr = ex.wasm_alloc(4);
-      try {
-        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
-        _checkErr(code, this._instance);
-        const handle = new Int32Array(ex.memory.buffer, ptr, 1)[0];
-        if (handle === 0) return null;
-        return this._fbHandles.get(handle) || null;
-      } finally {
-        ex.wasm_free(ptr, 4);
-      }
+      const handle = dv.getInt32(ptr, true);
+      if (handle === 0) return null;
+      return this._fbHandles.get(handle) || null;
     }
 
     if (pname === 0x8CA7 /* RENDERBUFFER_BINDING */) {
-      const ptr = ex.wasm_alloc(4);
-      try {
-        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
-        _checkErr(code, this._instance);
-        const handle = new Int32Array(ex.memory.buffer, ptr, 1)[0];
-        if (handle === 0) return null;
-        return this._rbHandles.get(handle) || null;
-      } finally {
-        ex.wasm_free(ptr, 4);
-      }
+      const handle = dv.getInt32(ptr, true);
+      if (handle === 0) return null;
+      return this._rbHandles.get(handle) || null;
     }
 
     if (pname === 0x8824 /* MAX_DRAW_BUFFERS */ || pname === 0x8CDF /* MAX_COLOR_ATTACHMENTS */) {
-      const ptr = ex.wasm_alloc(4);
-      try {
-        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
-        _checkErr(code, this._instance);
-        return new Int32Array(ex.memory.buffer, ptr, 1)[0];
-      } finally {
-        ex.wasm_free(ptr, 4);
-      }
+      return dv.getInt32(ptr, true);
     }
 
     if (pname >= 0x8825 /* DRAW_BUFFER0 */ && pname <= 0x882C /* DRAW_BUFFER7 */) {
-      const ptr = ex.wasm_alloc(4);
-      try {
-        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
-        _checkErr(code, this._instance);
-        return new Int32Array(ex.memory.buffer, ptr, 1)[0];
-      } finally {
-        ex.wasm_free(ptr, 4);
-      }
+      return dv.getInt32(ptr, true);
     }
 
     if (pname === 0x0B72 /* DEPTH_WRITEMASK */) {
-      const ptr = ex.wasm_alloc(4);
-      try {
-        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
-        _checkErr(code, this._instance);
-        const mem = new Uint8Array(ex.memory.buffer, ptr, 1);
-        return mem[0] !== 0;
-      } finally {
-        ex.wasm_free(ptr, 4);
-      }
+      return dv.getUint8(ptr) !== 0;
     }
 
     if (pname === 0x0B98 /* STENCIL_WRITEMASK */ || pname === 0x8CA5 /* STENCIL_BACK_WRITEMASK */) {
-      const ptr = ex.wasm_alloc(4);
-      try {
-        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
-        _checkErr(code, this._instance);
-        const mem = new Int32Array(ex.memory.buffer, ptr, 1);
-        return mem[0];
-      } finally {
-        ex.wasm_free(ptr, 4);
-      }
+      return dv.getInt32(ptr, true);
     }
 
     const singleIntParams = [
@@ -2446,19 +2294,7 @@ export class WasmWebGL2RenderingContext {
     ];
 
     if (singleIntParams.includes(pname)) {
-      const ptr = ex.wasm_alloc(4);
-      try {
-        const code = ex.wasm_ctx_get_parameter_v(this._ctxHandle, pname, ptr, 4);
-        _checkErr(code, this._instance);
-        const mem = new Int32Array(ex.memory.buffer, ptr, 1);
-        return mem[0];
-      } finally {
-        ex.wasm_free(ptr, 4);
-      }
-    }
-
-    if (pname === 0x8869 /* MAX_VERTEX_ATTRIBS */) {
-      return 16;
+      return dv.getInt32(ptr, true);
     }
 
     throw new Error(`getParameter for ${pname} not implemented`);
@@ -2740,16 +2576,24 @@ export class WasmWebGL2RenderingContext {
  */
 export function readErrorMessage(instance) {
   const ex = instance.exports;
-  if (!ex || typeof ex.wasm_last_error_ptr !== 'function' || typeof ex.wasm_last_error_len !== 'function') {
+  if (!ex || typeof ex.wasm_last_error !== 'function') {
+    // Fallback to old ptr/len if exists, otherwise return unknown
+    if (typeof ex.wasm_last_error_ptr === 'function') {
+      const ptr = ex.wasm_last_error_ptr();
+      const len = ex.wasm_last_error_len();
+      if (ptr === 0 || len === 0) return '';
+      const mem = new Uint8Array(ex.memory.buffer);
+      const bytes = mem.subarray(ptr, ptr + len);
+      return new TextDecoder('utf-8').decode(bytes);
+    }
     return '(no error message available)';
   }
-  const ptr = ex.wasm_last_error_ptr();
-  const len = ex.wasm_last_error_len();
-  if (ptr === 0 || len === 0) {
-    return '';
-  }
+  const ptr = ex.wasm_last_error();
+  if (ptr === 0) return '';
+  const dv = new DataView(ex.memory.buffer);
+  const len = dv.getUint32(ptr - 16, true);
   const mem = new Uint8Array(ex.memory.buffer);
-  const bytes = mem.subarray(ptr, ptr + len);
+  const bytes = mem.slice(ptr, ptr + len);
   return new TextDecoder('utf-8').decode(bytes);
 }
 
@@ -2897,24 +2741,18 @@ export function getShaderGlsl(ctxHandle, programHandle, shaderType) {
     mem.set(wasmBytes, wasmBytesPtr);
 
     // Call the decompiler
-    const resultLen = ex.wasm_decompile_to_glsl(wasmBytesPtr, wasmBytesLen);
+    const glslPtr = ex.wasm_decompile_to_glsl(wasmBytesPtr, wasmBytesLen);
 
-    if (resultLen === 0) {
+    if (glslPtr === 0) {
       return null;
     }
 
-    // Get the decompiled GLSL
-    const glslPtr = ex.wasm_get_decompiled_glsl_ptr();
-    const glslLen = ex.wasm_get_decompiled_glsl_len();
-
-    if (glslPtr === 0 || glslLen === 0) {
-      return null;
-    }
+    const dv = new DataView(ex.memory.buffer);
+    const glslLen = dv.getUint32(glslPtr - 16, true);
 
     // Read the GLSL string
-    const glslBytes = new Uint8Array(ex.memory.buffer).subarray(glslPtr, glslPtr + glslLen);
-    const decoder = new TextDecoder('utf-8');
-    return decoder.decode(glslBytes);
+    const glslBytes = new Uint8Array(ex.memory.buffer).slice(glslPtr, glslPtr + glslLen);
+    return new TextDecoder('utf-8').decode(glslBytes);
   } finally {
     // Free the allocated memory
     ex.wasm_free(wasmBytesPtr);
@@ -2953,24 +2791,18 @@ export function decompileWasmToGlsl(gl, wasmBytes) {
     mem.set(wasmBytes, wasmBytesPtr);
 
     // Call the decompiler
-    const resultLen = ex.wasm_decompile_to_glsl(wasmBytesPtr, wasmBytesLen);
+    const glslPtr = ex.wasm_decompile_to_glsl(wasmBytesPtr, wasmBytesLen);
 
-    if (resultLen === 0) {
+    if (glslPtr === 0) {
       return null;
     }
 
-    // Get the decompiled GLSL
-    const glslPtr = ex.wasm_get_decompiled_glsl_ptr();
-    const glslLen = ex.wasm_get_decompiled_glsl_len();
-
-    if (glslPtr === 0 || glslLen === 0) {
-      return null;
-    }
+    const dv = new DataView(ex.memory.buffer);
+    const glslLen = dv.getUint32(glslPtr - 16, true);
 
     // Read the GLSL string
-    const glslBytes = new Uint8Array(ex.memory.buffer).subarray(glslPtr, glslPtr + glslLen);
-    const decoder = new TextDecoder('utf-8');
-    return decoder.decode(glslBytes);
+    const glslBytes = new Uint8Array(ex.memory.buffer).slice(glslPtr, glslPtr + glslLen);
+    return new TextDecoder('utf-8').decode(glslBytes);
   } finally {
     // Free the allocated memory
     ex.wasm_free(wasmBytesPtr);

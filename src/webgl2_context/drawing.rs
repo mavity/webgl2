@@ -338,46 +338,50 @@ pub fn ctx_draw_elements_instanced(
 // ============================================================================
 
 /// Read pixels from the currently bound framebuffer's color attachment.
-/// Writes RGBA u8 data to dest_ptr in WASM linear memory.
-/// Returns errno.
+/// Returns a pointer to a payload containing the pixel data.
 ///
-/// # Safety
+/// # Ephemeral Pointer
 ///
-/// The caller must ensure that `dest_ptr` points to a valid memory region of at least `dest_len` bytes.
+/// The returned pointer is **ephemeral** and valid only until the next call into WASM
+/// on the same context. JavaScript must copy the data out of linear memory immediately
+/// and must not assume the payload lifetime beyond the next WASM call.
+///
+/// # Header
+///
+/// The 16 bytes immediately preceding the returned pointer contain the header:
+/// - bytes [ptr-16 .. ptr-13]: `len: u32` (pixel data length in bytes)
+/// - bytes [ptr-12 .. ptr-1]: `reserved: 12 bytes` (zero)
+///
+/// Returns 0 on failure (check last error).
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn ctx_read_pixels(
-    ctx: u32,
+    ctx_handle: u32,
     x: i32,
     y: i32,
     width: u32,
     height: u32,
     format: u32,
     type_: u32,
-    dest_ptr: u32,
-    dest_len: u32,
 ) -> u32 {
     clear_last_error();
 
-    let reg = get_registry().borrow();
-    let ctx_obj = match reg.contexts.get(&ctx) {
+    let mut reg = get_registry().borrow_mut();
+    let ctx = match reg.contexts.get_mut(&ctx_handle) {
         Some(c) => c,
         None => {
             set_last_error("invalid context handle");
-            return ERR_INVALID_HANDLE;
+            return 0;
         }
     };
 
     // Get the source handle and dimensions
     let (src_handle, _src_width, _src_height, _src_format) =
-        ctx_obj.get_color_attachment_info(true);
+        ctx.get_color_attachment_info(true);
 
     if !src_handle.is_valid() {
         set_last_error("no color attachment to read from");
-        return ERR_INVALID_OPERATION;
+        return 0;
     }
-
-    // Debug: when reading tiny buffers, print their contents to help debugging
-    // if src_width == 1 && src_height == 1 {}
 
     // Calculate bytes per pixel based on format and type
     let bytes_per_pixel = if type_ == GL_FLOAT {
@@ -407,21 +411,17 @@ pub unsafe fn ctx_read_pixels(
     let expected_size = (width as u64)
         .saturating_mul(height as u64)
         .saturating_mul(bytes_per_pixel as u64);
-    if (dest_len as u64) < expected_size {
-        // println!("ReadPixels: dest_len={} expected_size={} width={} height={} bpp={}", dest_len, expected_size, width, height, bytes_per_pixel);
-        set_last_error("output buffer size too small");
-        return ERR_INVALID_ARGS;
-    }
 
-    // Read pixels and write to destination
+    // Allocate from blob arena
+    let ptr = ctx.alloc_blob(expected_size as u32);
     let dest_slice =
-        unsafe { std::slice::from_raw_parts_mut(dest_ptr as *mut u8, dest_len as usize) };
+        unsafe { std::slice::from_raw_parts_mut(ptr as *mut u8, expected_size as usize) };
 
-    let src_buffer = match ctx_obj.kernel.get_buffer(src_handle) {
+    let src_buffer = match ctx.kernel.get_buffer(src_handle) {
         Some(b) => b,
         None => {
             set_last_error("source buffer not found in kernel");
-            return ERR_INVALID_OPERATION;
+            return 0;
         }
     };
 
@@ -463,5 +463,5 @@ pub unsafe fn ctx_read_pixels(
         dest_slice,
     );
 
-    ERR_OK
+    ptr
 }

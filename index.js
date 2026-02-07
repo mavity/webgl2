@@ -366,16 +366,23 @@ async function initWASM({ debug } = {}) {
  */
 function _readErrorMessage(instance) {
   const ex = instance.exports;
-  if (!ex || typeof ex.wasm_last_error_ptr !== 'function' || typeof ex.wasm_last_error_len !== 'function') {
+  if (!ex || typeof ex.wasm_last_error !== 'function') {
+    if (typeof ex.wasm_last_error_ptr === 'function') {
+      const ptr = ex.wasm_last_error_ptr();
+      const len = ex.wasm_last_error_len();
+      if (ptr === 0 || len === 0) return '';
+      const mem = new Uint8Array(ex.memory.buffer);
+      const bytes = mem.subarray(ptr, ptr + len);
+      return new TextDecoder('utf-8').decode(bytes);
+    }
     return '(no error message available)';
   }
-  const ptr = ex.wasm_last_error_ptr();
-  const len = ex.wasm_last_error_len();
-  if (ptr === 0 || len === 0) {
-    return '';
-  }
+  const ptr = ex.wasm_last_error();
+  if (ptr === 0) return '';
+  const dv = new DataView(ex.memory.buffer);
+  const len = dv.getUint32(ptr - 16, true);
   const mem = new Uint8Array(ex.memory.buffer);
-  const bytes = mem.subarray(ptr, ptr + len);
+  const bytes = mem.slice(ptr, ptr + len);
   return new TextDecoder('utf-8').decode(bytes);
 }
 
