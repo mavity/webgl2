@@ -160,6 +160,9 @@ export class WasmWebGL2RenderingContext {
 
   BUFFER_SIZE = 0x8764;
   MAX_VERTEX_ATTRIBS = 0x8869;
+  MAX_TEXTURE_IMAGE_UNITS = 0x8872;
+  MAX_VERTEX_TEXTURE_IMAGE_UNITS = 0x8B4C;
+  MAX_COMBINED_TEXTURE_IMAGE_UNITS = 0x8B4D;
   NO_ERROR = 0;
   INVALID_ENUM = 0x0500;
   INVALID_VALUE = 0x0501;
@@ -287,6 +290,38 @@ export class WasmWebGL2RenderingContext {
   TEXTURE_2D = 0x0DE1;
   TEXTURE_3D = 0x806F;
   TEXTURE_2D_ARRAY = 0x8C1A;
+  TEXTURE0 = 0x84C0;
+  TEXTURE1 = 0x84C1;
+  TEXTURE2 = 0x84C2;
+  TEXTURE3 = 0x84C3;
+  TEXTURE4 = 0x84C4;
+  TEXTURE5 = 0x84C5;
+  TEXTURE6 = 0x84C6;
+  TEXTURE7 = 0x84C7;
+  TEXTURE8 = 0x84C8;
+  TEXTURE9 = 0x84C9;
+  TEXTURE10 = 0x84CA;
+  TEXTURE11 = 0x84CB;
+  TEXTURE12 = 0x84CC;
+  TEXTURE13 = 0x84CD;
+  TEXTURE14 = 0x84CE;
+  TEXTURE15 = 0x84CF;
+  TEXTURE16 = 0x84D0;
+  TEXTURE17 = 0x84D1;
+  TEXTURE18 = 0x84D2;
+  TEXTURE19 = 0x84D3;
+  TEXTURE20 = 0x84D4;
+  TEXTURE21 = 0x84D5;
+  TEXTURE22 = 0x84D6;
+  TEXTURE23 = 0x84D7;
+  TEXTURE24 = 0x84D8;
+  TEXTURE25 = 0x84D9;
+  TEXTURE26 = 0x84DA;
+  TEXTURE27 = 0x84DB;
+  TEXTURE28 = 0x84DC;
+  TEXTURE29 = 0x84DD;
+  TEXTURE30 = 0x84DE;
+  TEXTURE31 = 0x84DF;
   TEXTURE_WRAP_S = 0x2802;
   TEXTURE_WRAP_T = 0x2803;
   TEXTURE_WRAP_R = 0x8072;
@@ -2468,6 +2503,73 @@ export class WasmWebGL2RenderingContext {
     const code = ex.wasm_ctx_clear_color(this._ctxHandle, +r, +g, +b, +a);
     _checkErr(code, this._instance);
   }
+
+  clearBufferfv(buffer, drawbuffer, values) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_clear_buffer_fv !== 'function') {
+      throw new Error('wasm_ctx_clear_buffer_fv not found');
+    }
+
+    const floatValues = values instanceof Float32Array ? values : new Float32Array(values);
+    const byteLen = floatValues.length * 4;
+    const ptr = ex.wasm_alloc(byteLen);
+    if (ptr === 0) throw new Error('Failed to allocate memory for clearBufferfv');
+
+    try {
+      const mem = new Uint8Array(ex.memory.buffer);
+      mem.set(new Uint8Array(floatValues.buffer, floatValues.byteOffset, byteLen), ptr);
+      const code = ex.wasm_ctx_clear_buffer_fv(this._ctxHandle, buffer >>> 0, drawbuffer | 0, ptr);
+      _checkErr(code, this._instance);
+    } finally {
+      ex.wasm_free(ptr, byteLen);
+    }
+  }
+
+  clearBufferiv(buffer, drawbuffer, values) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_clear_buffer_iv !== 'function') {
+      throw new Error('wasm_ctx_clear_buffer_iv not found');
+    }
+
+    const intValues = values instanceof Int32Array ? values : new Int32Array(values);
+    const byteLen = intValues.length * 4;
+    const ptr = ex.wasm_alloc(byteLen);
+    if (ptr === 0) throw new Error('Failed to allocate memory for clearBufferiv');
+
+    try {
+      const mem = new Uint8Array(ex.memory.buffer);
+      mem.set(new Uint8Array(intValues.buffer, intValues.byteOffset, byteLen), ptr);
+      const code = ex.wasm_ctx_clear_buffer_iv(this._ctxHandle, buffer >>> 0, drawbuffer | 0, ptr);
+      _checkErr(code, this._instance);
+    } finally {
+      ex.wasm_free(ptr, byteLen);
+    }
+  }
+
+  clearBufferuiv(buffer, drawbuffer, values) {
+    this._assertNotDestroyed();
+    const ex = this._instance.exports;
+    if (!ex || typeof ex.wasm_ctx_clear_buffer_uiv !== 'function') {
+      throw new Error('wasm_ctx_clear_buffer_uiv not found');
+    }
+
+    const uintValues = values instanceof Uint32Array ? values : new Uint32Array(values);
+    const byteLen = uintValues.length * 4;
+    const ptr = ex.wasm_alloc(byteLen);
+    if (ptr === 0) throw new Error('Failed to allocate memory for clearBufferuiv');
+
+    try {
+      const mem = new Uint8Array(ex.memory.buffer);
+      mem.set(new Uint8Array(uintValues.buffer, uintValues.byteOffset, byteLen), ptr);
+      const code = ex.wasm_ctx_clear_buffer_uiv(this._ctxHandle, buffer >>> 0, drawbuffer | 0, ptr);
+      _checkErr(code, this._instance);
+    } finally {
+      ex.wasm_free(ptr, byteLen);
+    }
+  }
+
   clearDepth(depth) { this._assertNotDestroyed(); throw new Error('not implemented'); }
   depthFunc(func) {
     this._assertNotDestroyed();

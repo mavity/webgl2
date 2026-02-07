@@ -659,6 +659,27 @@ pub fn ctx_get_parameter(ctx_handle: u32, pname: u32) -> u32 {
             dest[0] = 16;
             ptr
         }
+        0x8872 => {
+            // MAX_TEXTURE_IMAGE_UNITS
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = 32;
+            ptr
+        }
+        0x8B4C => {
+            // MAX_VERTEX_TEXTURE_IMAGE_UNITS
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = 32;
+            ptr
+        }
+        0x8B4D => {
+            // MAX_COMBINED_TEXTURE_IMAGE_UNITS
+            let ptr = ctx.alloc_small(4);
+            let dest = unsafe { std::slice::from_raw_parts_mut(ptr as *mut i32, 1) };
+            dest[0] = 32;
+            ptr
+        }
         0x8824 => {
             // MAX_DRAW_BUFFERS
             let ptr = ctx.alloc_small(4);
